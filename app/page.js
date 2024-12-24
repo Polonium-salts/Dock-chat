@@ -3,7 +3,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { io } from 'socket.io-client'
-import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
+import { 
+  PaperAirplaneIcon,
+  UserGroupIcon,
+  UserPlusIcon,
+  ChatBubbleLeftIcon,
+  RobotIcon,
+  Cog6ToothIcon,
+  PlusCircleIcon
+} from '@heroicons/react/24/solid'
 import Image from 'next/image'
 
 // 获取当前环境的 URL
@@ -20,6 +28,13 @@ export default function Home() {
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [showJoinModal, setShowJoinModal] = useState(false)
+  const [joinInput, setJoinInput] = useState('')
+  const [activeChat, setActiveChat] = useState('public') // 'public', 'private', 'bot'
+  const [contacts, setContacts] = useState([
+    { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
+    { id: 'bot', name: 'AI 助手', type: 'bot', unread: 0 },
+  ])
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -110,6 +125,22 @@ export default function Home() {
     }
   }
 
+  const handleJoin = (e) => {
+    e.preventDefault()
+    if (!joinInput.trim()) return
+
+    // 这里可以处理加入逻辑，可以是房间ID或IP地址
+    const newContact = {
+      id: joinInput,
+      name: `聊天室 ${joinInput}`,
+      type: 'room',
+      unread: 0
+    }
+    setContacts(prev => [...prev, newContact])
+    setJoinInput('')
+    setShowJoinModal(false)
+  }
+
   // 显示加载状态
   if (status === 'loading') {
     return (
@@ -149,94 +180,184 @@ export default function Home() {
     )
   }
 
-  // 显示主界面
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
-      <header className="bg-white shadow-sm fixed w-full top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-900">Telegraph Chat</h1>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 bg-gray-50 px-3 py-1.5 rounded-full">
-              <Image
-                src={session.user.image}
-                alt={session.user.name}
-                width={32}
-                height={32}
-                className="rounded-full ring-2 ring-white"
-              />
-              <span className="text-sm font-medium text-gray-700">{session.user.name}</span>
+    <div className="flex min-h-screen bg-gray-50">
+      {/* 侧边栏 */}
+      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <Image
+              src={session.user.image}
+              alt={session.user.name}
+              width={40}
+              height={40}
+              className="rounded-full ring-2 ring-white"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">{session.user.name}</p>
+              <p className="text-xs text-gray-500">在线</p>
             </div>
-            <button
-              onClick={() => signOut()}
-              className="px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors duration-200"
-            >
-              退出登录
-            </button>
           </div>
         </div>
-      </header>
 
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 mt-16 mb-4">
-        <div className="bg-white rounded-2xl shadow-sm h-[calc(100vh-8rem)] flex flex-col">
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {messages.map((message, index) => (
-              <div
-                key={message.id || index}
-                className={`flex message-animation ${
-                  message.user.id === session.user.id ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                <div className={`flex items-start gap-3 max-w-[70%] ${
-                  message.user.id === session.user.id ? 'flex-row-reverse' : ''
-                }`}>
-                  <Image
-                    src={message.user.image}
-                    alt={message.user.name}
-                    width={40}
-                    height={40}
-                    className="rounded-full ring-2 ring-white shadow-sm"
-                  />
-                  <div className={`flex flex-col ${
-                    message.user.id === session.user.id ? 'items-end' : 'items-start'
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {contacts.map(contact => (
+            <button
+              key={contact.id}
+              onClick={() => setActiveChat(contact.id)}
+              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors duration-200 ${
+                activeChat === contact.id
+                  ? 'bg-blue-50 text-blue-600'
+                  : 'hover:bg-gray-50 text-gray-700'
+              }`}
+            >
+              {contact.type === 'room' ? (
+                <UserGroupIcon className="w-5 h-5" />
+              ) : contact.type === 'bot' ? (
+                <RobotIcon className="w-5 h-5" />
+              ) : (
+                <ChatBubbleLeftIcon className="w-5 h-5" />
+              )}
+              <span className="flex-1 text-left text-sm font-medium truncate">
+                {contact.name}
+              </span>
+              {contact.unread > 0 && (
+                <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  {contact.unread}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-3 border-t border-gray-200 space-y-2">
+          <button
+            onClick={() => setShowJoinModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
+          >
+            <PlusCircleIcon className="w-5 h-5" />
+            加入聊天室
+          </button>
+          <button
+            onClick={() => signOut()}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors duration-200"
+          >
+            <Cog6ToothIcon className="w-5 h-5" />
+            设置
+          </button>
+        </div>
+      </div>
+
+      {/* 主聊天区域 */}
+      <div className="flex-1 flex flex-col">
+        <header className="bg-white shadow-sm border-b border-gray-200">
+          <div className="px-4 py-3">
+            <h1 className="text-lg font-semibold text-gray-900">
+              {contacts.find(c => c.id === activeChat)?.name || '聊天室'}
+            </h1>
+          </div>
+        </header>
+
+        <main className="flex-1 p-4 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm h-full flex flex-col">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {messages.map((message, index) => (
+                <div
+                  key={message.id || index}
+                  className={`flex message-animation ${
+                    message.user.id === session.user.id ? 'justify-end' : 'justify-start'
+                  }`}
+                >
+                  <div className={`flex items-start gap-3 max-w-[70%] ${
+                    message.user.id === session.user.id ? 'flex-row-reverse' : ''
                   }`}>
-                    <div className={`rounded-2xl p-4 shadow-sm ${
-                      message.user.id === session.user.id
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-gray-100 text-gray-900'
+                    <Image
+                      src={message.user.image}
+                      alt={message.user.name}
+                      width={40}
+                      height={40}
+                      className="rounded-full ring-2 ring-white shadow-sm"
+                    />
+                    <div className={`flex flex-col ${
+                      message.user.id === session.user.id ? 'items-end' : 'items-start'
                     }`}>
-                      <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                      <p className="text-base">{message.content}</p>
+                      <div className={`rounded-2xl p-4 shadow-sm ${
+                        message.user.id === session.user.id
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-900'
+                      }`}>
+                        <p className="text-sm font-medium mb-1">{message.user.name}</p>
+                        <p className="text-base">{message.content}</p>
+                      </div>
+                      <span className="text-xs text-gray-500 mt-1">
+                        {new Date(message.createdAt).toLocaleTimeString()}
+                      </span>
                     </div>
-                    <span className="text-xs text-gray-500 mt-1">
-                      {new Date(message.createdAt).toLocaleTimeString()}
-                    </span>
                   </div>
                 </div>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          <form onSubmit={sendMessage} className="p-4 border-t border-gray-100">
-            <div className="flex items-center gap-4">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                className="flex-1 px-4 py-3 text-gray-700 bg-gray-50 rounded-xl border-0 focus:ring-2 focus:ring-blue-500 transition-shadow duration-200"
-                placeholder="输入消息..."
-              />
-              <button
-                type="submit"
-                disabled={!isConnected}
-                className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 shadow-sm"
-              >
-                <PaperAirplaneIcon className="h-6 w-6" />
-              </button>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-          </form>
+
+            <form onSubmit={sendMessage} className="p-4 border-t border-gray-100">
+              <div className="flex items-center gap-4">
+                <input
+                  type="text"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-50 rounded-xl border-0 focus:ring-2 focus:ring-blue-500 transition-shadow duration-200"
+                  placeholder="输入消息..."
+                />
+                <button
+                  type="submit"
+                  disabled={!isConnected}
+                  className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 shadow-sm"
+                >
+                  <PaperAirplaneIcon className="h-6 w-6" />
+                </button>
+              </div>
+            </form>
+          </div>
+        </main>
+      </div>
+
+      {/* 加入聊天室模态框 */}
+      {showJoinModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">加入聊天室</h2>
+            <form onSubmit={handleJoin} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  输入聊天室 ID 或 IP 地址
+                </label>
+                <input
+                  type="text"
+                  value={joinInput}
+                  onChange={(e) => setJoinInput(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="例如：room-123 或 192.168.1.1"
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowJoinModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors duration-200"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors duration-200"
+                >
+                  加入
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </main>
+      )}
     </div>
   )
 }
