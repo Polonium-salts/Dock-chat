@@ -7,24 +7,30 @@ const ioHandler = (req, res) => {
       path: '/api/socket',
       addTrailingSlash: false,
       cors: {
-        origin: '*',
+        origin: ['https://dock-chat.vercel.app', 'http://localhost:3000'],
         methods: ['GET', 'POST', 'OPTIONS'],
         credentials: true,
         allowedHeaders: ['Content-Type']
       },
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       pingTimeout: 60000,
       pingInterval: 25000,
+      allowEIO3: true,
+      allowUpgrades: true,
       cookie: {
         name: 'io',
         path: '/',
         httpOnly: true,
-        sameSite: 'lax'
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production'
       }
     })
 
     io.on('connection', socket => {
       console.log('Socket connected:', socket.id)
+
+      // 加入默认房间
+      socket.join('public')
 
       socket.on('message', async (message) => {
         try {
@@ -47,7 +53,7 @@ const ioHandler = (req, res) => {
           })
 
           // 广播消息给所有客户端
-          io.emit('message', savedMessage)
+          io.to('public').emit('message', savedMessage)
         } catch (error) {
           console.error('Failed to save message:', error)
           socket.emit('error', { message: 'Failed to save message' })
@@ -60,6 +66,7 @@ const ioHandler = (req, res) => {
 
       socket.on('disconnect', () => {
         console.log('Socket disconnected:', socket.id)
+        socket.leave('public')
       })
     })
 
@@ -69,11 +76,25 @@ const ioHandler = (req, res) => {
   res.end()
 }
 
-const config = {
-  api: {
-    bodyParser: false,
-  },
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export async function GET(req, res) {
+  try {
+    await ioHandler(req, res)
+    return new Response('Socket is running', { status: 200 })
+  } catch (error) {
+    console.error('Socket error:', error)
+    return new Response('Socket error', { status: 500 })
+  }
 }
 
-export const GET = ioHandler
-export const POST = ioHandler 
+export async function POST(req, res) {
+  try {
+    await ioHandler(req, res)
+    return new Response('Socket is running', { status: 200 })
+  } catch (error) {
+    console.error('Socket error:', error)
+    return new Response('Socket error', { status: 500 })
+  }
+} 

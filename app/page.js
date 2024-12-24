@@ -53,14 +53,17 @@ export default function Home() {
 
       const socket = io('', {
         path: '/api/socket',
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         autoConnect: true,
         withCredentials: true,
         forceNew: true,
         timeout: 10000,
-        upgrade: true
+        upgrade: true,
+        rememberUpgrade: true,
+        secure: process.env.NODE_ENV === 'production',
+        rejectUnauthorized: false
       })
 
       socket.on('connect', () => {
@@ -75,6 +78,7 @@ export default function Home() {
         if (socket.io.opts.transports.includes('websocket')) {
           console.log('Falling back to polling')
           socket.io.opts.transports = ['polling']
+          socket.connect()
         }
       })
 
@@ -85,6 +89,10 @@ export default function Home() {
       socket.on('disconnect', (reason) => {
         console.log('Socket disconnected:', reason)
         setIsConnected(false)
+        // 尝试重新连接
+        setTimeout(() => {
+          socket.connect()
+        }, 1000)
       })
 
       socket.on('message', (message) => {
