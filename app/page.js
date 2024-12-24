@@ -48,34 +48,47 @@ export default function Home() {
   // 设置 Socket.IO 连接
   useEffect(() => {
     if (session) {
-      const socket = io(getBaseUrl(), {
-        path: '/api/socket',
-      })
-      setSocket(socket)
+      const socketInitializer = async () => {
+        try {
+          await fetch('/api/socket')
+          const socket = io({
+            path: '/api/socket',
+            addTrailingSlash: false,
+          })
 
-      socket.on('connect', () => {
-        setIsConnected(true)
-        setError(null)
-      })
+          socket.on('connect', () => {
+            console.log('Connected to Socket.IO')
+            setIsConnected(true)
+            setError(null)
+          })
 
-      socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error)
-        setError('Connection error')
-        setIsConnected(false)
-      })
+          socket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error)
+            setError('Connection error')
+            setIsConnected(false)
+          })
 
-      socket.on('message', (message) => {
-        setMessages((prev) => [...prev, message])
-        scrollToBottom()
-      })
+          socket.on('message', (message) => {
+            setMessages((prev) => [...prev, message])
+            scrollToBottom()
+          })
 
-      socket.on('error', (errorMessage) => {
-        setError(errorMessage)
-      })
+          socket.on('error', (errorMessage) => {
+            setError(errorMessage)
+          })
 
-      return () => {
-        socket.disconnect()
+          setSocket(socket)
+
+          return () => {
+            socket.disconnect()
+          }
+        } catch (error) {
+          console.error('Socket initialization error:', error)
+          setError('Failed to initialize connection')
+        }
       }
+
+      socketInitializer()
     }
   }, [session])
 
