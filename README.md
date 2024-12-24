@@ -1,0 +1,2 @@
+# Dock-chat
+Dock chat是一个类似telegraph或Discord的群聊加密聊天软件也有类似chatino一样的导入chatgpt，genimi，cloude来作为聊天bot的功能此程序使用next.js为框架无数据库用户是已github账号为聊天账号
