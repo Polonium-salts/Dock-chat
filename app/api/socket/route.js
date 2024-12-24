@@ -1,5 +1,4 @@
 import { Server } from 'socket.io'
-import prisma from '../../../app/lib/prisma'
 
 const getBaseUrl = () => {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
@@ -31,38 +30,9 @@ const ioHandler = async (req, res) => {
     io.on('connection', (socket) => {
       console.log('Client connected:', socket.id)
 
-      socket.on('message', async (message) => {
-        try {
-          console.log('Message received:', message)
-          
-          // 保存消息到数据库
-          const savedMessage = await prisma.message.create({
-            data: {
-              content: message.content,
-              user: {
-                connectOrCreate: {
-                  where: { id: message.user.id },
-                  create: {
-                    id: message.user.id,
-                    name: message.user.name
-                  }
-                }
-              }
-            },
-            include: {
-              user: true
-            }
-          })
-
-          // 广播消息给所有客户端
-          io.emit('message', {
-            ...message,
-            id: savedMessage.id
-          })
-        } catch (error) {
-          console.error('Error saving message:', error)
-          socket.emit('error', 'Failed to save message')
-        }
+      socket.on('message', (message) => {
+        console.log('Message received:', message)
+        io.emit('message', message)
       })
 
       socket.on('error', (error) => {

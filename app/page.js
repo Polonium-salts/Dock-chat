@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { io } from 'socket.io-client'
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
@@ -19,33 +19,7 @@ export default function Home() {
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState(null)
-  const messagesEndRef = useRef(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  // 加载历史消息
-  useEffect(() => {
-    const loadMessages = async () => {
-      if (session) {
-        try {
-          const response = await fetch('/api/messages')
-          if (!response.ok) throw new Error('Failed to fetch messages')
-          const data = await response.json()
-          setMessages(data.reverse())
-        } catch (error) {
-          console.error('Error loading messages:', error)
-          setError('Failed to load messages')
-        }
-      }
-    }
-
-    loadMessages()
-  }, [session])
-
-  // 设置 Socket.IO 连接
   useEffect(() => {
     if (session) {
       const socket = io(getBaseUrl(), {
@@ -55,22 +29,10 @@ export default function Home() {
 
       socket.on('connect', () => {
         setIsConnected(true)
-        setError(null)
-      })
-
-      socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error)
-        setError('Connection error')
-        setIsConnected(false)
       })
 
       socket.on('message', (message) => {
         setMessages((prev) => [...prev, message])
-        scrollToBottom()
-      })
-
-      socket.on('error', (errorMessage) => {
-        setError(errorMessage)
       })
 
       return () => {
@@ -81,25 +43,20 @@ export default function Home() {
 
   const sendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !session || !isConnected) return
+    if (!newMessage.trim() || !session) return
 
-    try {
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name,
-          image: session.user.image,
-          id: session.user.id
-        },
-        createdAt: new Date().toISOString(),
-      }
-
-      socket?.emit('message', message)
-      setNewMessage('')
-    } catch (error) {
-      console.error('Error sending message:', error)
-      setError('Failed to send message')
+    const message = {
+      content: newMessage,
+      user: {
+        name: session.user.name,
+        image: session.user.image,
+        id: session.user.id
+      },
+      createdAt: new Date().toISOString(),
     }
+
+    socket?.emit('message', message)
+    setNewMessage('')
   }
 
   if (status === 'loading') {
@@ -133,12 +90,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-gray-100">
       <header className="bg-white shadow">
         <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Telegraph Chat</h1>
-            {error && (
-              <span className="text-sm text-red-500">{error}</span>
-            )}
-          </div>
+          <h1 className="text-xl font-semibold">Telegraph Chat</h1>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <Image
@@ -165,7 +117,7 @@ export default function Home() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map((message, index) => (
               <div
-                key={message.id || index}
+                key={index}
                 className={`flex ${
                   message.user.id === session.user.id ? 'justify-end' : 'justify-start'
                 }`}
@@ -194,7 +146,6 @@ export default function Home() {
                 </div>
               </div>
             ))}
-            <div ref={messagesEndRef} />
           </div>
 
           <form onSubmit={sendMessage} className="p-4 border-t">
@@ -204,17 +155,11 @@ export default function Home() {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 className="flex-1 p-2 border rounded-lg"
-                placeholder={isConnected ? "Type a message..." : "Connecting..."}
-                disabled={!isConnected}
+                placeholder="Type a message..."
               />
               <button
                 type="submit"
-                className={`p-2 rounded-lg ${
-                  isConnected
-                    ? 'bg-blue-500 text-white hover:bg-blue-600'
-                    : 'bg-gray-300 cursor-not-allowed'
-                }`}
-                disabled={!isConnected}
+                className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
               >
                 <PaperAirplaneIcon className="h-5 w-5" />
               </button>
