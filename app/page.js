@@ -39,22 +39,17 @@ export default function Home() {
   // WebSocket 连接
   useEffect(() => {
     if (session) {
-      const socket = io(process.env.NEXT_PUBLIC_SITE_URL || window.location.origin, {
+      const socket = io('', {
         path: '/api/socket',
-        autoConnect: true,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        randomizationFactor: 0.5,
-        timeout: 20000,
         transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
       })
 
       socket.on('connect', () => {
         console.log('Socket connected')
         setIsConnected(true)
-        // 加入当前聊天室
         socket.emit('join', { 
           room: activeChat,
           userId: session.user.id
@@ -71,25 +66,12 @@ export default function Home() {
         setIsConnected(false)
       })
 
-      socket.on('error', (error) => {
-        console.error('Socket error:', error)
-      })
-
       socket.on('message', (message) => {
-        setMessages((prev) => [...prev, message])
-      })
-
-      socket.on('userJoined', (data) => {
-        console.log('User joined:', data)
-      })
-
-      socket.on('userLeft', (data) => {
-        console.log('User left:', data)
+        console.log('Received message:', message)
+        setMessages(prev => [...prev, message])
       })
 
       setSocket(socket)
-
-      // 加载历史消息
       loadMessages(activeChat)
 
       return () => {
@@ -123,18 +105,19 @@ export default function Home() {
     e.preventDefault()
     if (!newMessage.trim() || !session || !isConnected) return
 
-    const message = {
-      content: newMessage,
-      user: {
-        name: session.user.name,
-        image: session.user.image,
-        id: session.user.id
-      },
-      room: activeChat,
-      createdAt: new Date().toISOString(),
-    }
-
     try {
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
+        room: activeChat,
+        createdAt: new Date().toISOString(),
+      }
+
+      console.log('Sending message:', message)
       socket?.emit('message', message)
       setNewMessage('')
     } catch (error) {

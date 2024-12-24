@@ -10,11 +10,6 @@ const ioHandler = (req, res) => {
         origin: '*',
         methods: ['GET', 'POST', 'OPTIONS'],
         allowedHeaders: ['Content-Type'],
-        credentials: true
-      },
-      connectionStateRecovery: {
-        maxDisconnectionDuration: 2 * 60 * 1000,
-        skipMiddlewares: true,
       },
     })
 
@@ -24,7 +19,7 @@ const ioHandler = (req, res) => {
       socket.on('join', async (data) => {
         try {
           const { room, userId } = data
-          await socket.join(room)
+          socket.join(room)
           if (userId) {
             await addOnlineUser(room, userId)
             io.to(room).emit('userJoined', { userId, socketId: socket.id })
@@ -32,14 +27,13 @@ const ioHandler = (req, res) => {
           console.log(`Client ${socket.id} joined room: ${room}`)
         } catch (error) {
           console.error('Error joining room:', error)
-          socket.emit('error', { message: 'Failed to join room' })
         }
       })
 
       socket.on('leave', async (data) => {
         try {
           const { room, userId } = data
-          await socket.leave(room)
+          socket.leave(room)
           if (userId) {
             await removeOnlineUser(room, userId)
             io.to(room).emit('userLeft', { userId, socketId: socket.id })
@@ -47,28 +41,23 @@ const ioHandler = (req, res) => {
           console.log(`Client ${socket.id} left room: ${room}`)
         } catch (error) {
           console.error('Error leaving room:', error)
-          socket.emit('error', { message: 'Failed to leave room' })
         }
       })
 
       socket.on('message', async (message) => {
         try {
+          console.log('Received message:', message)
           const room = message.room || 'public'
+          
           // 将消息保存到Redis
-          const savedMessage = await addChatMessage(room, {
-            ...message,
-            timestamp: new Date().toISOString()
-          })
+          const savedMessage = await addChatMessage(room, message)
+          console.log('Saved message:', savedMessage)
+          
           // 广播消息给房间内的所有用户
           io.to(room).emit('message', savedMessage)
         } catch (error) {
-          console.error('Error saving message:', error)
-          socket.emit('error', { message: 'Failed to save message' })
+          console.error('Error handling message:', error)
         }
-      })
-
-      socket.on('error', (error) => {
-        console.error('Socket error:', error)
       })
 
       socket.on('disconnect', () => {
@@ -82,13 +71,13 @@ const ioHandler = (req, res) => {
   res.end()
 }
 
-const config = {
-  api: {
-    bodyParser: false,
-  },
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export async function GET(req, res) {
+  return ioHandler(req, res)
 }
 
-export const runtime = 'nodejs'
-export { config }
-export const GET = ioHandler
-export const POST = ioHandler 
+export async function POST(req, res) {
+  return ioHandler(req, res)
+} 
