@@ -1,12 +1,18 @@
 import { Server } from 'socket.io'
 
-const ioHandler = (req, res) => {
+const getBaseUrl = () => {
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return process.env.NEXTAUTH_URL || 'http://localhost:3000'
+}
+
+const ioHandler = async (req, res) => {
   if (!res.socket.server.io) {
+    console.log('Initializing Socket.IO server...')
     const io = new Server(res.socket.server, {
       path: '/api/socket',
       addTrailingSlash: false,
       cors: {
-        origin: '*',
+        origin: getBaseUrl(),
         methods: ['GET', 'POST'],
         credentials: true
       },
@@ -16,14 +22,19 @@ const ioHandler = (req, res) => {
     })
 
     io.on('connection', (socket) => {
-      console.log('Client connected')
+      console.log('Client connected:', socket.id)
 
       socket.on('message', (message) => {
+        console.log('Message received:', message)
         io.emit('message', message)
       })
 
+      socket.on('error', (error) => {
+        console.error('Socket error:', error)
+      })
+
       socket.on('disconnect', () => {
-        console.log('Client disconnected')
+        console.log('Client disconnected:', socket.id)
       })
     })
 
