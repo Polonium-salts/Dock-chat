@@ -7,14 +7,15 @@ const ioHandler = (req, res) => {
       path: '/api/socket',
       addTrailingSlash: false,
       cors: {
-        origin: ['https://dock-chat.vercel.app', 'http://localhost:3000'],
-        methods: ['GET', 'POST'],
+        origin: '*',
+        methods: ['GET', 'POST', 'OPTIONS'],
+        allowedHeaders: ['Content-Type'],
         credentials: true
       },
-      transports: ['websocket', 'polling'],
-      allowEIO3: true,
-      pingTimeout: 60000,
-      pingInterval: 25000,
+      connectionStateRecovery: {
+        maxDisconnectionDuration: 2 * 60 * 1000,
+        skipMiddlewares: true,
+      },
     })
 
     io.on('connection', (socket) => {
@@ -23,7 +24,7 @@ const ioHandler = (req, res) => {
       socket.on('join', async (data) => {
         try {
           const { room, userId } = data
-          socket.join(room)
+          await socket.join(room)
           if (userId) {
             await addOnlineUser(room, userId)
             io.to(room).emit('userJoined', { userId, socketId: socket.id })
@@ -38,7 +39,7 @@ const ioHandler = (req, res) => {
       socket.on('leave', async (data) => {
         try {
           const { room, userId } = data
-          socket.leave(room)
+          await socket.leave(room)
           if (userId) {
             await removeOnlineUser(room, userId)
             io.to(room).emit('userLeft', { userId, socketId: socket.id })
@@ -81,5 +82,13 @@ const ioHandler = (req, res) => {
   res.end()
 }
 
+const config = {
+  api: {
+    bodyParser: false,
+  },
+}
+
+export const runtime = 'nodejs'
+export { config }
 export const GET = ioHandler
 export const POST = ioHandler 

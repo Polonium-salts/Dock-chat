@@ -39,13 +39,16 @@ export default function Home() {
   // WebSocket 连接
   useEffect(() => {
     if (session) {
-      const socket = io('', {
+      const socket = io(process.env.NEXT_PUBLIC_SITE_URL || window.location.origin, {
         path: '/api/socket',
-        transports: ['websocket', 'polling'],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
         autoConnect: true,
-        withCredentials: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        randomizationFactor: 0.5,
+        timeout: 20000,
+        transports: ['websocket', 'polling'],
       })
 
       socket.on('connect', () => {
@@ -63,8 +66,8 @@ export default function Home() {
         setIsConnected(false)
       })
 
-      socket.on('disconnect', () => {
-        console.log('Socket disconnected')
+      socket.on('disconnect', (reason) => {
+        console.log('Socket disconnected:', reason)
         setIsConnected(false)
       })
 
@@ -95,8 +98,8 @@ export default function Home() {
             room: activeChat,
             userId: session.user.id
           })
-          socket.disconnect()
         }
+        socket.disconnect()
       }
     }
   }, [session, activeChat])
@@ -283,7 +286,7 @@ export default function Home() {
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
           >
             <PlusCircleIcon className="w-5 h-5" />
-            加���聊天室
+            加入聊天室
           </button>
           <button
             onClick={() => setShowSettingsModal(true)}
