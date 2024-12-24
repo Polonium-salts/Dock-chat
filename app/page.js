@@ -41,6 +41,11 @@ export default function Home() {
     if (session) {
       const socket = io('', {
         path: '/api/socket',
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        autoConnect: true,
+        withCredentials: true,
       })
 
       socket.on('connect', () => {
@@ -53,9 +58,18 @@ export default function Home() {
         })
       })
 
+      socket.on('connect_error', (error) => {
+        console.error('Connection error:', error)
+        setIsConnected(false)
+      })
+
       socket.on('disconnect', () => {
         console.log('Socket disconnected')
         setIsConnected(false)
+      })
+
+      socket.on('error', (error) => {
+        console.error('Socket error:', error)
       })
 
       socket.on('message', (message) => {
@@ -76,11 +90,13 @@ export default function Home() {
       loadMessages(activeChat)
 
       return () => {
-        socket.emit('leave', {
-          room: activeChat,
-          userId: session.user.id
-        })
-        socket.disconnect()
+        if (socket.connected) {
+          socket.emit('leave', {
+            room: activeChat,
+            userId: session.user.id
+          })
+          socket.disconnect()
+        }
       }
     }
   }, [session, activeChat])
@@ -207,7 +223,7 @@ export default function Home() {
             {session.user.image && (
               <Image
                 src={session.user.image}
-                alt={session.user.name || '��户头像'}
+                alt={session.user.name || '用户头像'}
                 width={40}
                 height={40}
                 className="rounded-full"
@@ -267,7 +283,7 @@ export default function Home() {
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
           >
             <PlusCircleIcon className="w-5 h-5" />
-            加入聊天室
+            加���聊天室
           </button>
           <button
             onClick={() => setShowSettingsModal(true)}
