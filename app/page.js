@@ -8,11 +8,13 @@ import {
   UserGroupIcon,
   UserCircleIcon,
   Cog6ToothIcon,
-  PlusCircleIcon
+  PlusCircleIcon,
+  SparklesIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import SettingsModal from './components/SettingsModal'
 import ProfilePage from './components/ProfilePage'
+import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -30,6 +32,9 @@ export default function Home() {
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [currentView, setCurrentView] = useState('chat') // 'chat' 或 'profile'
+  const [showKimiModal, setShowKimiModal] = useState(false)
+  const [kimiApiKey, setKimiApiKey] = useState('')
+  const [isWaitingForKimi, setIsWaitingForKimi] = useState(false)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -45,6 +50,7 @@ export default function Home() {
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
+        timeout: 10000,
       })
 
       socket.on('connect', () => {
@@ -59,11 +65,17 @@ export default function Home() {
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
+        // 尝试重新连接
+        socket.connect()
       })
 
       socket.on('disconnect', (reason) => {
         console.log('Socket disconnected:', reason)
         setIsConnected(false)
+        // 如果不是主动断开连接，尝试重新连接
+        if (reason !== 'io client disconnect') {
+          socket.connect()
+        }
       })
 
       socket.on('message', (message) => {
@@ -74,14 +86,15 @@ export default function Home() {
       setSocket(socket)
       loadMessages(activeChat)
 
+      // 确保组件卸载时清理连接
       return () => {
-        if (socket.connected) {
+        if (socket) {
           socket.emit('leave', {
             room: activeChat,
             userId: session.user.id
           })
+          socket.disconnect()
         }
-        socket.disconnect()
       }
     }
   }, [session, activeChat])
@@ -101,9 +114,87 @@ export default function Home() {
     }
   }
 
+  // 切换聊天室时的处理
+  useEffect(() => {
+    if (activeChat === 'kimi-ai') {
+      // 切换到 Kimi AI 聊天室时清除历史对话
+      clearKimiConversation()
+      setMessages([{
+        content: '你好！我是 Kimi AI 助手，很高兴为您服务。请问有什么我可以帮您的吗？',
+        user: {
+          name: 'Kimi AI',
+          image: '/kimi-avatar.png',
+          id: 'kimi-ai'
+        },
+        createdAt: new Date().toISOString(),
+      }])
+    } else {
+      // 加载其他聊天室的消息
+      loadMessages(activeChat)
+    }
+  }, [activeChat])
+
+  const handleKimiMessage = async (content) => {
+    if (!kimiApiKey) {
+      console.error('Kimi API key not set')
+      return
+    }
+
+    try {
+      setIsWaitingForKimi(true)
+      // 显示正在输入状态
+      setMessages(prev => [...prev, {
+        content: '正在思考...',
+        user: {
+          name: 'Kimi AI',
+          image: '/kimi-avatar.png',
+          id: 'kimi-ai'
+        },
+        isTyping: true,
+        createdAt: new Date().toISOString(),
+      }])
+
+      const response = await sendMessageToKimi(content, kimiApiKey)
+      
+      // 移除正在输入状态的消息
+      setMessages(prev => prev.filter(msg => !msg.isTyping))
+      
+      const aiMessage = {
+        content: response,
+        user: {
+          name: 'Kimi AI',
+          image: '/kimi-avatar.png',
+          id: 'kimi-ai'
+        },
+        room: activeChat,
+        createdAt: new Date().toISOString(),
+      }
+
+      setMessages(prev => [...prev, aiMessage])
+    } catch (error) {
+      console.error('Failed to get Kimi AI response:', error)
+      // 显示错误消息
+      setMessages(prev => [
+        ...prev.filter(msg => !msg.isTyping),
+        {
+          content: '抱歉，我遇到了一些问题。请稍后再试。',
+          user: {
+            name: 'Kimi AI',
+            image: '/kimi-avatar.png',
+            id: 'kimi-ai'
+          },
+          isError: true,
+          createdAt: new Date().toISOString(),
+        }
+      ])
+    } finally {
+      setIsWaitingForKimi(false)
+    }
+  }
+
   const sendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !session || !isConnected) return
+    if (!newMessage.trim() || !session) return
 
     try {
       const message = {
@@ -118,8 +209,30 @@ export default function Home() {
       }
 
       console.log('Sending message:', message)
-      socket?.emit('message', message)
-      setNewMessage('')
+      
+      if (socket && socket.connected) {
+        socket.emit('message', message)
+        setNewMessage('')
+        
+        // 如果是在 Kimi AI 聊天室中，发送消息给 AI
+        if (activeChat === 'kimi-ai') {
+          handleKimiMessage(message.content)
+        }
+      } else {
+        console.log('Attempting to reconnect...')
+        socket?.connect()
+        setTimeout(() => {
+          if (socket?.connected) {
+            socket.emit('message', message)
+            setNewMessage('')
+            if (activeChat === 'kimi-ai') {
+              handleKimiMessage(message.content)
+            }
+          } else {
+            console.error('Failed to send message: Socket not connected')
+          }
+        }, 1000)
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
     }
@@ -161,6 +274,30 @@ export default function Home() {
     } catch (error) {
       console.error('Error creating chat room:', error)
     }
+  }
+
+  // 添加 Kimi AI 聊天室
+  const addKimiAIChat = () => {
+    if (!kimiApiKey) {
+      setShowKimiModal(true)
+      return
+    }
+
+    const kimiContact = {
+      id: 'kimi-ai',
+      name: 'Kimi AI 助手',
+      type: 'ai',
+      unread: 0
+    }
+
+    setContacts(prev => {
+      if (!prev.find(c => c.id === 'kimi-ai')) {
+        return [...prev, kimiContact]
+      }
+      return prev
+    })
+    setActiveChat('kimi-ai')
+    setMessages([])
   }
 
   if (status === 'loading') {
@@ -235,7 +372,11 @@ export default function Home() {
                   : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
               }`}
             >
-              <UserGroupIcon className="w-5 h-5" />
+              {contact.type === 'ai' ? (
+                <SparklesIcon className="w-5 h-5" />
+              ) : (
+                <UserGroupIcon className="w-5 h-5" />
+              )}
               <span className="flex-1 text-left text-sm font-medium truncate">
                 {contact.name}
               </span>
@@ -249,6 +390,13 @@ export default function Home() {
         </div>
 
         <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+          <button
+            onClick={addKimiAIChat}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
+          >
+            <SparklesIcon className="w-5 h-5" />
+            添加 AI 助手
+          </button>
           <button
             onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
             className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
@@ -321,12 +469,14 @@ export default function Home() {
                         message.user.id === session.user.id ? 'items-end' : 'items-start'
                       }`}>
                         <div className={`rounded-2xl p-4 ${
+                          message.isTyping ? 'bg-gray-100 dark:bg-gray-700 animate-pulse' :
+                          message.isError ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400' :
                           message.user.id === session.user.id
                             ? 'bg-blue-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                         }`}>
                           <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                          <p className="text-base">{message.content}</p>
+                          <p className="text-base whitespace-pre-wrap">{message.content}</p>
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           {new Date(message.createdAt).toLocaleTimeString()}
@@ -349,8 +499,8 @@ export default function Home() {
                   />
                   <button
                     type="submit"
-                    disabled={!isConnected}
-                    className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors duration-200"
+                    disabled={!newMessage.trim() || !session}
                   >
                     <PaperAirplaneIcon className="h-6 w-6" />
                   </button>
@@ -407,6 +557,50 @@ export default function Home() {
           onClose={() => setShowSettingsModal(false)}
           session={session}
         />
+      )}
+
+      {/* Kimi API Key 设置模态框 */}
+      {showKimiModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">设置 Kimi AI API Key</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  API Key
+                </label>
+                <input
+                  type="password"
+                  value={kimiApiKey}
+                  onChange={(e) => setKimiApiKey(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  placeholder="输入您的 Kimi AI API Key"
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowKimiModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (kimiApiKey) {
+                      setShowKimiModal(false)
+                      addKimiAIChat()
+                    }
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg"
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
