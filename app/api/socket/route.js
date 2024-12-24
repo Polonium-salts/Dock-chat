@@ -1,5 +1,5 @@
 import { Server } from 'socket.io'
-import prisma from '@/lib/prisma'
+import prisma from '../../lib/prisma'
 
 const getBaseUrl = () => {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
