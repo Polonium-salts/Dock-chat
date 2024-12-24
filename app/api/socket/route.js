@@ -8,11 +8,19 @@ const ioHandler = (req, res) => {
       addTrailingSlash: false,
       cors: {
         origin: '*',
-        methods: ['GET', 'POST']
+        methods: ['GET', 'POST', 'OPTIONS'],
+        credentials: true,
+        allowedHeaders: ['Content-Type']
       },
       transports: ['websocket', 'polling'],
       pingTimeout: 60000,
-      pingInterval: 25000
+      pingInterval: 25000,
+      cookie: {
+        name: 'io',
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax'
+      }
     })
 
     io.on('connection', socket => {
@@ -59,6 +67,12 @@ const ioHandler = (req, res) => {
   }
 
   res.end()
+}
+
+const config = {
+  api: {
+    bodyParser: false,
+  },
 }
 
 export const GET = ioHandler

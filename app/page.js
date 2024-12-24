@@ -57,7 +57,10 @@ export default function Home() {
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         autoConnect: true,
-        withCredentials: true
+        withCredentials: true,
+        forceNew: true,
+        timeout: 10000,
+        upgrade: true
       })
 
       socket.on('connect', () => {
@@ -68,6 +71,11 @@ export default function Home() {
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
+        // 尝试使用轮询方式重新连接
+        if (socket.io.opts.transports.includes('websocket')) {
+          console.log('Falling back to polling')
+          socket.io.opts.transports = ['polling']
+        }
       })
 
       socket.on('error', (error) => {
