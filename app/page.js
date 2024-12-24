@@ -19,7 +19,7 @@ export default function Home() {
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -32,12 +32,14 @@ export default function Home() {
       if (session) {
         try {
           const response = await fetch('/api/messages')
-          if (!response.ok) throw new Error('Failed to fetch messages')
-          const data = await response.json()
-          setMessages(data.reverse())
+          if (response.ok) {
+            const data = await response.json()
+            setMessages(data)
+          }
         } catch (error) {
-          console.error('Error loading messages:', error)
-          setError('Failed to load messages')
+          console.error('Failed to load messages:', error)
+        } finally {
+          setIsLoading(false)
         }
       }
     }
@@ -45,81 +47,60 @@ export default function Home() {
     loadMessages()
   }, [session])
 
-  // 设置 Socket.IO 连接
+  // 自动滚动到底部
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
+
   useEffect(() => {
     if (session) {
-      const socketInitializer = async () => {
-        try {
-          await fetch('/api/socket')
-          const socket = io({
-            path: '/api/socket',
-            addTrailingSlash: false,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-            autoConnect: true,
-            withCredentials: true,
-          })
+      const socket = io(getBaseUrl(), {
+        path: '/api/socket',
+      })
+      setSocket(socket)
 
-          socket.on('connect', () => {
-            console.log('Connected to Socket.IO')
-            setIsConnected(true)
-            setError(null)
-          })
+      socket.on('connect', () => {
+        setIsConnected(true)
+        console.log('Socket connected')
+      })
 
-          socket.on('connect_error', (error) => {
-            console.error('Socket connection error:', error)
-            setError('Connection error')
-            setIsConnected(false)
-          })
+      socket.on('message', (message) => {
+        setMessages((prev) => [...prev, message])
+      })
 
-          socket.on('message', (message) => {
-            setMessages((prev) => [...prev, message])
-            scrollToBottom()
-          })
+      socket.on('error', (error) => {
+        console.error('Socket error:', error)
+      })
 
-          socket.on('error', (errorMessage) => {
-            setError(errorMessage)
-          })
-
-          setSocket(socket)
-
-          return () => {
-            socket.disconnect()
-          }
-        } catch (error) {
-          console.error('Socket initialization error:', error)
-          setError('Failed to initialize connection')
-        }
+      return () => {
+        socket.disconnect()
       }
-
-      socketInitializer()
     }
   }, [session])
 
   const sendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !session || !isConnected) return
+    if (!newMessage.trim() || !session) return
+
+    const message = {
+      content: newMessage,
+      user: {
+        name: session.user.name,
+        image: session.user.image,
+        id: session.user.id
+      },
+      createdAt: new Date().toISOString(),
+    }
 
     try {
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name,
-          image: session.user.image,
-          id: session.user.id
-        },
-        createdAt: new Date().toISOString(),
-      }
-
       socket?.emit('message', message)
       setNewMessage('')
     } catch (error) {
-      console.error('Error sending message:', error)
-      setError('Failed to send message')
+      console.error('Failed to send message:', error)
     }
   }
 
-  if (status === 'loading') {
+  if (status === 'loading' || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-xl">Loading...</div>
@@ -150,12 +131,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-gray-100">
       <header className="bg-white shadow">
         <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Telegraph Chat</h1>
-            {error && (
-              <span className="text-sm text-red-500">{error}</span>
-            )}
-          </div>
+          <h1 className="text-xl font-semibold">Telegraph Chat</h1>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <Image
@@ -221,16 +197,11 @@ export default function Home() {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 className="flex-1 p-2 border rounded-lg"
-                placeholder={isConnected ? "Type a message..." : "Connecting..."}
-                disabled={!isConnected}
+                placeholder="Type a message..."
               />
               <button
                 type="submit"
-                className={`p-2 rounded-lg ${
-                  isConnected
-                    ? 'bg-blue-500 text-white hover:bg-blue-600'
-                    : 'bg-gray-300 cursor-not-allowed'
-                }`}
+                className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                 disabled={!isConnected}
               >
                 <PaperAirplaneIcon className="h-5 w-5" />
