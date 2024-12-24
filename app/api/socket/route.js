@@ -18,7 +18,13 @@ const ioHandler = async (req, res) => {
       },
       transports: ['websocket', 'polling'],
       pingTimeout: 60000,
-      pingInterval: 25000
+      pingInterval: 25000,
+      secure: true,
+      rejectUnauthorized: false,
+      cookie: {
+        secure: true,
+        sameSite: 'none'
+      }
     })
 
     io.on('connection', (socket) => {
