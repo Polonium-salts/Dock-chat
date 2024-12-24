@@ -39,6 +39,18 @@ export default function Home() {
   // WebSocket 连接
   useEffect(() => {
     if (session) {
+      // 加载历史消息
+      fetch('/api/messages')
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMessages(data)
+          }
+        })
+        .catch(error => {
+          console.error('Failed to load messages:', error)
+        })
+
       const socket = io('', {
         path: '/api/socket',
       })
@@ -148,7 +160,7 @@ export default function Home() {
             {session.user.image && (
               <Image
                 src={session.user.image}
-                alt={session.user.name || '用户头像'}
+                alt={session.user.name || '���户头像'}
                 width={40}
                 height={40}
                 className="rounded-full"

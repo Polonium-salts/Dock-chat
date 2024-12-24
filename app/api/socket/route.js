@@ -1,37 +1,45 @@
 import { Server } from 'socket.io'
+import { prisma } from '@/lib/prisma'
 
 const ioHandler = (req, res) => {
   if (!res.socket.server.io) {
     const io = new Server(res.socket.server, {
       path: '/api/socket',
       addTrailingSlash: false,
-      cors: {
-        origin: '*',
-        methods: ['GET', 'POST'],
-      },
-      transports: ['websocket', 'polling'],
     })
 
-    io.on('connection', (socket) => {
-      console.log('Client connected:', socket.id)
+    io.on('connection', socket => {
+      console.log('Socket connected')
 
-      socket.on('join', (room) => {
-        socket.join(room)
-        console.log(`Client ${socket.id} joined room: ${room}`)
-      })
+      socket.on('message', async (message) => {
+        try {
+          // 保存消息到数据库
+          const savedMessage = await prisma.message.create({
+            data: {
+              content: message.content,
+              userId: message.user.id,
+              roomId: 'public'
+            },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  image: true
+                }
+              }
+            }
+          })
 
-      socket.on('leave', (room) => {
-        socket.leave(room)
-        console.log(`Client ${socket.id} left room: ${room}`)
-      })
-
-      socket.on('message', (message) => {
-        const room = message.room || 'public'
-        io.to(room).emit('message', message)
+          // 广播消息给所有客户端
+          io.emit('message', savedMessage)
+        } catch (error) {
+          console.error('Failed to save message:', error)
+        }
       })
 
       socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id)
+        console.log('Socket disconnected')
       })
     })
 
