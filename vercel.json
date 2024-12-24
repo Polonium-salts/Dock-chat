@@ -1,15 +1,9 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
-  "env": {
-    "DATABASE_URL": "postgresql://postgres:NmWVRwyOCnTuKoyODWqCeIsIFXbpVFFi@postgres.railway.internal:5432/railway?sslmode=require",
-    "NODE_ENV": "production"
-  },
+  "buildCommand": "prisma generate && next build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["hkg1"],
   "headers": [
     {
       "source": "/api/socketio",

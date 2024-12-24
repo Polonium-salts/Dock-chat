@@ -39,18 +39,6 @@ export default function Home() {
   // WebSocket 连接
   useEffect(() => {
     if (session) {
-      // 加载历史消息
-      fetch('/api/messages')
-        .then(res => res.json())
-        .then(data => {
-          if (Array.isArray(data)) {
-            setMessages(data)
-          }
-        })
-        .catch(error => {
-          console.error('Failed to load messages:', error)
-        })
-
       const socket = io({
         path: '/api/socketio',
         addTrailingSlash: false,
@@ -78,8 +66,28 @@ export default function Home() {
         setIsConnected(false)
       })
 
+      // 接收历史消息
+      socket.on('recent_messages', (messages) => {
+        setMessages(messages)
+      })
+
+      // 接收新消息
       socket.on('message', (message) => {
         setMessages((prev) => [...prev, message])
+        // 如果消息不是自己发的，增加未读消息计数
+        if (message.userId !== session.user.id) {
+          setContacts(prev => prev.map(contact => {
+            if (contact.id === message.roomId) {
+              return { ...contact, unread: (contact.unread || 0) + 1 }
+            }
+            return contact
+          }))
+        }
+      })
+
+      socket.on('error', (error) => {
+        console.error('Socket error:', error)
+        alert(error.message)
       })
 
       setSocket(socket)
@@ -97,11 +105,11 @@ export default function Home() {
     const message = {
       content: newMessage,
       user: {
+        id: session.user.id,
         name: session.user.name,
-        image: session.user.image,
-        id: session.user.id
+        image: session.user.image
       },
-      createdAt: new Date().toISOString(),
+      roomId: activeChat
     }
 
     try {
@@ -109,6 +117,7 @@ export default function Home() {
       setNewMessage('')
     } catch (error) {
       console.error('Failed to send message:', error)
+      alert('发送消息失败，请重试')
     }
   }
 
@@ -126,6 +135,16 @@ export default function Home() {
     setJoinInput('')
     setShowJoinModal(false)
   }
+
+  // 切换聊天室时重置未读消息计数
+  useEffect(() => {
+    setContacts(prev => prev.map(contact => {
+      if (contact.id === activeChat) {
+        return { ...contact, unread: 0 }
+      }
+      return contact
+    }))
+  }, [activeChat])
 
   if (status === 'loading') {
     return (
