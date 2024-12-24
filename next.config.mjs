@@ -10,19 +10,14 @@ const nextConfig = {
   images: {
     domains: ['avatars.githubusercontent.com'],
   },
-  headers: async () => {
+  async headers() {
     return [
       {
-        source: '/:path*',
+        source: '/api/socket',
         headers: [
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=31536000; includeSubDomains'
-          },
-          {
-            key: 'X-DNS-Prefetch-Control',
-            value: 'on'
-          }
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type' },
         ],
       },
     ]

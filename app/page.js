@@ -8,18 +8,10 @@ import {
   UserGroupIcon,
   UserPlusIcon,
   ChatBubbleLeftIcon,
-  RobotIcon,
   Cog6ToothIcon,
   PlusCircleIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
-
-// 获取当前环境的 URL
-const getBaseUrl = () => {
-  if (typeof window !== 'undefined') return '' // 浏览器端使用相对路径
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}` // Vercel 环境
-  return 'http://localhost:3000' // 开发环境
-}
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -30,44 +22,15 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinInput, setJoinInput] = useState('')
-  const [activeChat, setActiveChat] = useState('public') // 'public', 'private', 'bot'
+  const [activeChat, setActiveChat] = useState('public')
   const [contacts, setContacts] = useState([
     { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
-    { id: 'bot', name: 'AI 助手', type: 'bot', unread: 0 },
   ])
   const messagesEndRef = useRef(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  // 加载历史消息
-  useEffect(() => {
-    const loadMessages = async () => {
-      if (session) {
-        setIsLoading(true)
-        try {
-          const response = await fetch('/api/messages')
-          if (response.ok) {
-            const data = await response.json()
-            setMessages(data)
-          }
-        } catch (error) {
-          console.error('Failed to load messages:', error)
-        } finally {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    if (session) {
-      loadMessages()
-    }
-  }, [session])
-
   // 自动滚动到底部
   useEffect(() => {
-    scrollToBottom()
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   // WebSocket 连接
@@ -89,10 +52,6 @@ export default function Home() {
 
       socket.on('message', (message) => {
         setMessages((prev) => [...prev, message])
-      })
-
-      socket.on('error', (error) => {
-        console.error('Socket error:', error)
       })
 
       setSocket(socket)
@@ -129,7 +88,6 @@ export default function Home() {
     e.preventDefault()
     if (!joinInput.trim()) return
 
-    // 这里可以处理加入逻辑，可以是房间ID或IP地址
     const newContact = {
       id: joinInput,
       name: `聊天室 ${joinInput}`,
@@ -141,15 +99,14 @@ export default function Home() {
     setShowJoinModal(false)
   }
 
-  // 显示加载状态
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-pulse flex items-center justify-center space-x-2">
-            <div className="h-3 w-3 bg-blue-500 rounded-full animate-bounce"></div>
-            <div className="h-3 w-3 bg-blue-500 rounded-full animate-bounce delay-100"></div>
-            <div className="h-3 w-3 bg-blue-500 rounded-full animate-bounce delay-200"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
           </div>
           <p className="mt-4 text-sm text-gray-500">正在加载...</p>
         </div>
@@ -157,10 +114,9 @@ export default function Home() {
     )
   }
 
-  // 显示登录页面
   if (!session) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50 p-4">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
         <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-2xl shadow-lg">
           <div className="text-center">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Telegraph Chat</h1>
@@ -186,15 +142,19 @@ export default function Home() {
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
-            <Image
-              src={session.user.image}
-              alt={session.user.name}
-              width={40}
-              height={40}
-              className="rounded-full ring-2 ring-white"
-            />
+            {session.user.image && (
+              <Image
+                src={session.user.image}
+                alt={session.user.name || '用户头像'}
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+            )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{session.user.name}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {session.user.name || '用户'}
+              </p>
               <p className="text-xs text-gray-500">在线</p>
             </div>
           </div>
@@ -211,13 +171,7 @@ export default function Home() {
                   : 'hover:bg-gray-50 text-gray-700'
               }`}
             >
-              {contact.type === 'room' ? (
-                <UserGroupIcon className="w-5 h-5" />
-              ) : contact.type === 'bot' ? (
-                <RobotIcon className="w-5 h-5" />
-              ) : (
-                <ChatBubbleLeftIcon className="w-5 h-5" />
-              )}
+              <UserGroupIcon className="w-5 h-5" />
               <span className="flex-1 text-left text-sm font-medium truncate">
                 {contact.name}
               </span>
@@ -263,25 +217,27 @@ export default function Home() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {messages.map((message, index) => (
                 <div
-                  key={message.id || index}
-                  className={`flex message-animation ${
+                  key={index}
+                  className={`flex ${
                     message.user.id === session.user.id ? 'justify-end' : 'justify-start'
                   }`}
                 >
                   <div className={`flex items-start gap-3 max-w-[70%] ${
                     message.user.id === session.user.id ? 'flex-row-reverse' : ''
                   }`}>
-                    <Image
-                      src={message.user.image}
-                      alt={message.user.name}
-                      width={40}
-                      height={40}
-                      className="rounded-full ring-2 ring-white shadow-sm"
-                    />
+                    {message.user.image && (
+                      <Image
+                        src={message.user.image}
+                        alt={message.user.name || '用户头像'}
+                        width={40}
+                        height={40}
+                        className="rounded-full"
+                      />
+                    )}
                     <div className={`flex flex-col ${
                       message.user.id === session.user.id ? 'items-end' : 'items-start'
                     }`}>
-                      <div className={`rounded-2xl p-4 shadow-sm ${
+                      <div className={`rounded-2xl p-4 ${
                         message.user.id === session.user.id
                           ? 'bg-blue-500 text-white'
                           : 'bg-gray-100 text-gray-900'
@@ -305,13 +261,13 @@ export default function Home() {
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-50 rounded-xl border-0 focus:ring-2 focus:ring-blue-500 transition-shadow duration-200"
+                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-50 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
                   placeholder="输入消息..."
                 />
                 <button
                   type="submit"
                   disabled={!isConnected}
-                  className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 shadow-sm"
+                  className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <PaperAirplaneIcon className="h-6 w-6" />
                 </button>
@@ -343,13 +299,13 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setShowJoinModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors duration-200"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors duration-200"
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg"
                 >
                   加入
                 </button>
