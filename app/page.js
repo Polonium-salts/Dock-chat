@@ -53,15 +53,29 @@ export default function Home() {
 
       const socket = io('', {
         path: '/api/socket',
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        autoConnect: true,
+        withCredentials: true
       })
 
       socket.on('connect', () => {
-        console.log('Socket connected')
+        console.log('Socket connected:', socket.id)
         setIsConnected(true)
       })
 
-      socket.on('disconnect', () => {
-        console.log('Socket disconnected')
+      socket.on('connect_error', (error) => {
+        console.error('Connection error:', error)
+        setIsConnected(false)
+      })
+
+      socket.on('error', (error) => {
+        console.error('Socket error:', error)
+      })
+
+      socket.on('disconnect', (reason) => {
+        console.log('Socket disconnected:', reason)
         setIsConnected(false)
       })
 
@@ -160,7 +174,7 @@ export default function Home() {
             {session.user.image && (
               <Image
                 src={session.user.image}
-                alt={session.user.name || '���户头像'}
+                alt={session.user.name || '用户头像'}
                 width={40}
                 height={40}
                 className="rounded-full"

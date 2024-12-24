@@ -6,10 +6,17 @@ const ioHandler = (req, res) => {
     const io = new Server(res.socket.server, {
       path: '/api/socket',
       addTrailingSlash: false,
+      cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+      },
+      transports: ['websocket', 'polling'],
+      pingTimeout: 60000,
+      pingInterval: 25000
     })
 
     io.on('connection', socket => {
-      console.log('Socket connected')
+      console.log('Socket connected:', socket.id)
 
       socket.on('message', async (message) => {
         try {
@@ -35,11 +42,16 @@ const ioHandler = (req, res) => {
           io.emit('message', savedMessage)
         } catch (error) {
           console.error('Failed to save message:', error)
+          socket.emit('error', { message: 'Failed to save message' })
         }
       })
 
+      socket.on('error', (error) => {
+        console.error('Socket error:', error)
+      })
+
       socket.on('disconnect', () => {
-        console.log('Socket disconnected')
+        console.log('Socket disconnected:', socket.id)
       })
     })
 
