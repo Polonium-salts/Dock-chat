@@ -54,6 +54,10 @@ export default function Home() {
           const socket = io({
             path: '/api/socket',
             addTrailingSlash: false,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            autoConnect: true,
+            withCredentials: true,
           })
 
           socket.on('connect', () => {

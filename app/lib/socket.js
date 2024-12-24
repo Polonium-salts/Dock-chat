@@ -19,6 +19,10 @@ export const initSocket = (server) => {
         credentials: true
       },
       transports: ['websocket', 'polling'],
+      connectionStateRecovery: {
+        maxDisconnectionDuration: 2 * 60 * 1000,
+        skipMiddlewares: true,
+      },
     })
 
     io.on('connection', (socket) => {

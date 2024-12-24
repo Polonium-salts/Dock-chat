@@ -10,20 +10,14 @@ const nextConfig = {
   images: {
     domains: ['avatars.githubusercontent.com'],
   },
-  headers: async () => {
+  experimental: {
+    serverActions: true,
+  },
+  async rewrites() {
     return [
       {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=31536000; includeSubDomains'
-          },
-          {
-            key: 'X-DNS-Prefetch-Control',
-            value: 'on'
-          }
-        ],
+        source: '/api/socket',
+        destination: '/api/socket',
       },
     ]
   },
