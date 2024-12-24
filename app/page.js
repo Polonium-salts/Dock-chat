@@ -168,7 +168,7 @@ export default function Home() {
             {messages.map((message, index) => (
               <div
                 key={message.id || index}
-                className={`flex ${
+                className={`flex message-animation ${
                   message.user.id === session.user.id ? 'justify-end' : 'justify-start'
                 }`}
               >
@@ -180,12 +180,12 @@ export default function Home() {
                     alt={message.user.name}
                     width={40}
                     height={40}
-                    className="rounded-full ring-2 ring-white"
+                    className="rounded-full ring-2 ring-white shadow-sm"
                   />
                   <div className={`flex flex-col ${
                     message.user.id === session.user.id ? 'items-end' : 'items-start'
                   }`}>
-                    <div className={`rounded-2xl p-4 ${
+                    <div className={`rounded-2xl p-4 shadow-sm ${
                       message.user.id === session.user.id
                         ? 'bg-blue-500 text-white'
                         : 'bg-gray-100 text-gray-900'
@@ -215,7 +215,7 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={!isConnected}
-                className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 shadow-sm"
               >
                 <PaperAirplaneIcon className="h-6 w-6" />
               </button>
