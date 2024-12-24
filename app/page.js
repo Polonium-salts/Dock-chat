@@ -46,6 +46,11 @@ export default function Home() {
       socket.on('connect', () => {
         console.log('Socket connected')
         setIsConnected(true)
+        // 加入当前聊天室
+        socket.emit('join', { 
+          room: activeChat,
+          userId: session.user.id
+        })
       })
 
       socket.on('disconnect', () => {
@@ -57,13 +62,43 @@ export default function Home() {
         setMessages((prev) => [...prev, message])
       })
 
+      socket.on('userJoined', (data) => {
+        console.log('User joined:', data)
+      })
+
+      socket.on('userLeft', (data) => {
+        console.log('User left:', data)
+      })
+
       setSocket(socket)
 
+      // 加载历史消息
+      loadMessages(activeChat)
+
       return () => {
+        socket.emit('leave', {
+          room: activeChat,
+          userId: session.user.id
+        })
         socket.disconnect()
       }
     }
-  }, [session])
+  }, [session, activeChat])
+
+  // 加载历史消息
+  const loadMessages = async (roomId) => {
+    try {
+      const response = await fetch(`/api/messages?roomId=${roomId}`)
+      const data = await response.json()
+      if (response.ok) {
+        setMessages(data.messages || [])
+      } else {
+        console.error('Failed to load messages:', data.error)
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+    }
+  }
 
   const sendMessage = async (e) => {
     e.preventDefault()
@@ -76,6 +111,7 @@ export default function Home() {
         image: session.user.image,
         id: session.user.id
       },
+      room: activeChat,
       createdAt: new Date().toISOString(),
     }
 
@@ -87,7 +123,7 @@ export default function Home() {
     }
   }
 
-  const handleJoin = (e) => {
+  const handleJoin = async (e) => {
     e.preventDefault()
     if (!joinInput.trim()) return
 
@@ -97,9 +133,32 @@ export default function Home() {
       type: 'room',
       unread: 0
     }
-    setContacts(prev => [...prev, newContact])
-    setJoinInput('')
-    setShowJoinModal(false)
+
+    try {
+      // 创建新的聊天室
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roomId: joinInput,
+          name: `聊天室 ${joinInput}`
+        })
+      })
+
+      if (response.ok) {
+        setContacts(prev => [...prev, newContact])
+        setJoinInput('')
+        setShowJoinModal(false)
+        // 切换到新的聊天室
+        setActiveChat(joinInput)
+      } else {
+        console.error('Failed to create chat room')
+      }
+    } catch (error) {
+      console.error('Error creating chat room:', error)
+    }
   }
 
   if (status === 'loading') {
@@ -148,7 +207,7 @@ export default function Home() {
             {session.user.image && (
               <Image
                 src={session.user.image}
-                alt={session.user.name || '用户头像'}
+                alt={session.user.name || '��户头像'}
                 width={40}
                 height={40}
                 className="rounded-full"
