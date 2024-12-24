@@ -12,6 +12,7 @@ import {
   PlusCircleIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
+import SettingsModal from './components/SettingsModal'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -27,6 +28,7 @@ export default function Home() {
     { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
   ])
   const messagesEndRef = useRef(null)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -193,7 +195,7 @@ export default function Home() {
             加入聊天室
           </button>
           <button
-            onClick={() => signOut()}
+            onClick={() => setShowSettingsModal(true)}
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors duration-200"
           >
             <Cog6ToothIcon className="w-5 h-5" />
@@ -313,6 +315,14 @@ export default function Home() {
             </form>
           </div>
         </div>
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          session={session}
+        />
       )}
     </div>
   )
