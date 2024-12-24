@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
-import { io, Socket } from 'socket.io-client'
+import { Socket as ClientSocket, io as ClientIO } from 'socket.io-client'
 import { PaperAirplaneIcon, UserGroupIcon } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import ChatMessage from '@/components/ChatMessage'
@@ -23,7 +23,7 @@ export default function Home() {
     showUserList: false
   })
   const [newMessage, setNewMessage] = useState('')
-  const [socket, setSocket] = useState<Socket | null>(null)
+  const [socket, setSocket] = useState<ClientSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -35,8 +35,8 @@ export default function Home() {
   }, [chatState.messages])
 
   useEffect(() => {
-    if (session?.user) {
-      const socket = io(getBaseUrl(), {
+    if (session?.user?.name && session?.user?.image) {
+      const socket = ClientIO(getBaseUrl(), {
         path: '/api/socket',
       })
       setSocket(socket)
@@ -44,7 +44,7 @@ export default function Home() {
       socket.on('connect', () => {
         setChatState(prev => ({ ...prev, isConnected: true }))
         socket.emit('user:join', {
-          id: session.user.id,
+          id: session.user.email || session.user.name,
           name: session.user.name,
           image: session.user.image
         })
@@ -73,15 +73,15 @@ export default function Home() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newMessage.trim() || !session?.user) return
+    if (!newMessage.trim() || !session?.user?.name || !session?.user?.image) return
 
     const message: Message = {
       id: Date.now().toString(),
       content: newMessage,
       user: {
-        id: session.user.id,
+        id: session.user.email || session.user.name,
         name: session.user.name,
-        image: session.user.image as string
+        image: session.user.image
       },
       createdAt: new Date().toISOString(),
       type: 'text'
@@ -137,14 +137,18 @@ export default function Home() {
               </span>
             </button>
             <div className="flex items-center gap-2">
-              <Image
-                src={session.user.image!}
-                alt={session.user.name!}
-                width={32}
-                height={32}
-                className="rounded-full ring-2 ring-white"
-              />
-              <span className="text-gray-700">{session.user.name}</span>
+              {session.user.image && session.user.name && (
+                <>
+                  <Image
+                    src={session.user.image}
+                    alt={session.user.name}
+                    width={32}
+                    height={32}
+                    className="rounded-full ring-2 ring-white"
+                  />
+                  <span className="text-gray-700">{session.user.name}</span>
+                </>
+              )}
             </div>
             <button
               onClick={() => signOut()}
@@ -163,7 +167,7 @@ export default function Home() {
               <ChatMessage
                 key={message.id}
                 message={message}
-                isOwnMessage={message.user.id === session.user.id}
+                isOwnMessage={message.user.id === (session.user.email || session.user.name)}
               />
             ))}
             <div ref={messagesEndRef} />
