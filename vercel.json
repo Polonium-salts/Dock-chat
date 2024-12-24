@@ -1,12 +1,10 @@
 {
-  "version": 2,
   "buildCommand": "prisma generate && next build",
-  "installCommand": "npm install",
+  "installCommand": "npm install --legacy-peer-deps",
   "framework": "nextjs",
-  "regions": ["hkg1"],
   "headers": [
     {
-      "source": "/api/socketio",
+      "source": "/api/socket",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",

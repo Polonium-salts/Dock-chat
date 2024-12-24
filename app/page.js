@@ -39,55 +39,22 @@ export default function Home() {
   // WebSocket 连接
   useEffect(() => {
     if (session) {
-      const socket = io({
-        path: '/api/socketio',
-        addTrailingSlash: false,
-        transports: ['polling'],
-        autoConnect: true,
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 10000,
+      const socket = io('', {
+        path: '/api/socket',
       })
 
       socket.on('connect', () => {
-        console.log('Connected to Socket.IO')
+        console.log('Socket connected')
         setIsConnected(true)
       })
 
-      socket.on('connect_error', (error) => {
-        console.error('Connection error:', error)
+      socket.on('disconnect', () => {
+        console.log('Socket disconnected')
         setIsConnected(false)
       })
 
-      socket.on('disconnect', (reason) => {
-        console.log('Disconnected:', reason)
-        setIsConnected(false)
-      })
-
-      // 接收历史消息
-      socket.on('recent_messages', (messages) => {
-        setMessages(messages)
-      })
-
-      // 接收新消息
       socket.on('message', (message) => {
         setMessages((prev) => [...prev, message])
-        // 如果消息不是自己发的，增加未读消息计数
-        if (message.userId !== session.user.id) {
-          setContacts(prev => prev.map(contact => {
-            if (contact.id === message.roomId) {
-              return { ...contact, unread: (contact.unread || 0) + 1 }
-            }
-            return contact
-          }))
-        }
-      })
-
-      socket.on('error', (error) => {
-        console.error('Socket error:', error)
-        alert(error.message)
       })
 
       setSocket(socket)
@@ -105,11 +72,11 @@ export default function Home() {
     const message = {
       content: newMessage,
       user: {
-        id: session.user.id,
         name: session.user.name,
-        image: session.user.image
+        image: session.user.image,
+        id: session.user.id
       },
-      roomId: activeChat
+      createdAt: new Date().toISOString(),
     }
 
     try {
@@ -117,7 +84,6 @@ export default function Home() {
       setNewMessage('')
     } catch (error) {
       console.error('Failed to send message:', error)
-      alert('发送消息失败，请重试')
     }
   }
 
@@ -135,16 +101,6 @@ export default function Home() {
     setJoinInput('')
     setShowJoinModal(false)
   }
-
-  // 切换聊天室时重置未读消息计数
-  useEffect(() => {
-    setContacts(prev => prev.map(contact => {
-      if (contact.id === activeChat) {
-        return { ...contact, unread: 0 }
-      }
-      return contact
-    }))
-  }, [activeChat])
 
   if (status === 'loading') {
     return (
