@@ -11,19 +11,13 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline'
 import Image from 'next/image'
+import { useTheme } from '../providers/ThemeProvider'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
-  const [theme, setTheme] = useState('light')
+  const { theme, setTheme } = useTheme()
   const [activeTab, setActiveTab] = useState('theme')
   const [githubReadme, setGithubReadme] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-
-  useEffect(() => {
-    // 从 localStorage 获取主题设置
-    const savedTheme = localStorage.getItem('theme') || 'light'
-    setTheme(savedTheme)
-    document.documentElement.classList.toggle('dark', savedTheme === 'dark')
-  }, [])
 
   useEffect(() => {
     if (session?.user?.login) {
@@ -48,10 +42,7 @@ export default function SettingsModal({ isOpen, onClose, session }) {
   }
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light'
-    setTheme(newTheme)
-    localStorage.setItem('theme', newTheme)
-    document.documentElement.classList.toggle('dark', newTheme === 'dark')
+    setTheme(theme === 'light' ? 'dark' : 'light')
   }
 
   if (!isOpen) return null

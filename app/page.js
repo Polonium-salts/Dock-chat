@@ -139,10 +139,10 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* 侧边栏 */}
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
+      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             {session.user.image && (
               <Image
@@ -154,10 +154,10 @@ export default function Home() {
               />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                 {session.user.name || '用户'}
               </p>
-              <p className="text-xs text-gray-500">在线</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">在线</p>
             </div>
           </div>
         </div>
@@ -167,10 +167,10 @@ export default function Home() {
             <button
               key={contact.id}
               onClick={() => setActiveChat(contact.id)}
-              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors duration-200 ${
+              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
                 activeChat === contact.id
-                  ? 'bg-blue-50 text-blue-600'
-                  : 'hover:bg-gray-50 text-gray-700'
+                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
               }`}
             >
               <UserGroupIcon className="w-5 h-5" />
@@ -186,17 +186,17 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="p-3 border-t border-gray-200 space-y-2">
+        <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
           <button
             onClick={() => setShowJoinModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
           >
             <PlusCircleIcon className="w-5 h-5" />
             加入聊天室
           </button>
           <button
             onClick={() => setShowSettingsModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors duration-200"
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             <Cog6ToothIcon className="w-5 h-5" />
             设置
@@ -206,16 +206,16 @@ export default function Home() {
 
       {/* 主聊天区域 */}
       <div className="flex-1 flex flex-col">
-        <header className="bg-white shadow-sm border-b border-gray-200">
+        <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
-            <h1 className="text-lg font-semibold text-gray-900">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
               {contacts.find(c => c.id === activeChat)?.name || '聊天室'}
             </h1>
           </div>
         </header>
 
         <main className="flex-1 p-4 overflow-hidden">
-          <div className="bg-white rounded-2xl shadow-sm h-full flex flex-col">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {messages.map((message, index) => (
                 <div
@@ -242,12 +242,12 @@ export default function Home() {
                       <div className={`rounded-2xl p-4 ${
                         message.user.id === session.user.id
                           ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-900'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                       }`}>
                         <p className="text-sm font-medium mb-1">{message.user.name}</p>
                         <p className="text-base">{message.content}</p>
                       </div>
-                      <span className="text-xs text-gray-500 mt-1">
+                      <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         {new Date(message.createdAt).toLocaleTimeString()}
                       </span>
                     </div>
@@ -257,13 +257,13 @@ export default function Home() {
               <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={sendMessage} className="p-4 border-t border-gray-100">
+            <form onSubmit={sendMessage} className="p-4 border-t border-gray-100 dark:border-gray-700">
               <div className="flex items-center gap-4">
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-50 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
                   placeholder="输入消息..."
                 />
                 <button
@@ -282,18 +282,18 @@ export default function Home() {
       {/* 加入聊天室模态框 */}
       {showJoinModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">加入聊天室</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">加入聊天室</h2>
             <form onSubmit={handleJoin} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   输入聊天室 ID 或 IP 地址
                 </label>
                 <input
                   type="text"
                   value={joinInput}
                   onChange={(e) => setJoinInput(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="例如：room-123 或 192.168.1.1"
                 />
               </div>
@@ -301,7 +301,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setShowJoinModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
                 >
                   取消
                 </button>

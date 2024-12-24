@@ -1,11 +1,14 @@
 'use client'
 
 import { SessionProvider } from 'next-auth/react'
+import { ThemeProvider } from './providers/ThemeProvider'
 
 export function Providers({ children }) {
   return (
-    <SessionProvider refetchInterval={0} refetchOnWindowFocus={false}>
-      {children}
+    <SessionProvider>
+      <ThemeProvider>
+        {children}
+      </ThemeProvider>
     </SessionProvider>
   )
 } 
