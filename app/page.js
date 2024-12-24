@@ -6,13 +6,13 @@ import { io } from 'socket.io-client'
 import { 
   PaperAirplaneIcon,
   UserGroupIcon,
-  UserPlusIcon,
-  ChatBubbleLeftIcon,
+  UserCircleIcon,
   Cog6ToothIcon,
   PlusCircleIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import SettingsModal from './components/SettingsModal'
+import ProfilePage from './components/ProfilePage'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -29,6 +29,7 @@ export default function Home() {
   ])
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [currentView, setCurrentView] = useState('chat') // 'chat' 或 'profile'
 
   // 自动滚动到底部
   useEffect(() => {
@@ -188,6 +189,21 @@ export default function Home() {
 
         <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
           <button
+            onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
+            className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
+              currentView === 'profile'
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            } rounded-lg transition-colors`}
+          >
+            {currentView === 'chat' ? (
+              <UserCircleIcon className="w-5 h-5" />
+            ) : (
+              <UserGroupIcon className="w-5 h-5" />
+            )}
+            {currentView === 'chat' ? '个人主页' : '返回聊天'}
+          </button>
+          <button
             onClick={() => setShowJoinModal(true)}
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
           >
@@ -209,73 +225,80 @@ export default function Home() {
         <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {contacts.find(c => c.id === activeChat)?.name || '聊天室'}
+              {currentView === 'chat' 
+                ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
+                : '个人主页'
+              }
             </h1>
           </div>
         </header>
 
         <main className="flex-1 p-4 overflow-hidden">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {messages.map((message, index) => (
-                <div
-                  key={index}
-                  className={`flex ${
-                    message.user.id === session.user.id ? 'justify-end' : 'justify-start'
-                  }`}
-                >
-                  <div className={`flex items-start gap-3 max-w-[70%] ${
-                    message.user.id === session.user.id ? 'flex-row-reverse' : ''
-                  }`}>
-                    {message.user.image && (
-                      <Image
-                        src={message.user.image}
-                        alt={message.user.name || '用户头像'}
-                        width={40}
-                        height={40}
-                        className="rounded-full"
-                      />
-                    )}
-                    <div className={`flex flex-col ${
-                      message.user.id === session.user.id ? 'items-end' : 'items-start'
+          {currentView === 'chat' ? (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {messages.map((message, index) => (
+                  <div
+                    key={index}
+                    className={`flex ${
+                      message.user.id === session.user.id ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    <div className={`flex items-start gap-3 max-w-[70%] ${
+                      message.user.id === session.user.id ? 'flex-row-reverse' : ''
                     }`}>
-                      <div className={`rounded-2xl p-4 ${
-                        message.user.id === session.user.id
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                      {message.user.image && (
+                        <Image
+                          src={message.user.image}
+                          alt={message.user.name || '用户头像'}
+                          width={40}
+                          height={40}
+                          className="rounded-full"
+                        />
+                      )}
+                      <div className={`flex flex-col ${
+                        message.user.id === session.user.id ? 'items-end' : 'items-start'
                       }`}>
-                        <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                        <p className="text-base">{message.content}</p>
+                        <div className={`rounded-2xl p-4 ${
+                          message.user.id === session.user.id
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                        }`}>
+                          <p className="text-sm font-medium mb-1">{message.user.name}</p>
+                          <p className="text-base">{message.content}</p>
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {new Date(message.createdAt).toLocaleTimeString()}
+                        </span>
                       </div>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {new Date(message.createdAt).toLocaleTimeString()}
-                      </span>
                     </div>
                   </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <form onSubmit={sendMessage} className="p-4 border-t border-gray-100 dark:border-gray-700">
-              <div className="flex items-center gap-4">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
-                  placeholder="输入消息..."
-                />
-                <button
-                  type="submit"
-                  disabled={!isConnected}
-                  className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <PaperAirplaneIcon className="h-6 w-6" />
-                </button>
+                ))}
+                <div ref={messagesEndRef} />
               </div>
-            </form>
-          </div>
+
+              <form onSubmit={sendMessage} className="p-4 border-t border-gray-100 dark:border-gray-700">
+                <div className="flex items-center gap-4">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
+                    placeholder="输入消息..."
+                  />
+                  <button
+                    type="submit"
+                    disabled={!isConnected}
+                    className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <PaperAirplaneIcon className="h-6 w-6" />
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : (
+            <ProfilePage session={session} />
+          )}
         </main>
       </div>
 
