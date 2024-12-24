@@ -8,18 +8,17 @@ const getBaseUrl = () => {
   return process.env.NEXTAUTH_URL || 'http://localhost:3000'
 }
 
-const ioHandler = async (req, res) => {
+const ioHandler = async (request, response) => {
   try {
-    const session = await getServerSession(req, authOptions)
+    const session = await getServerSession(authOptions)
     
     if (!session) {
-      res.status(401).end()
-      return
+      return new Response('Unauthorized', { status: 401 })
     }
 
-    if (!res.socket.server.io) {
+    if (!response.socket.server.io) {
       console.log('Initializing Socket.IO server...')
-      const io = new Server(res.socket.server, {
+      const io = new Server(response.socket.server, {
         path: '/api/socket',
         addTrailingSlash: false,
         cors: {
@@ -84,13 +83,13 @@ const ioHandler = async (req, res) => {
         })
       })
 
-      res.socket.server.io = io
+      response.socket.server.io = io
     }
 
-    res.end()
+    return new Response('OK')
   } catch (error) {
     console.error('Socket handler error:', error)
-    res.status(500).end()
+    return new Response('Internal Server Error', { status: 500 })
   }
 }
 

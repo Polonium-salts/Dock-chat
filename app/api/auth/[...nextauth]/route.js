@@ -31,22 +31,10 @@ export const authOptions = {
       }
     },
   },
-  debug: process.env.NODE_ENV !== 'production',
   secret: process.env.NEXTAUTH_SECRET,
   pages: {
     signIn: '/',
     error: '/',
-  },
-  logger: {
-    error(code, metadata) {
-      console.error('Auth error:', { code, metadata })
-    },
-    warn(code) {
-      console.warn('Auth warning:', code)
-    },
-    debug(code, metadata) {
-      console.debug('Auth debug:', { code, metadata })
-    }
   }
 }
 
