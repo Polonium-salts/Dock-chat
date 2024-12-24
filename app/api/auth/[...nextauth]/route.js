@@ -1,13 +1,16 @@
 import NextAuth from 'next-auth'
 import GithubProvider from 'next-auth/providers/github'
 
-const authOptions = {
+export const authOptions = {
   providers: [
     GithubProvider({
       clientId: process.env.GITHUB_ID,
       clientSecret: process.env.GITHUB_SECRET,
     }),
   ],
+  session: {
+    strategy: 'jwt',
+  },
   callbacks: {
     async jwt({ token, account, profile }) {
       if (account) {
@@ -22,32 +25,13 @@ const authOptions = {
       }
       return session
     },
-    async signIn({ user, account, profile, email, credentials }) {
-      try {
-        return true
-      } catch (error) {
-        console.error('SignIn error:', error)
-        return false
-      }
-    },
   },
-  debug: process.env.NODE_ENV !== 'production',
-  secret: process.env.NEXTAUTH_SECRET,
+  debug: true,
+  secret: process.env.NEXTAUTH_SECRET || 'your-default-secret-do-not-use-in-production',
   pages: {
     signIn: '/',
     error: '/',
   },
-  logger: {
-    error(code, metadata) {
-      console.error('Auth error:', { code, metadata })
-    },
-    warn(code) {
-      console.warn('Auth warning:', code)
-    },
-    debug(code, metadata) {
-      console.debug('Auth debug:', { code, metadata })
-    }
-  }
 }
 
 const handler = NextAuth(authOptions)

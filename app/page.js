@@ -19,7 +19,7 @@ export default function Home() {
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -30,6 +30,7 @@ export default function Home() {
   useEffect(() => {
     const loadMessages = async () => {
       if (session) {
+        setIsLoading(true)
         try {
           const response = await fetch('/api/messages')
           if (response.ok) {
@@ -44,7 +45,9 @@ export default function Home() {
       }
     }
 
-    loadMessages()
+    if (session) {
+      loadMessages()
+    }
   }, [session])
 
   // 自动滚动到底部
@@ -52,16 +55,21 @@ export default function Home() {
     scrollToBottom()
   }, [messages])
 
+  // WebSocket 连接
   useEffect(() => {
     if (session) {
-      const socket = io(getBaseUrl(), {
+      const socket = io('', {
         path: '/api/socket',
       })
-      setSocket(socket)
 
       socket.on('connect', () => {
-        setIsConnected(true)
         console.log('Socket connected')
+        setIsConnected(true)
+      })
+
+      socket.on('disconnect', () => {
+        console.log('Socket disconnected')
+        setIsConnected(false)
       })
 
       socket.on('message', (message) => {
@@ -72,6 +80,8 @@ export default function Home() {
         console.error('Socket error:', error)
       })
 
+      setSocket(socket)
+
       return () => {
         socket.disconnect()
       }
@@ -80,7 +90,7 @@ export default function Home() {
 
   const sendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !session) return
+    if (!newMessage.trim() || !session || !isConnected) return
 
     const message = {
       content: newMessage,
@@ -100,20 +110,23 @@ export default function Home() {
     }
   }
 
-  if (status === 'loading' || isLoading) {
+  // 显示加载状态
+  if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-xl font-semibold text-gray-600">
-          <div className="animate-pulse flex items-center gap-2">
-            <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce"></div>
-            <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce delay-75"></div>
-            <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce delay-150"></div>
+        <div className="text-center">
+          <div className="animate-pulse flex items-center justify-center space-x-2">
+            <div className="h-3 w-3 bg-blue-500 rounded-full animate-bounce"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full animate-bounce delay-100"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full animate-bounce delay-200"></div>
           </div>
+          <p className="mt-4 text-sm text-gray-500">正在加载...</p>
         </div>
       </div>
     )
   }
 
+  // 显示登录页面
   if (!session) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50 p-4">
@@ -136,6 +149,7 @@ export default function Home() {
     )
   }
 
+  // 显示主界面
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
       <header className="bg-white shadow-sm fixed w-full top-0 z-10">
