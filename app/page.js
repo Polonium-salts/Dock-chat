@@ -51,48 +51,31 @@ export default function Home() {
           console.error('Failed to load messages:', error)
         })
 
-      const socket = io('', {
-        path: '/api/socket',
-        transports: ['polling', 'websocket'],
+      const socket = io({
+        path: '/api/socketio',
+        addTrailingSlash: false,
+        transports: ['polling'],
+        autoConnect: true,
+        reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        autoConnect: true,
-        withCredentials: true,
-        forceNew: true,
+        reconnectionDelayMax: 5000,
         timeout: 10000,
-        upgrade: true,
-        rememberUpgrade: true,
-        secure: process.env.NODE_ENV === 'production',
-        rejectUnauthorized: false
       })
 
       socket.on('connect', () => {
-        console.log('Socket connected:', socket.id)
+        console.log('Connected to Socket.IO')
         setIsConnected(true)
       })
 
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
-        // 尝试使用轮询方式重新连接
-        if (socket.io.opts.transports.includes('websocket')) {
-          console.log('Falling back to polling')
-          socket.io.opts.transports = ['polling']
-          socket.connect()
-        }
-      })
-
-      socket.on('error', (error) => {
-        console.error('Socket error:', error)
       })
 
       socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason)
+        console.log('Disconnected:', reason)
         setIsConnected(false)
-        // 尝试重新连接
-        setTimeout(() => {
-          socket.connect()
-        }, 1000)
       })
 
       socket.on('message', (message) => {

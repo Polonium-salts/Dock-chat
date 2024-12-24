@@ -10,18 +10,13 @@
     "DATABASE_URL": "postgresql://postgres:NmWVRwyOCnTuKoyODWqCeIsIFXbpVFFi@postgres.railway.internal:5432/railway?sslmode=require",
     "NODE_ENV": "production"
   },
-  "build": {
-    "env": {
-      "DATABASE_URL": "postgresql://postgres:NmWVRwyOCnTuKoyODWqCeIsIFXbpVFFi@postgres.railway.internal:5432/railway?sslmode=require"
-    }
-  },
   "headers": [
     {
-      "source": "/api/socket",
+      "source": "/api/socketio",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "https://dock-chat.vercel.app"
+          "value": "*"
         },
         {
           "key": "Access-Control-Allow-Methods",
@@ -30,18 +25,8 @@
         {
           "key": "Access-Control-Allow-Headers",
           "value": "Content-Type"
-        },
-        {
-          "key": "Access-Control-Allow-Credentials",
-          "value": "true"
         }
       ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/api/socket",
-      "destination": "/api/socket"
     }
   ]
 } 
