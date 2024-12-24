@@ -1,16 +1,4 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "next.config.mjs",
-      "use": "@vercel/next"
-    }
-  ],
-  "functions": {
-    "app/api/socket/route.js": {
-      "maxDuration": 60
-    }
-  },
   "headers": [
     {
       "source": "/api/socket",
