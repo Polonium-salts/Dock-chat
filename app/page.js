@@ -16,7 +16,7 @@ import SettingsModal from './components/SettingsModal'
 import ProfilePage from './components/ProfilePage'
 import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
-import { checkDataRepository, getConfig, updateConfig } from '@/lib/github'
+import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory } from '@/lib/github'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -106,6 +106,16 @@ export default function Home() {
   // 加载历史消息
   const loadMessages = async (roomId) => {
     try {
+      if (session?.user?.login && session.accessToken) {
+        // 从 GitHub 加载聊天记录
+        const messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
+        if (messages && messages.length > 0) {
+          setMessages(messages)
+          return
+        }
+      }
+
+      // 如果没有保存的记录，从 API 加载
       const response = await fetch(`/api/messages?roomId=${roomId}`)
       const data = await response.json()
       if (response.ok) {
@@ -117,6 +127,24 @@ export default function Home() {
       console.error('Error loading messages:', error)
     }
   }
+
+  // 保存消息到 GitHub
+  const saveMessages = async (roomId, messages) => {
+    if (session?.user?.login && session.accessToken) {
+      try {
+        await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+      } catch (error) {
+        console.error('Error saving messages:', error)
+      }
+    }
+  }
+
+  // 在消息列表变化时保存
+  useEffect(() => {
+    if (activeChat && messages.length > 0) {
+      saveMessages(activeChat, messages)
+    }
+  }, [messages])
 
   // 切换聊天室时的处理
   useEffect(() => {
@@ -297,12 +325,11 @@ export default function Home() {
               if (config.kimi_settings?.api_key) {
                 setKimiApiKey(config.kimi_settings.api_key)
               }
-              if (config.chat_rooms?.length > 0) {
-                setContacts(prev => {
-                  const existingIds = new Set(prev.map(c => c.id))
-                  const newRooms = config.chat_rooms.filter(room => !existingIds.has(room.id))
-                  return [...prev, ...newRooms]
-                })
+              if (config.contacts?.length > 0) {
+                setContacts(config.contacts)
+              }
+              if (config.settings?.activeChat) {
+                setActiveChat(config.settings.activeChat)
               }
             }
           }
@@ -321,15 +348,16 @@ export default function Home() {
       try {
         const updatedConfig = {
           ...userConfig,
+          settings: {
+            ...userConfig.settings,
+            activeChat
+          },
+          contacts,
           kimi_settings: {
             ...userConfig.kimi_settings,
-            api_key: kimiApiKey
+            api_key: kimiApiKey,
+            isEnabled: contacts.some(c => c.id === 'kimi-ai')
           },
-          chat_rooms: contacts.filter(c => c.id !== 'public').map(c => ({
-            id: c.id,
-            name: c.name,
-            type: c.type
-          })),
           last_updated: new Date().toISOString()
         }
 
@@ -346,7 +374,7 @@ export default function Home() {
     if (userConfig) {
       saveConfig()
     }
-  }, [kimiApiKey, contacts])
+  }, [kimiApiKey, contacts, activeChat])
 
   // 修改添加 Kimi AI 聊天室函数
   const addKimiAIChat = () => {
@@ -585,7 +613,7 @@ export default function Home() {
         </main>
       </div>
 
-      {/* 加入聊��室模态框 */}
+      {/* 加入聊天室模态框 */}
       {showJoinModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
