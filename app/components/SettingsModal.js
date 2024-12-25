@@ -1,12 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import GitHubStorageSettings from './GitHubStorageSettings'
+import { useTheme } from '../providers/ThemeProvider'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
   const [activeTab, setActiveTab] = useState('general')
+  const { theme, setTheme } = useTheme()
 
   if (!isOpen) return null
+
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'dark' : 'light')
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -72,11 +79,33 @@ export default function SettingsModal({ isOpen, onClose, session }) {
             )}
 
             {activeTab === 'appearance' && (
-              <div className="p-4">
+              <div className="p-4 space-y-6">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
                   外观设置
                 </h3>
-                {/* 添加外观设置选项 */}
+                
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-base font-medium text-gray-900 dark:text-white">
+                        {theme === 'light' ? '浅色模式' : '深色模式'}
+                      </h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        选择您喜欢的主题模式
+                      </p>
+                    </div>
+                    <button
+                      onClick={toggleTheme}
+                      className="p-2 bg-white dark:bg-gray-600 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-500 transition-colors"
+                    >
+                      {theme === 'light' ? (
+                        <SunIcon className="w-6 h-6 text-yellow-500" />
+                      ) : (
+                        <MoonIcon className="w-6 h-6 text-blue-400" />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

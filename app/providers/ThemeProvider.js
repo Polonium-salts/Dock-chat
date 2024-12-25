@@ -11,26 +11,35 @@ export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState('light')
 
   useEffect(() => {
-    // 从 localStorage 获取主题设置
-    const savedTheme = localStorage.getItem('theme') || 'light'
-    setTheme(savedTheme)
-    document.documentElement.classList.toggle('dark', savedTheme === 'dark')
+    // 从 localStorage 加载主题设置
+    const savedTheme = localStorage.getItem('theme')
+    if (savedTheme) {
+      setTheme(savedTheme)
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      setTheme('dark')
+    }
   }, [])
 
-  const toggleTheme = (newTheme) => {
-    setTheme(newTheme)
-    localStorage.setItem('theme', newTheme)
-    document.documentElement.classList.toggle('dark', newTheme === 'dark')
-  }
+  useEffect(() => {
+    // 保存主题设置到 localStorage
+    localStorage.setItem('theme', theme)
+    
+    // 更新 document.documentElement 的 class
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [theme])
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme: toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   )
 }
 
-export const useTheme = () => {
+export function useTheme() {
   const context = useContext(ThemeContext)
   if (context === undefined) {
     throw new Error('useTheme must be used within a ThemeProvider')
