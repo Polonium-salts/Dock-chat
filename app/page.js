@@ -14,7 +14,9 @@ import {
 import Image from 'next/image'
 import SettingsModal from './components/SettingsModal'
 import ProfilePage from './components/ProfilePage'
+import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
+import { checkDataRepository, getConfig, updateConfig } from '@/lib/github'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -35,6 +37,8 @@ export default function Home() {
   const [showKimiModal, setShowKimiModal] = useState(false)
   const [kimiApiKey, setKimiApiKey] = useState('')
   const [isWaitingForKimi, setIsWaitingForKimi] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [userConfig, setUserConfig] = useState(null)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -276,7 +280,75 @@ export default function Home() {
     }
   }
 
-  // 添加 Kimi AI 聊天室
+  // 检查是否需要显示新手引导
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      if (session?.user?.login && session.accessToken) {
+        try {
+          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+          if (!hasRepo) {
+            setShowOnboarding(true)
+          } else {
+            // 如果仓库存在，加载用户配置
+            const config = await getConfig(session.accessToken, session.user.login)
+            if (config) {
+              setUserConfig(config)
+              // 恢复用户配置
+              if (config.kimi_settings?.api_key) {
+                setKimiApiKey(config.kimi_settings.api_key)
+              }
+              if (config.chat_rooms?.length > 0) {
+                setContacts(prev => {
+                  const existingIds = new Set(prev.map(c => c.id))
+                  const newRooms = config.chat_rooms.filter(room => !existingIds.has(room.id))
+                  return [...prev, ...newRooms]
+                })
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking repository:', error)
+        }
+      }
+    }
+
+    checkOnboarding()
+  }, [session])
+
+  // 保存配置到 GitHub
+  const saveConfig = async () => {
+    if (session?.user?.login && session.accessToken && userConfig) {
+      try {
+        const updatedConfig = {
+          ...userConfig,
+          kimi_settings: {
+            ...userConfig.kimi_settings,
+            api_key: kimiApiKey
+          },
+          chat_rooms: contacts.filter(c => c.id !== 'public').map(c => ({
+            id: c.id,
+            name: c.name,
+            type: c.type
+          })),
+          last_updated: new Date().toISOString()
+        }
+
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      } catch (error) {
+        console.error('Error saving config:', error)
+      }
+    }
+  }
+
+  // 在相关状态变化时保存配置
+  useEffect(() => {
+    if (userConfig) {
+      saveConfig()
+    }
+  }, [kimiApiKey, contacts])
+
+  // 修改添加 Kimi AI 聊天室函数
   const addKimiAIChat = () => {
     if (!kimiApiKey) {
       setShowKimiModal(true)
@@ -513,7 +585,7 @@ export default function Home() {
         </main>
       </div>
 
-      {/* 加入聊天室模态框 */}
+      {/* 加入聊��室模态框 */}
       {showJoinModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
@@ -601,6 +673,14 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {showOnboarding && (
+        <OnboardingModal
+          isOpen={showOnboarding}
+          onClose={() => setShowOnboarding(false)}
+          session={session}
+        />
       )}
     </div>
   )
