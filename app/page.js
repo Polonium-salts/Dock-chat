@@ -95,7 +95,7 @@ export default function Home() {
     }
   }, [session, activeChat])
 
-  // 初始化加载
+  // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
       if (session?.user?.login && session.accessToken) {
@@ -108,25 +108,26 @@ export default function Home() {
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
+            
             // 加载聊天室列表
             const rooms = await getChatRooms(session.accessToken, session.user.login)
             if (rooms.length > 0) {
               setContacts(prev => {
-                // 合并现有的联系人和从 GitHub 加载的聊天室
                 const existingIds = new Set(prev.map(c => c.id))
                 const newRooms = rooms.filter(room => !existingIds.has(room.id))
                 return [...prev, ...newRooms]
               })
             }
-            // 设置活动聊天室
+
+            // 设置活动聊天室并加载消息
+            let targetChat = 'public'
             if (config.settings?.activeChat) {
-              setActiveChat(config.settings.activeChat)
-              // 加载活动聊天室的消息
-              await loadMessages(config.settings.activeChat)
-            } else {
-              // 如果没有活动聊天室，加载公共聊天室的消息
-              await loadMessages('public')
+              targetChat = config.settings.activeChat
             }
+            setActiveChat(targetChat)
+
+            // 立即加载消息
+            await loadMessages(targetChat)
           }
         } catch (error) {
           console.error('Error initializing data:', error)
@@ -139,40 +140,54 @@ export default function Home() {
 
   // 修改 loadMessages 函数
   const loadMessages = async (roomId) => {
-    try {
-      if (session?.user?.login && session.accessToken) {
-        let messages = []
-        if (roomId === 'kimi-ai') {
-          // 加载 AI 聊天记录
-          messages = await loadAIChatHistory(session.accessToken, session.user.login)
-        } else {
-          // 加载普通聊天记录
-          messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
-        }
-        
-        if (messages && messages.length > 0) {
-          setMessages(messages)
-          return
-        }
+    if (!session?.user?.login || !session.accessToken) return
 
-        // 如果 GitHub 中没有记录，尝试从 API 加载
-        const response = await fetch(`/api/messages?roomId=${roomId}`)
-        const data = await response.json()
-        if (response.ok) {
-          setMessages(data.messages || [])
-          // 将从 API 加载的消息保存到 GitHub
-          if (data.messages?.length > 0) {
-            await saveMessages(roomId, data.messages)
-          }
-        } else {
-          console.error('Failed to load messages:', data.error)
+    try {
+      setIsLoading(true)
+      let messages = []
+
+      // 首先尝试从 GitHub 加载消息
+      if (roomId === 'kimi-ai') {
+        messages = await loadAIChatHistory(session.accessToken, session.user.login)
+      } else {
+        messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
+      }
+
+      if (messages && messages.length > 0) {
+        setMessages(messages)
+        return
+      }
+
+      // 如果 GitHub 中没有消息，尝试从 API 加载
+      const response = await fetch(`/api/messages?roomId=${roomId}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        const apiMessages = data.messages || []
+        setMessages(apiMessages)
+        
+        // 将从 API 加载的消息保存到 GitHub
+        if (apiMessages.length > 0) {
+          await saveChatHistory(session.accessToken, session.user.login, roomId, apiMessages)
         }
+      } else {
+        console.error('Failed to load messages:', data.error)
+        setMessages([])
       }
     } catch (error) {
       console.error('Error loading messages:', error)
-      setMessages([]) // 出错时清空消息列表
+      setMessages([])
+    } finally {
+      setIsLoading(false)
     }
   }
+
+  // 修改切换聊天室的逻辑
+  useEffect(() => {
+    if (session?.user?.login && session.accessToken && activeChat) {
+      loadMessages(activeChat)
+    }
+  }, [activeChat, session])
 
   // 保存消息到 GitHub
   const saveMessages = async (roomId, messages) => {
@@ -195,17 +210,6 @@ export default function Home() {
       saveMessages(activeChat, messages)
     }
   }, [messages])
-
-  // 切换聊天室时的处理
-  useEffect(() => {
-    if (activeChat === 'kimi-ai') {
-      // 切换到 Kimi AI 聊天室时加载历史记录
-      loadMessages('kimi-ai')
-    } else {
-      // 加载其他聊天室的消息
-      loadMessages(activeChat)
-    }
-  }, [activeChat])
 
   const handleKimiMessage = async (content) => {
     if (!kimiApiKey) {
@@ -503,7 +507,7 @@ export default function Home() {
     }
   }, [autoSaveInterval])
 
-  // 在消息变化时手动保存
+  // ��消息变化时手动保存
   useEffect(() => {
     const saveMessages = async () => {
       if (session?.user?.login && session.accessToken && messages.length > 0) {
@@ -653,7 +657,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 主聊天区域 - 优化滚动行为 */}
+      {/* 主聊天区�� - 优化滚动行为 */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
@@ -846,3 +850,4 @@ export default function Home() {
     </div>
   )
 }
+
