@@ -1,24 +1,25 @@
 {
-  "buildCommand": "prisma generate && next build",
-  "installCommand": "npm install --legacy-peer-deps",
-  "framework": "nextjs",
-  "headers": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/socket",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET,POST,OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type"
-        }
-      ]
+      "src": "package.json",
+      "use": "@vercel/next"
     }
-  ]
+  ],
+  "build": {
+    "env": {
+      "NEXTAUTH_URL": "https://dock-chat.vercel.app",
+      "NEXTAUTH_SECRET": "@nextauth_secret",
+      "GITHUB_ID": "@github_id",
+      "GITHUB_SECRET": "@github_secret",
+      "DATABASE_URL": "@database_url"
+    }
+  },
+  "env": {
+    "NEXTAUTH_URL": "https://dock-chat.vercel.app",
+    "NEXTAUTH_SECRET": "@nextauth_secret",
+    "GITHUB_ID": "@github_id",
+    "GITHUB_SECRET": "@github_secret",
+    "DATABASE_URL": "@database_url"
+  }
 } 

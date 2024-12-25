@@ -1,13 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'avatars.githubusercontent.com',
-      },
-    ],
-    unoptimized: true,
+    domains: ['avatars.githubusercontent.com'],
+  },
+  experimental: {
+    serverActions: true,
   },
   webpack: (config) => {
     config.externals.push({
@@ -15,18 +12,6 @@ const nextConfig = {
       'bufferutil': 'commonjs bufferutil',
     })
     return config
-  },
-  async headers() {
-    return [
-      {
-        source: '/api/socket',
-        headers: [
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'Content-Type' },
-        ],
-      },
-    ]
   },
 }
 
