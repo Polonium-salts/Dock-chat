@@ -95,37 +95,82 @@ export default function Home() {
     }
   }, [session, activeChat])
 
-  // 加载历史消息
+  // 初始化加载
+  useEffect(() => {
+    const initializeData = async () => {
+      if (session?.user?.login && session.accessToken) {
+        try {
+          // 加载用户配置
+          const config = await getConfig(session.accessToken, session.user.login)
+          if (config) {
+            setUserConfig(config)
+            // 恢复用户配置
+            if (config.kimi_settings?.api_key) {
+              setKimiApiKey(config.kimi_settings.api_key)
+            }
+            // 加载聊天室列表
+            const rooms = await getChatRooms(session.accessToken, session.user.login)
+            if (rooms.length > 0) {
+              setContacts(prev => {
+                // 合并现有的联系人和从 GitHub 加载的聊天室
+                const existingIds = new Set(prev.map(c => c.id))
+                const newRooms = rooms.filter(room => !existingIds.has(room.id))
+                return [...prev, ...newRooms]
+              })
+            }
+            // 设置活动聊天室
+            if (config.settings?.activeChat) {
+              setActiveChat(config.settings.activeChat)
+              // 加载活动聊天室的消息
+              await loadMessages(config.settings.activeChat)
+            } else {
+              // 如果没有活动聊天室，加载公共聊天室的消息
+              await loadMessages('public')
+            }
+          }
+        } catch (error) {
+          console.error('Error initializing data:', error)
+        }
+      }
+    }
+
+    initializeData()
+  }, [session])
+
+  // 修改 loadMessages 函数
   const loadMessages = async (roomId) => {
     try {
       if (session?.user?.login && session.accessToken) {
+        let messages = []
         if (roomId === 'kimi-ai') {
           // 加载 AI 聊天记录
-          const messages = await loadAIChatHistory(session.accessToken, session.user.login)
-          if (messages && messages.length > 0) {
-            setMessages(messages)
-            return
-          }
+          messages = await loadAIChatHistory(session.accessToken, session.user.login)
         } else {
           // 加载普通聊天记录
-          const messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
-          if (messages && messages.length > 0) {
-            setMessages(messages)
-            return
-          }
+          messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
         }
-      }
+        
+        if (messages && messages.length > 0) {
+          setMessages(messages)
+          return
+        }
 
-      // 如果没有保存的记录，从 API 加载
-      const response = await fetch(`/api/messages?roomId=${roomId}`)
-      const data = await response.json()
-      if (response.ok) {
-        setMessages(data.messages || [])
-      } else {
-        console.error('Failed to load messages:', data.error)
+        // 如果 GitHub 中没有记录，尝试从 API 加载
+        const response = await fetch(`/api/messages?roomId=${roomId}`)
+        const data = await response.json()
+        if (response.ok) {
+          setMessages(data.messages || [])
+          // 将从 API 加载的消息保存到 GitHub
+          if (data.messages?.length > 0) {
+            await saveMessages(roomId, data.messages)
+          }
+        } else {
+          console.error('Failed to load messages:', data.error)
+        }
       }
     } catch (error) {
       console.error('Error loading messages:', error)
+      setMessages([]) // 出错时清空消息列表
     }
   }
 
