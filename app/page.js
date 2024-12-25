@@ -153,7 +153,7 @@ export default function Home() {
   // 切换聊天室时的处理
   useEffect(() => {
     if (activeChat === 'kimi-ai') {
-      // 切换到 Kimi AI 聊天室时加载历史记录
+      // 切换到 Kimi AI 聊天室时加���历史记录
       loadMessages('kimi-ai')
     } else {
       // 加载其他聊天室的消息
@@ -441,9 +441,10 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* 侧边栏 */}
-      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+      {/* 左侧导航栏 - 添加固定宽度 */}
+      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        {/* 用户信息区域 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             {session.user.image && (
@@ -464,6 +465,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* 聊天室列表 - 添加固定高度和滚动 */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {contacts.map(contact => (
             <button
@@ -476,15 +478,15 @@ export default function Home() {
               }`}
             >
               {contact.type === 'ai' ? (
-                <SparklesIcon className="w-5 h-5" />
+                <SparklesIcon className="w-5 h-5 flex-shrink-0" />
               ) : (
-                <UserGroupIcon className="w-5 h-5" />
+                <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
               )}
               <span className="flex-1 text-left text-sm font-medium truncate">
                 {contact.name}
               </span>
               {contact.unread > 0 && (
-                <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
                   {contact.unread}
                 </span>
               )}
@@ -492,6 +494,7 @@ export default function Home() {
           ))}
         </div>
 
+        {/* 底部按钮区域 */}
         <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
           <button
             onClick={addKimiAIChat}
@@ -532,9 +535,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 主聊天区域 */}
-      <div className="flex-1 flex flex-col">
-        <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+      {/* 主聊天区域 - 优化滚动行为 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
               {currentView === 'chat' 
@@ -548,16 +551,17 @@ export default function Home() {
         <main className="flex-1 p-4 overflow-hidden">
           {currentView === 'chat' ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
+              {/* 消息列表区域 - 优化滚动容器 */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {messages.map((message, index) => (
                   <div
                     key={index}
                     className={`flex ${
-                      message.user.id === session.user.id ? 'justify-end' : 'justify-start'
+                      message.user.id === session?.user?.id ? 'justify-end' : 'justify-start'
                     }`}
                   >
                     <div className={`flex items-start gap-3 max-w-[70%] ${
-                      message.user.id === session.user.id ? 'flex-row-reverse' : ''
+                      message.user.id === session?.user?.id ? 'flex-row-reverse' : ''
                     }`}>
                       {message.user.image && (
                         <Image
@@ -565,16 +569,16 @@ export default function Home() {
                           alt={message.user.name || '用户头像'}
                           width={40}
                           height={40}
-                          className="rounded-full"
+                          className="rounded-full flex-shrink-0"
                         />
                       )}
                       <div className={`flex flex-col ${
-                        message.user.id === session.user.id ? 'items-end' : 'items-start'
+                        message.user.id === session?.user?.id ? 'items-end' : 'items-start'
                       }`}>
-                        <div className={`rounded-2xl p-4 ${
+                        <div className={`rounded-2xl p-4 break-words ${
                           message.isTyping ? 'bg-gray-100 dark:bg-gray-700 animate-pulse' :
                           message.isError ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400' :
-                          message.user.id === session.user.id
+                          message.user.id === session?.user?.id
                             ? 'bg-blue-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                         }`}>
@@ -591,7 +595,8 @@ export default function Home() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <form onSubmit={sendMessage} className="p-4 border-t border-gray-100 dark:border-gray-700">
+              {/* 输入框区域 - 固定在底部 */}
+              <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
                 <div className="flex items-center gap-4">
                   <input
                     type="text"
@@ -603,7 +608,7 @@ export default function Home() {
                   />
                   <button
                     type="submit"
-                    className={`p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
+                    className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
                       isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
                     }`}
                     disabled={!newMessage.trim() || !session || isSending}
