@@ -39,6 +39,7 @@ export default function Home() {
   const [isWaitingForKimi, setIsWaitingForKimi] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [userConfig, setUserConfig] = useState(null)
+  const [isSending, setIsSending] = useState(false)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -48,13 +49,13 @@ export default function Home() {
   // WebSocket 连接
   useEffect(() => {
     if (session) {
-      const socket = io('', {
+      console.log('Initializing socket connection...')
+      const socket = io(window.location.origin, {
         path: '/api/socket',
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        timeout: 10000,
       })
 
       socket.on('connect', () => {
@@ -69,17 +70,11 @@ export default function Home() {
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
-        // 尝试重新连接
-        socket.connect()
       })
 
       socket.on('disconnect', (reason) => {
         console.log('Socket disconnected:', reason)
         setIsConnected(false)
-        // 如果不是主动断开连接，尝试重新连接
-        if (reason !== 'io client disconnect') {
-          socket.connect()
-        }
       })
 
       socket.on('message', (message) => {
@@ -88,15 +83,11 @@ export default function Home() {
       })
 
       setSocket(socket)
-      loadMessages(activeChat)
 
-      // 确保组件卸载时清理连接
       return () => {
-        if (socket) {
-          socket.emit('leave', {
-            room: activeChat,
-            userId: session.user.id
-          })
+        console.log('Cleaning up socket connection...')
+        if (socket.connected) {
+          socket.emit('leave', { room: activeChat })
           socket.disconnect()
         }
       }
@@ -226,9 +217,10 @@ export default function Home() {
 
   const sendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !session) return
+    if (!newMessage.trim() || !session || isSending) return
 
     try {
+      setIsSending(true)
       const message = {
         content: newMessage,
         user: {
@@ -242,7 +234,7 @@ export default function Home() {
 
       console.log('Sending message:', message)
       
-      if (socket && socket.connected) {
+      if (socket?.connected) {
         socket.emit('message', message)
         setNewMessage('')
         
@@ -250,23 +242,31 @@ export default function Home() {
         if (activeChat === 'kimi-ai') {
           handleKimiMessage(message.content)
         }
+
+        // 保存消息到历史记录
+        setMessages(prev => [...prev, message])
+        if (session?.user?.login && session.accessToken) {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message])
+        }
       } else {
-        console.log('Attempting to reconnect...')
-        socket?.connect()
-        setTimeout(() => {
-          if (socket?.connected) {
-            socket.emit('message', message)
-            setNewMessage('')
-            if (activeChat === 'kimi-ai') {
-              handleKimiMessage(message.content)
-            }
-          } else {
-            console.error('Failed to send message: Socket not connected')
-          }
-        }, 1000)
+        console.error('Socket not connected')
+        throw new Error('Socket not connected')
       }
     } catch (error) {
       console.error('Failed to send message:', error)
+      // 显示错误提示
+      setMessages(prev => [...prev, {
+        content: '消息发送失败，请重试',
+        user: {
+          name: 'System',
+          image: '/system-avatar.png',
+          id: 'system'
+        },
+        isError: true,
+        createdAt: new Date().toISOString(),
+      }])
+    } finally {
+      setIsSending(false)
     }
   }
 
@@ -596,13 +596,20 @@ export default function Home() {
                     onChange={(e) => setNewMessage(e.target.value)}
                     className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
                     placeholder="输入消息..."
+                    disabled={isSending}
                   />
                   <button
                     type="submit"
-                    className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors duration-200"
-                    disabled={!newMessage.trim() || !session}
+                    className={`p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
+                      isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
+                    }`}
+                    disabled={!newMessage.trim() || !session || isSending}
                   >
-                    <PaperAirplaneIcon className="h-6 w-6" />
+                    {isSending ? (
+                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <PaperAirplaneIcon className="h-6 w-6" />
+                    )}
                   </button>
                 </div>
               </form>
