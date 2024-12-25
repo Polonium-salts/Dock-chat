@@ -5,15 +5,19 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
-  title: 'Dock Chat - 实时聊天，随时交流',
-  description: '实时聊天，随时交流',
+  title: 'Telegraph Chat - 实时聊天应用',
+  description: '一个基于 Next.js 和 GitHub 认证的实时聊天应用',
 }
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang="zh-CN" className="h-full">
       <body className={`${inter.className} h-full antialiased`}>
-        <Providers>{children}</Providers>
+        <Providers>
+          <div className="min-h-full">
+            {children}
+          </div>
+        </Providers>
       </body>
     </html>
   )

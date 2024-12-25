@@ -17,8 +17,6 @@ import ProfilePage from './components/ProfilePage'
 import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
 import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, saveAIChatHistory, loadAIChatHistory } from '@/lib/github'
-import { v4 as uuidv4 } from 'uuid'
-import { toast } from 'react-hot-toast'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -155,7 +153,7 @@ export default function Home() {
   // 切换聊天室时的处理
   useEffect(() => {
     if (activeChat === 'kimi-ai') {
-      // 切换到 Kimi AI 聊天室时加载历史记录
+      // 切换到 Kimi AI 聊天室时加���历史记录
       loadMessages('kimi-ai')
     } else {
       // 加载其他聊天室的消息
@@ -221,66 +219,57 @@ export default function Home() {
     }
   }
 
-  const sendMessage = async (newMessage) => {
+  const sendMessage = async (e) => {
+    e.preventDefault()
+    if (!newMessage.trim() || !session || isSending) return
+
     try {
+      setIsSending(true)
       const message = {
-        id: uuidv4(),
         content: newMessage,
-        createdAt: new Date().toISOString(),
         user: {
-          id: session?.user?.id,
-          name: session?.user?.name,
-          image: session?.user?.image
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
         },
-        room: activeChat
+        room: activeChat,
+        createdAt: new Date().toISOString(),
       }
+
+      console.log('Sending message:', message)
+      
+      // 添加消息到本地状态
+      setMessages(prev => [...prev, message])
+      setNewMessage('')
 
       // 发送消息到 Socket.IO
-      socket.emit('message', message)
+      if (socket?.connected && activeChat !== 'kimi-ai') {
+        socket.emit('message', message)
+      }
 
-      // 更新本地消息列表
-      setMessages(prev => [...prev, message])
-
-      // 如果是 AI 聊天，发送消息给 AI 并获取响应
+      // 如果是在 Kimi AI 聊天室中，发送消息给 AI
       if (activeChat === 'kimi-ai') {
-        const aiResponse = await sendMessageToKimi(newMessage, kimiApiKey)
-        if (aiResponse) {
-          const aiMessage = {
-            id: uuidv4(),
-            content: aiResponse,
-            createdAt: new Date().toISOString(),
-            user: {
-              id: 'ai',
-              name: 'Kimi AI',
-              image: '/ai-avatar.png'
-            },
-            room: activeChat
-          }
-          socket.emit('message', aiMessage)
-          setMessages(prev => [...prev, aiMessage])
-        }
+        await handleKimiMessage(message.content)
       }
 
-      // 如果启用了自动保存，保存消息到 GitHub
-      if (settings?.github_settings?.autoSavePrivateChats) {
-        const isGroupChat = activeChat === 'public' || rooms.find(r => r.id === activeChat)?.type === 'group'
-        const isPrivateChat = !isGroupChat && activeChat !== 'kimi-ai'
-        const isAIChat = activeChat === 'kimi-ai'
-
-        await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message], {
-          checkSettings: true,
-          isGroupChat,
-          isPrivateChat,
-          isAIChat,
-          participants: isPrivateChat ? [session.user.id, message.user.id] : []
-        })
-      }
-
-      // 清空输入框
-      setNewMessage('')
+      // 保存消息到 GitHub
+      const updatedMessages = [...messages, message]
+      await saveMessages(activeChat, updatedMessages)
     } catch (error) {
-      console.error('Error sending message:', error)
-      toast.error('发送消息失败，请重试')
+      console.error('Failed to send message:', error)
+      // 显示错误提示
+      setMessages(prev => [...prev.slice(0, -1), {
+        content: '消息发送失败，请重试',
+        user: {
+          name: 'System',
+          image: '/system-avatar.png',
+          id: 'system'
+        },
+        isError: true,
+        createdAt: new Date().toISOString(),
+      }])
+    } finally {
+      setIsSending(false)
     }
   }
 
