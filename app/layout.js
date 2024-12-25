@@ -7,14 +7,13 @@ import { AuthProvider } from './providers'
 
 const inter = Inter({ subsets: ['latin'] })
 
-export const metadata = {
-  title: 'Dock Chat',
-  description: '实时聊天，随时交流',
-}
-
 export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <title>Dock Chat - 实时聊天，随时交流</title>
+        <meta name="description" content="实时聊天，随时交流" />
+      </head>
       <body className={`${inter.className} h-full antialiased`}>
         <AuthProvider>
           <div className="min-h-full">
