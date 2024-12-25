@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { useTheme } from '../providers/ThemeProvider'
 import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import GitHubStorageSettings from './GitHubStorageSettings'
-import { useTheme } from '../providers/ThemeProvider'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
   const [activeTab, setActiveTab] = useState('general')
@@ -101,9 +101,27 @@ export default function SettingsModal({ isOpen, onClose, session }) {
                       {theme === 'light' ? (
                         <SunIcon className="w-6 h-6 text-yellow-500" />
                       ) : (
-                        <MoonIcon className="w-6 h-6 text-blue-400" />
+                        <MoonIcon className="w-6 h-6 text-blue-500" />
                       )}
                     </button>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  <h4 className="text-base font-medium text-gray-900 dark:text-white mb-2">
+                    字体设置
+                  </h4>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                        字体大小
+                      </label>
+                      <select className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-600 dark:border-gray-500">
+                        <option value="small">小</option>
+                        <option value="medium">中</option>
+                        <option value="large">大</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
