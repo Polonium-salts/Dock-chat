@@ -40,6 +40,7 @@ export default function Home() {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [userConfig, setUserConfig] = useState(null)
   const [isSending, setIsSending] = useState(false)
+  const [autoSaveInterval, setAutoSaveInterval] = useState(null)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -153,7 +154,7 @@ export default function Home() {
   // 切换聊天室时的处理
   useEffect(() => {
     if (activeChat === 'kimi-ai') {
-      // 切换到 Kimi AI 聊天室时加���历史记录
+      // 切换到 Kimi AI 聊天室时加载历史记录
       loadMessages('kimi-ai')
     } else {
       // 加载其他聊天室的消息
@@ -402,6 +403,78 @@ export default function Home() {
     setActiveChat('kimi-ai')
     setMessages([])
   }
+
+  // 加载用户设置
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (session?.user?.login && session.accessToken) {
+        try {
+          const config = await getConfig(session.accessToken, session.user.login)
+          if (config?.general_settings?.autoSaveToGitHub) {
+            // 设置自动保存间隔
+            const interval = config.general_settings.saveInterval || 5
+            setupAutoSave(interval)
+          }
+        } catch (error) {
+          console.error('Error loading user settings:', error)
+        }
+      }
+    }
+
+    loadUserSettings()
+    return () => {
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+      }
+    }
+  }, [session])
+
+  // 设置自动保存
+  const setupAutoSave = (interval) => {
+    if (autoSaveInterval) {
+      clearInterval(autoSaveInterval)
+    }
+
+    const newInterval = setInterval(async () => {
+      if (session?.user?.login && session.accessToken && messages.length > 0) {
+        try {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+          console.log('Auto-saved messages to GitHub')
+        } catch (error) {
+          console.error('Error auto-saving messages:', error)
+        }
+      }
+    }, interval * 60 * 1000) // 转换为毫秒
+
+    setAutoSaveInterval(newInterval)
+  }
+
+  // 在组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+      }
+    }
+  }, [autoSaveInterval])
+
+  // 在消息变化时手动保存
+  useEffect(() => {
+    const saveMessages = async () => {
+      if (session?.user?.login && session.accessToken && messages.length > 0) {
+        try {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+        } catch (error) {
+          console.error('Error saving messages:', error)
+        }
+      }
+    }
+
+    // 如果有消息更新，就保存
+    if (messages.length > 0) {
+      saveMessages()
+    }
+  }, [messages])
 
   if (status === 'loading') {
     return (
