@@ -13,10 +13,12 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={`${inter.className} antialiased`}>
         <AuthProvider>
           <ThemeProvider>
-            {children}
+            <div className="min-h-screen">
+              {children}
+            </div>
           </ThemeProvider>
         </AuthProvider>
       </body>
