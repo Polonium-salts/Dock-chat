@@ -5,6 +5,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: true,
+    serverComponentsExternalPackages: ['@prisma/client']
   },
   webpack: (config) => {
     config.externals.push({
