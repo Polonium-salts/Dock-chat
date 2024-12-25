@@ -1,12 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { useTheme } from '../providers/ThemeProvider'
+import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import GitHubStorageSettings from './GitHubStorageSettings'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
   const [activeTab, setActiveTab] = useState('general')
+  const { theme, setTheme } = useTheme()
 
   if (!isOpen) return null
+
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'dark' : 'light')
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -72,11 +79,51 @@ export default function SettingsModal({ isOpen, onClose, session }) {
             )}
 
             {activeTab === 'appearance' && (
-              <div className="p-4">
+              <div className="p-4 space-y-6">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
                   外观设置
                 </h3>
-                {/* 添加外观设置选项 */}
+                
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-base font-medium text-gray-900 dark:text-white">
+                        {theme === 'light' ? '浅色模式' : '深色模式'}
+                      </h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        选择您喜欢的主题模式
+                      </p>
+                    </div>
+                    <button
+                      onClick={toggleTheme}
+                      className="p-2 bg-white dark:bg-gray-600 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-500 transition-colors"
+                    >
+                      {theme === 'light' ? (
+                        <SunIcon className="w-6 h-6 text-yellow-500" />
+                      ) : (
+                        <MoonIcon className="w-6 h-6 text-blue-500" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  <h4 className="text-base font-medium text-gray-900 dark:text-white mb-2">
+                    字体设置
+                  </h4>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                        字体大小
+                      </label>
+                      <select className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-600 dark:border-gray-500">
+                        <option value="small">小</option>
+                        <option value="medium">中</option>
+                        <option value="large">大</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
