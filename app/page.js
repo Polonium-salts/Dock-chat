@@ -16,7 +16,7 @@ import SettingsModal from './components/SettingsModal'
 import ProfilePage from './components/ProfilePage'
 import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
-import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory } from '@/lib/github'
+import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, saveAIChatHistory, loadAIChatHistory } from '@/lib/github'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -98,11 +98,20 @@ export default function Home() {
   const loadMessages = async (roomId) => {
     try {
       if (session?.user?.login && session.accessToken) {
-        // 从 GitHub 加载聊天记录
-        const messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
-        if (messages && messages.length > 0) {
-          setMessages(messages)
-          return
+        if (roomId === 'kimi-ai') {
+          // 加载 AI 聊天记录
+          const messages = await loadAIChatHistory(session.accessToken, session.user.login)
+          if (messages && messages.length > 0) {
+            setMessages(messages)
+            return
+          }
+        } else {
+          // 加载普通聊天记录
+          const messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
+          if (messages && messages.length > 0) {
+            setMessages(messages)
+            return
+          }
         }
       }
 
@@ -123,7 +132,11 @@ export default function Home() {
   const saveMessages = async (roomId, messages) => {
     if (session?.user?.login && session.accessToken) {
       try {
-        await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+        if (roomId === 'kimi-ai') {
+          await saveAIChatHistory(session.accessToken, session.user.login, messages)
+        } else {
+          await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+        }
       } catch (error) {
         console.error('Error saving messages:', error)
       }
@@ -140,17 +153,8 @@ export default function Home() {
   // 切换聊天室时的处理
   useEffect(() => {
     if (activeChat === 'kimi-ai') {
-      // 切换到 Kimi AI 聊天室时清除历史对话
-      clearKimiConversation()
-      setMessages([{
-        content: '你好！我是 Kimi AI 助手，很高兴为您服务。请问有什么我可以帮您的吗？',
-        user: {
-          name: 'Kimi AI',
-          image: '/kimi-avatar.png',
-          id: 'kimi-ai'
-        },
-        createdAt: new Date().toISOString(),
-      }])
+      // 切换到 Kimi AI 聊天室时加载历史记录
+      loadMessages('kimi-ai')
     } else {
       // 加载其他聊天室的消息
       loadMessages(activeChat)
@@ -234,28 +238,27 @@ export default function Home() {
 
       console.log('Sending message:', message)
       
-      if (socket?.connected) {
-        socket.emit('message', message)
-        setNewMessage('')
-        
-        // 如果是在 Kimi AI 聊天室中，发送消息给 AI
-        if (activeChat === 'kimi-ai') {
-          handleKimiMessage(message.content)
-        }
+      // 添加消息到本地状态
+      setMessages(prev => [...prev, message])
+      setNewMessage('')
 
-        // 保存消息到历史记录
-        setMessages(prev => [...prev, message])
-        if (session?.user?.login && session.accessToken) {
-          await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message])
-        }
-      } else {
-        console.error('Socket not connected')
-        throw new Error('Socket not connected')
+      // 发送消息到 Socket.IO
+      if (socket?.connected && activeChat !== 'kimi-ai') {
+        socket.emit('message', message)
       }
+
+      // 如果是在 Kimi AI 聊天室中，发送消息给 AI
+      if (activeChat === 'kimi-ai') {
+        await handleKimiMessage(message.content)
+      }
+
+      // 保存消息到 GitHub
+      const updatedMessages = [...messages, message]
+      await saveMessages(activeChat, updatedMessages)
     } catch (error) {
       console.error('Failed to send message:', error)
       // 显示错误提示
-      setMessages(prev => [...prev, {
+      setMessages(prev => [...prev.slice(0, -1), {
         content: '消息发送失败，请重试',
         user: {
           name: 'System',
