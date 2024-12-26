@@ -104,7 +104,7 @@ export default function Home() {
     const initializeData = async () => {
       if (session?.user?.login && session.accessToken) {
         try {
-          // 加载用户配置
+          // 加载用户���置
           const config = await getConfig(session.accessToken, session.user.login)
           if (config) {
             setUserConfig(config)
@@ -151,26 +151,28 @@ export default function Home() {
       let messages = []
 
       if (roomId === 'public') {
-        // 加载系统通知
-        const notifications = await getSystemNotifications(session.accessToken, session.user.login)
-        messages = notifications.map(notification => ({
-          content: notification.content,
-          user: notification.user,
-          createdAt: notification.timestamp,
-          type: notification.type,
-          metadata: notification.metadata
-        }))
+        // 加载系统通知和公共聊天记录
+        const [notifications, chatHistory] = await Promise.all([
+          getSystemNotifications(session.accessToken, session.user.login),
+          loadChatHistory(session.accessToken, session.user.login, 'public')
+        ])
+
+        // 合并系统通知和聊天记录，按时间排序
+        messages = [
+          ...notifications.map(notification => ({
+            ...notification,
+            createdAt: notification.timestamp,
+            type: 'system'
+          })),
+          ...(chatHistory || []).filter(msg => msg.type !== 'system')
+        ].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
       } else if (roomId === 'kimi-ai') {
         messages = await loadAIChatHistory(session.accessToken, session.user.login)
       } else {
         messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
       }
 
-      if (messages && messages.length > 0) {
-        setMessages(messages)
-      } else {
-        setMessages([])
-      }
+      setMessages(messages || [])
     } catch (error) {
       console.error('Error loading messages:', error)
       setMessages([])
@@ -317,11 +319,11 @@ export default function Home() {
   };
 
   const sendMessage = async (e) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !session || isSending) return;
+    e.preventDefault()
+    if (!newMessage.trim() || !session || isSending) return
 
     try {
-      setIsSending(true);
+      setIsSending(true)
       const message = {
         content: newMessage,
         user: {
@@ -330,27 +332,29 @@ export default function Home() {
           id: session.user.id
         },
         createdAt: new Date().toISOString()
-      };
+      }
 
       // 添加消息到本地状态
-      const updatedMessages = [...messages, message];
-      setMessages(updatedMessages);
-      setNewMessage('');
+      setMessages(prev => [...prev, message])
+      setNewMessage('')
 
       // 发送消息到 Socket.IO
-      if (socket?.connected && activeChat !== 'kimi-ai') {
-        socket.emit('message', message);
+      if (socket?.connected) {
+        socket.emit('message', {
+          ...message,
+          room: activeChat
+        })
       }
 
-      // 如果是在 Kimi AI 聊天室中，发送消息给 AI
+      // 根据聊天室类型保存消息
       if (activeChat === 'kimi-ai') {
-        await handleKimiMessage(message.content);
+        await handleKimiMessage(message.content)
+      } else {
+        const updatedMessages = [...messages, message]
+        await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
       }
-
-      // 保存消息到 GitHub
-      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('Failed to send message:', error)
       setMessages(prev => [...prev.slice(0, -1), {
         content: '消息发送失败，请重试',
         user: {
@@ -360,11 +364,11 @@ export default function Home() {
         },
         isError: true,
         createdAt: new Date().toISOString()
-      }]);
+      }])
     } finally {
-      setIsSending(false);
+      setIsSending(false)
     }
-  };
+  }
 
   const handleJoin = async (e) => {
     e.preventDefault()
@@ -386,7 +390,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           roomId: joinInput,
-          name: `聊��室 ${joinInput}`
+          name: `聊天室 ${joinInput}`
         })
       })
 
