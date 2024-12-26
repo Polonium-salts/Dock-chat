@@ -17,6 +17,7 @@ import ProfilePage from './components/ProfilePage'
 import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
 import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, saveAIChatHistory, loadAIChatHistory } from '@/lib/github'
+import ChatRoomSettings from './components/ChatRoomSettings'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -41,6 +42,7 @@ export default function Home() {
   const [userConfig, setUserConfig] = useState(null)
   const [isSending, setIsSending] = useState(false)
   const [autoSaveInterval, setAutoSaveInterval] = useState(null)
+  const [showChatSettings, setShowChatSettings] = useState(false)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -571,6 +573,39 @@ export default function Home() {
     }
   }, [messages])
 
+  // 添加删除聊天室的函数
+  const handleDeleteChatRoom = async (roomId) => {
+    if (!session?.user?.login || !session.accessToken) return
+    if (roomId === 'public' || roomId === 'kimi-ai') {
+      alert('系统聊天室不能删除')
+      return
+    }
+
+    try {
+      // 从联系人列表中移除
+      setContacts(prev => prev.filter(c => c.id !== roomId))
+      
+      // 如果当前正在查看被删除的聊天室，切换到公共聊天室
+      if (activeChat === roomId) {
+        setActiveChat('public')
+      }
+
+      // 更新配置
+      const config = await getConfig(session.accessToken, session.user.login)
+      const updatedConfig = {
+        ...config,
+        contacts: contacts.filter(c => c.id !== roomId),
+        last_updated: new Date().toISOString()
+      }
+      await updateConfig(session.accessToken, session.user.login, updatedConfig)
+
+      // 可以选择是否也从 GitHub 仓库中删除聊天记录
+      // 这里暂时不实现，因为可能需要保留历史记录
+    } catch (error) {
+      console.error('Error deleting chat room:', error)
+    }
+  }
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -706,13 +741,28 @@ export default function Home() {
       {/* 主聊天区 - 优化滚动行为 */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-3">
+          <div className="px-4 py-3 flex items-center justify-between relative">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
               {currentView === 'chat' 
                 ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
                 : '个人主页'
               }
             </h1>
+            {currentView === 'chat' && (
+              <button
+                onClick={() => setShowChatSettings(!showChatSettings)}
+                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <Cog6ToothIcon className="w-5 h-5" />
+              </button>
+            )}
+            {showChatSettings && (
+              <ChatRoomSettings
+                room={contacts.find(c => c.id === activeChat) || { id: activeChat }}
+                onDelete={handleDeleteChatRoom}
+                onClose={() => setShowChatSettings(false)}
+              />
+            )}
           </div>
         </header>
 
