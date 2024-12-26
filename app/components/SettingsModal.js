@@ -6,6 +6,7 @@ import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import { signOut } from 'next-auth/react'
 import { getConfig, updateConfig } from '@/lib/github'
 import LogoutButton from './LogoutButton'
+import GitHubStorageSettings from './GitHubStorageSettings'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
   const [activeTab, setActiveTab] = useState('general')
@@ -92,6 +93,16 @@ export default function SettingsModal({ isOpen, onClose, session }) {
               常规
             </button>
             <button
+              onClick={() => setActiveTab('github')}
+              className={`px-4 py-2 text-sm font-medium ${
+                activeTab === 'github'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              }`}
+            >
+              GitHub 存储
+            </button>
+            <button
               onClick={() => setActiveTab('appearance')}
               className={`px-4 py-2 text-sm font-medium ${
                 activeTab === 'appearance'
@@ -176,6 +187,10 @@ export default function SettingsModal({ isOpen, onClose, session }) {
                   </button>
                 </div>
               </div>
+            )}
+
+            {activeTab === 'github' && (
+              <GitHubStorageSettings session={session} />
             )}
 
             {activeTab === 'appearance' && (
