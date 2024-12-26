@@ -152,29 +152,20 @@ export default function Home() {
       // 首先尝试从 GitHub 加载消息
       if (roomId === 'kimi-ai') {
         messages = await loadAIChatHistory(session.accessToken, session.user.login)
+      } else if (roomId === 'public') {
+        // 公共聊天室的消息从 API 加载
+        const response = await fetch('/api/messages?roomId=public')
+        const data = await response.json()
+        if (response.ok) {
+          messages = data.messages || []
+        }
       } else {
         messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
       }
 
       if (messages && messages.length > 0) {
         setMessages(messages)
-        return
-      }
-
-      // 如果 GitHub 中没有消息，尝试从 API 加载
-      const response = await fetch(`/api/messages?roomId=${roomId}`)
-      const data = await response.json()
-      
-      if (response.ok) {
-        const apiMessages = data.messages || []
-        setMessages(apiMessages)
-        
-        // 将从 API 加载的消息保存到 GitHub
-        if (apiMessages.length > 0) {
-          await saveChatHistory(session.accessToken, session.user.login, roomId, apiMessages)
-        }
       } else {
-        console.error('Failed to load messages:', data.error)
         setMessages([])
       }
     } catch (error) {
@@ -400,7 +391,7 @@ export default function Home() {
         setContacts(prev => [...prev, newContact])
         setJoinInput('')
         setShowJoinModal(false)
-        // 切换到新的聊天室
+        // 切换到新的聊天��
         setActiveChat(joinInput)
       } else {
         console.error('Failed to create chat room')
@@ -444,7 +435,7 @@ export default function Home() {
     checkOnboarding()
   }, [session])
 
-  // 保存配置到 GitHub
+  // 保存���置到 GitHub
   const saveConfig = async () => {
     if (session?.user?.login && session.accessToken && userConfig) {
       try {
@@ -607,7 +598,7 @@ export default function Home() {
     }
   }
 
-  // 在用户登录后发送登录信息
+  // 修改登录消息发送逻辑
   useEffect(() => {
     const sendLoginMessage = async () => {
       if (session?.user && socket?.connected) {
@@ -621,21 +612,36 @@ export default function Home() {
               id: 'system'
             },
             createdAt: new Date().toISOString(),
-            type: 'system'
+            type: 'system',
+            room: 'public'  // 确保消息发送到公共聊天室
           }
 
           // 发送消息到公共聊天室
-          socket.emit('message', { ...message, room: 'public' })
+          socket.emit('message', message)
 
-          // 如果当前在公共聊天室，也更新本地消息列表
+          // 更新本地消息列表
           if (activeChat === 'public') {
             setMessages(prev => [...prev, message])
           }
 
-          // 保存登录消息到 GitHub
-          if (session.accessToken) {
-            const publicMessages = await loadChatHistory(session.accessToken, session.user.login, 'public')
-            await saveChatHistory(session.accessToken, session.user.login, 'public', [...publicMessages, message])
+          // 保存登录消息到服务器
+          try {
+            const response = await fetch('/api/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                roomId: 'public',
+                message
+              })
+            })
+            
+            if (!response.ok) {
+              console.error('Failed to save login message')
+            }
+          } catch (error) {
+            console.error('Error saving login message:', error)
           }
         } catch (error) {
           console.error('Error sending login message:', error)
@@ -643,7 +649,11 @@ export default function Home() {
       }
     }
 
-    sendLoginMessage()
+    // 确保只在初始连接时发送一次登录消息
+    if (session?.user && socket?.connected && !socket._loginMessageSent) {
+      socket._loginMessageSent = true
+      sendLoginMessage()
+    }
   }, [session, socket?.connected])
 
   if (status === 'loading') {
