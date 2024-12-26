@@ -5,6 +5,7 @@ import { useTheme } from '../providers/ThemeProvider'
 import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import { signOut } from 'next-auth/react'
 import { getConfig, updateConfig } from '@/lib/github'
+import LogoutButton from './LogoutButton'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
   const [activeTab, setActiveTab] = useState('general')
@@ -59,10 +60,6 @@ export default function SettingsModal({ isOpen, onClose, session }) {
 
   const toggleTheme = () => {
     setTheme(theme === 'light' ? 'dark' : 'light')
-  }
-
-  const handleSignOut = () => {
-    signOut({ callbackUrl: '/' })
   }
 
   if (!isOpen) return null
@@ -178,18 +175,6 @@ export default function SettingsModal({ isOpen, onClose, session }) {
                     {isSaving ? '保存中...' : '保存设置'}
                   </button>
                 </div>
-
-                <div className="pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
-                  <button
-                    onClick={handleSignOut}
-                    className="w-full px-4 py-3 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
-                  >
-                    退出登录
-                  </button>
-                  <p className="mt-2 text-xs text-center text-gray-500 dark:text-gray-400">
-                    退出后需要重新登录才能继续使用
-                  </p>
-                </div>
               </div>
             )}
 
@@ -224,6 +209,8 @@ export default function SettingsModal({ isOpen, onClose, session }) {
               </div>
             )}
           </div>
+
+          <LogoutButton />
         </div>
       </div>
     </div>
