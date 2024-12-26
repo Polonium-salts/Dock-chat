@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from '../providers/ThemeProvider'
 import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
-import GitHubStorageSettings from './GitHubStorageSettings'
+import { signOut } from 'next-auth/react'
 import { getConfig, updateConfig } from '@/lib/github'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
@@ -61,6 +61,10 @@ export default function SettingsModal({ isOpen, onClose, session }) {
     setTheme(theme === 'light' ? 'dark' : 'light')
   }
 
+  const handleSignOut = () => {
+    signOut({ callbackUrl: '/' })
+  }
+
   if (!isOpen) return null
 
   return (
@@ -89,16 +93,6 @@ export default function SettingsModal({ isOpen, onClose, session }) {
               }`}
             >
               常规
-            </button>
-            <button
-              onClick={() => setActiveTab('github')}
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === 'github'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-              }`}
-            >
-              GitHub 存储
             </button>
             <button
               onClick={() => setActiveTab('appearance')}
@@ -184,11 +178,19 @@ export default function SettingsModal({ isOpen, onClose, session }) {
                     {isSaving ? '保存中...' : '保存设置'}
                   </button>
                 </div>
-              </div>
-            )}
 
-            {activeTab === 'github' && (
-              <GitHubStorageSettings session={session} />
+                <div className="pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full px-4 py-3 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+                  >
+                    退出登录
+                  </button>
+                  <p className="mt-2 text-xs text-center text-gray-500 dark:text-gray-400">
+                    退出后需要重新登录才能继续使用
+                  </p>
+                </div>
+              </div>
             )}
 
             {activeTab === 'appearance' && (
@@ -217,24 +219,6 @@ export default function SettingsModal({ isOpen, onClose, session }) {
                         <MoonIcon className="w-6 h-6 text-blue-500" />
                       )}
                     </button>
-                  </div>
-                </div>
-
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                  <h4 className="text-base font-medium text-gray-900 dark:text-white mb-2">
-                    字体设置
-                  </h4>
-                  <div className="space-y-2">
-                    <div>
-                      <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
-                        字体大小
-                      </label>
-                      <select className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-600 dark:border-gray-500">
-                        <option value="small">小</option>
-                        <option value="medium">中</option>
-                        <option value="large">大</option>
-                      </select>
-                    </div>
                   </div>
                 </div>
               </div>
