@@ -106,7 +106,7 @@ export default function Home() {
           const config = await getConfig(session.accessToken, session.user.login)
           if (config) {
             setUserConfig(config)
-            // 恢复用户配置
+            // 恢复��户配置
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
@@ -582,7 +582,7 @@ export default function Home() {
     }
 
     try {
-      // 从联系人列表中移除
+      // 从���系人列表中移除
       setContacts(prev => prev.filter(c => c.id !== roomId))
       
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
@@ -758,7 +758,7 @@ export default function Home() {
             )}
             {showChatSettings && (
               <ChatRoomSettings
-                room={contacts.find(c => c.id === activeChat) || { id: activeChat }}
+                room={contacts.find(c => c.id === activeChat) || { id: activeChat, name: '聊天室' }}
                 onDelete={handleDeleteChatRoom}
                 onClose={() => setShowChatSettings(false)}
               />
