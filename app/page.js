@@ -19,6 +19,7 @@ import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
 import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, saveAIChatHistory, loadAIChatHistory } from '@/lib/github'
 import ChatRoomSettings from './components/ChatRoomSettings'
 import { generateLoginMessage } from '@/lib/userInfo'
+import { saveSystemNotification, getSystemNotifications, formatSystemNotification } from '@/lib/systemNotifications'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -149,16 +150,18 @@ export default function Home() {
       setIsLoading(true)
       let messages = []
 
-      // 首先尝试从 GitHub 加载消息
-      if (roomId === 'kimi-ai') {
+      if (roomId === 'public') {
+        // 加载系统通知
+        const notifications = await getSystemNotifications(session.accessToken, session.user.login)
+        messages = notifications.map(notification => ({
+          content: notification.content,
+          user: notification.user,
+          createdAt: notification.timestamp,
+          type: notification.type,
+          metadata: notification.metadata
+        }))
+      } else if (roomId === 'kimi-ai') {
         messages = await loadAIChatHistory(session.accessToken, session.user.login)
-      } else if (roomId === 'public') {
-        // 公共聊天室的消息从 API 加载
-        const response = await fetch('/api/messages?roomId=public')
-        const data = await response.json()
-        if (response.ok) {
-          messages = data.messages || []
-        }
       } else {
         messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
       }
@@ -383,7 +386,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           roomId: joinInput,
-          name: `聊天室 ${joinInput}`
+          name: `聊��室 ${joinInput}`
         })
       })
 
@@ -391,7 +394,7 @@ export default function Home() {
         setContacts(prev => [...prev, newContact])
         setJoinInput('')
         setShowJoinModal(false)
-        // 切换到新的聊天��
+        // 切换到新的聊天室
         setActiveChat(joinInput)
       } else {
         console.error('Failed to create chat room')
@@ -435,7 +438,7 @@ export default function Home() {
     checkOnboarding()
   }, [session])
 
-  // 保存���置到 GitHub
+  // 保存配置到 GitHub
   const saveConfig = async () => {
     if (session?.user?.login && session.accessToken && userConfig) {
       try {
@@ -604,44 +607,32 @@ export default function Home() {
       if (session?.user && socket?.connected) {
         try {
           const loginMessage = await generateLoginMessage(session)
-          const message = {
-            content: loginMessage,
-            user: {
-              name: 'System',
-              image: '/system-avatar.png',
-              id: 'system'
+          
+          // 格式化系统通知
+          const notification = await formatSystemNotification('login', {
+            message: loginMessage,
+            userInfo: {
+              name: session.user.name,
+              id: session.user.id,
+              email: session.user.email
             },
-            createdAt: new Date().toISOString(),
-            type: 'system',
-            room: 'public'  // 确保消息发送到公共聊天室
-          }
+            loginTime: new Date().toISOString()
+          })
 
-          // 发送消息到公共聊天室
-          socket.emit('message', message)
+          if (notification) {
+            // 保存到 GitHub
+            await saveSystemNotification(session.accessToken, session.user.login, notification)
 
-          // 更新本地消息列表
-          if (activeChat === 'public') {
-            setMessages(prev => [...prev, message])
-          }
-
-          // 保存登录消息到服务器
-          try {
-            const response = await fetch('/api/messages', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                roomId: 'public',
-                message
-              })
+            // 发送到 Socket
+            socket.emit('message', {
+              ...notification,
+              room: 'public'
             })
-            
-            if (!response.ok) {
-              console.error('Failed to save login message')
+
+            // 如果当前在公共聊天室，更新本地消息
+            if (activeChat === 'public') {
+              setMessages(prev => [...prev, notification])
             }
-          } catch (error) {
-            console.error('Error saving login message:', error)
           }
         } catch (error) {
           console.error('Error sending login message:', error)
