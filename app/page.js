@@ -18,6 +18,7 @@ import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
 import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, saveAIChatHistory, loadAIChatHistory } from '@/lib/github'
 import ChatRoomSettings from './components/ChatRoomSettings'
+import { generateLoginMessage } from '@/lib/userInfo'
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -106,7 +107,7 @@ export default function Home() {
           const config = await getConfig(session.accessToken, session.user.login)
           if (config) {
             setUserConfig(config)
-            // 恢复��户配置
+            // 恢复用户配置
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
@@ -582,7 +583,7 @@ export default function Home() {
     }
 
     try {
-      // 从���系人列表中移除
+      // 从联系人列表中移除
       setContacts(prev => prev.filter(c => c.id !== roomId))
       
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
@@ -605,6 +606,45 @@ export default function Home() {
       console.error('Error deleting chat room:', error)
     }
   }
+
+  // 在用户登录后发送登录信息
+  useEffect(() => {
+    const sendLoginMessage = async () => {
+      if (session?.user && socket?.connected) {
+        try {
+          const loginMessage = await generateLoginMessage(session)
+          const message = {
+            content: loginMessage,
+            user: {
+              name: 'System',
+              image: '/system-avatar.png',
+              id: 'system'
+            },
+            createdAt: new Date().toISOString(),
+            type: 'system'
+          }
+
+          // 发送消息到公共聊天室
+          socket.emit('message', { ...message, room: 'public' })
+
+          // 如果当前在公共聊天室，也更新本地消息列表
+          if (activeChat === 'public') {
+            setMessages(prev => [...prev, message])
+          }
+
+          // 保存登录消息到 GitHub
+          if (session.accessToken) {
+            const publicMessages = await loadChatHistory(session.accessToken, session.user.login, 'public')
+            await saveChatHistory(session.accessToken, session.user.login, 'public', [...publicMessages, message])
+          }
+        } catch (error) {
+          console.error('Error sending login message:', error)
+        }
+      }
+    }
+
+    sendLoginMessage()
+  }, [session, socket?.connected])
 
   if (status === 'loading') {
     return (
@@ -749,19 +789,24 @@ export default function Home() {
               }
             </h1>
             {currentView === 'chat' && (
-              <button
-                onClick={() => setShowChatSettings(!showChatSettings)}
-                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <Cog6ToothIcon className="w-5 h-5" />
-              </button>
-            )}
-            {showChatSettings && (
-              <ChatRoomSettings
-                room={contacts.find(c => c.id === activeChat) || { id: activeChat, name: '聊天室' }}
-                onDelete={handleDeleteChatRoom}
-                onClose={() => setShowChatSettings(false)}
-              />
+              <>
+                <button
+                  onClick={() => setShowChatSettings(!showChatSettings)}
+                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <Cog6ToothIcon className="w-5 h-5" />
+                </button>
+                {showChatSettings && (
+                  <ChatRoomSettings
+                    room={{
+                      id: activeChat,
+                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
+                    }}
+                    onDelete={handleDeleteChatRoom}
+                    onClose={() => setShowChatSettings(false)}
+                  />
+                )}
+              </>
             )}
           </div>
         </header>
