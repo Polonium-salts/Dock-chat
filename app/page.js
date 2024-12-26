@@ -184,10 +184,45 @@ export default function Home() {
 
   // 修改切换聊天室的逻辑
   useEffect(() => {
-    if (session?.user?.login && session.accessToken && activeChat) {
-      loadMessages(activeChat)
-    }
-  }, [activeChat, session])
+    const loadChatMessages = async () => {
+      if (!session?.user?.login || !session.accessToken || !activeChat) return;
+
+      try {
+        setIsLoading(true);
+        console.log('Loading messages for chat:', activeChat);
+
+        // 从 GitHub 加载消息
+        const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat);
+        console.log('Loaded messages:', messages);
+
+        if (Array.isArray(messages) && messages.length > 0) {
+          // 确保消息格式正确
+          const formattedMessages = messages.map(msg => ({
+            content: msg.content || '',
+            user: {
+              name: msg.user?.name || 'Unknown User',
+              image: msg.user?.image || '/default-avatar.png',
+              id: msg.user?.id || 'unknown'
+            },
+            createdAt: msg.createdAt || new Date().toISOString()
+          }));
+
+          setMessages(formattedMessages);
+          console.log('Set formatted messages:', formattedMessages);
+        } else {
+          setMessages([]);
+          console.log('No messages found, set empty array');
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+        setMessages([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadChatMessages();
+  }, [activeChat, session]);
 
   // 保存消息到 GitHub
   const saveMessages = async (roomId, messages) => {
@@ -213,14 +248,14 @@ export default function Home() {
 
   const handleKimiMessage = async (content) => {
     if (!kimiApiKey) {
-      console.error('Kimi API key not set')
-      return
+      console.error('Kimi API key not set');
+      return;
     }
 
     try {
-      setIsWaitingForKimi(true)
+      setIsWaitingForKimi(true);
       // 显示正在输入状态
-      setMessages(prev => [...prev, {
+      const typingMessage = {
         content: '正在思考...',
         user: {
           name: 'Kimi AI',
@@ -228,32 +263,39 @@ export default function Home() {
           id: 'kimi-ai'
         },
         isTyping: true,
-        createdAt: new Date().toISOString(),
-      }])
+        createdAt: new Date().toISOString()
+      };
 
-      const response = await sendMessageToKimi(content, kimiApiKey)
-      
-      // 移除正在输入状态的消息
-      setMessages(prev => prev.filter(msg => !msg.isTyping))
-      
-      const aiMessage = {
-        content: response,
-        user: {
-          name: 'Kimi AI',
-          image: '/kimi-avatar.png',
-          id: 'kimi-ai'
-        },
-        room: activeChat,
-        createdAt: new Date().toISOString(),
-      }
+      setMessages(prev => [...prev, typingMessage]);
 
-      setMessages(prev => [...prev, aiMessage])
+      const response = await sendMessageToKimi(content, kimiApiKey);
+      
+      // 移除正在输入状态的消息并添加 AI 响应
+      setMessages(prev => {
+        const messagesWithoutTyping = prev.filter(msg => !msg.isTyping);
+        const aiMessage = {
+          content: response,
+          user: {
+            name: 'Kimi AI',
+            image: '/kimi-avatar.png',
+            id: 'kimi-ai'
+          },
+          createdAt: new Date().toISOString()
+        };
+        
+        const updatedMessages = [...messagesWithoutTyping, aiMessage];
+        
+        // 保存更新后的消息
+        saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          .catch(error => console.error('Error saving AI chat history:', error));
+        
+        return updatedMessages;
+      });
     } catch (error) {
-      console.error('Failed to get Kimi AI response:', error)
-      // 显示错误消息
-      setMessages(prev => [
-        ...prev.filter(msg => !msg.isTyping),
-        {
+      console.error('Failed to get Kimi AI response:', error);
+      setMessages(prev => {
+        const messagesWithoutTyping = prev.filter(msg => !msg.isTyping);
+        const errorMessage = {
           content: '抱歉，我遇到了一些问题。请稍后再试。',
           user: {
             name: 'Kimi AI',
@@ -261,20 +303,28 @@ export default function Home() {
             id: 'kimi-ai'
           },
           isError: true,
-          createdAt: new Date().toISOString(),
-        }
-      ])
+          createdAt: new Date().toISOString()
+        };
+        
+        const updatedMessages = [...messagesWithoutTyping, errorMessage];
+        
+        // 保存错误消息
+        saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          .catch(error => console.error('Error saving error message:', error));
+        
+        return updatedMessages;
+      });
     } finally {
-      setIsWaitingForKimi(false)
+      setIsWaitingForKimi(false);
     }
-  }
+  };
 
   const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !session || isSending) return
+    e.preventDefault();
+    if (!newMessage.trim() || !session || isSending) return;
 
     try {
-      setIsSending(true)
+      setIsSending(true);
       const message = {
         content: newMessage,
         user: {
@@ -282,32 +332,28 @@ export default function Home() {
           image: session.user.image,
           id: session.user.id
         },
-        room: activeChat,
-        createdAt: new Date().toISOString(),
-      }
+        createdAt: new Date().toISOString()
+      };
 
-      console.log('Sending message:', message)
-      
       // 添加消息到本地状态
-      setMessages(prev => [...prev, message])
-      setNewMessage('')
+      const updatedMessages = [...messages, message];
+      setMessages(updatedMessages);
+      setNewMessage('');
 
       // 发送消息到 Socket.IO
       if (socket?.connected && activeChat !== 'kimi-ai') {
-        socket.emit('message', message)
+        socket.emit('message', message);
       }
 
       // 如果是在 Kimi AI 聊天室中，发送消息给 AI
       if (activeChat === 'kimi-ai') {
-        await handleKimiMessage(message.content)
+        await handleKimiMessage(message.content);
       }
 
       // 保存消息到 GitHub
-      const updatedMessages = [...messages, message]
-      await saveMessages(activeChat, updatedMessages)
+      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
     } catch (error) {
-      console.error('Failed to send message:', error)
-      // 显示错误提示
+      console.error('Failed to send message:', error);
       setMessages(prev => [...prev.slice(0, -1), {
         content: '消息发送失败，请重试',
         user: {
@@ -316,12 +362,12 @@ export default function Home() {
           id: 'system'
         },
         isError: true,
-        createdAt: new Date().toISOString(),
-      }])
+        createdAt: new Date().toISOString()
+      }]);
     } finally {
-      setIsSending(false)
+      setIsSending(false);
     }
-  }
+  };
 
   const handleJoin = async (e) => {
     e.preventDefault()
@@ -507,7 +553,7 @@ export default function Home() {
     }
   }, [autoSaveInterval])
 
-  // ��消息变化时手动保存
+  // 消息变化时手动保存
   useEffect(() => {
     const saveMessages = async () => {
       if (session?.user?.login && session.accessToken && messages.length > 0) {
@@ -657,7 +703,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 主聊天区�� - 优化滚动行为 */}
+      {/* 主聊天区 - 优化滚动行为 */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
