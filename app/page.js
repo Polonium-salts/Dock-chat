@@ -105,8 +105,19 @@ export default function Home() {
       if (session?.user?.login && session.accessToken) {
         try {
           setIsLoading(true)
+          console.log('Initializing data...')
+
+          // 确保仓库和基本结构存在
+          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+          if (!hasRepo) {
+            console.log('Creating new repository...')
+            await createDataRepository(session.accessToken, session.user.login)
+          }
+
           // 加载用户配置
           const config = await getConfig(session.accessToken, session.user.login)
+          console.log('Loaded config:', config)
+          
           if (config) {
             setUserConfig(config)
             // 恢复用户配置
@@ -117,21 +128,14 @@ export default function Home() {
 
           // 加载聊天室列表
           const rooms = await getChatRooms(session.accessToken, session.user.login)
+          console.log('Loaded chat rooms:', rooms)
+          
           if (rooms.length > 0) {
-            // 更新聊天室列表，保留现有的聊天室
-            setContacts(prev => {
-              const existingRooms = new Map(prev.map(room => [room.id, room]))
-              const updatedRooms = rooms.map(room => ({
-                ...room,
-                unread: existingRooms.get(room.id)?.unread || 0
-              }))
-              return updatedRooms
-            })
+            setContacts(rooms)
 
             // 设置活动聊天室
             let targetChat = 'public'
             if (config?.settings?.activeChat) {
-              // 确保目标聊天室存在
               const chatExists = rooms.some(room => room.id === config.settings.activeChat)
               if (chatExists) {
                 targetChat = config.settings.activeChat
@@ -140,7 +144,24 @@ export default function Home() {
             setActiveChat(targetChat)
 
             // 加载消息
-            await loadMessages(targetChat)
+            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+            console.log('Loaded messages for', targetChat, ':', messages)
+            
+            if (messages && messages.length > 0) {
+              const formattedMessages = messages.map(msg => ({
+                content: msg.content || '',
+                user: {
+                  name: msg.user?.name || 'Unknown User',
+                  image: msg.user?.image || '/default-avatar.png',
+                  id: msg.user?.id || 'unknown'
+                },
+                createdAt: msg.createdAt || new Date().toISOString(),
+                type: msg.type || 'message'
+              }))
+              setMessages(formattedMessages)
+            } else {
+              setMessages([])
+            }
           }
         } catch (error) {
           console.error('Error initializing data:', error)
@@ -153,59 +174,6 @@ export default function Home() {
     initializeData()
   }, [session])
 
-  // 修改 loadMessages 函数
-  const loadMessages = async (roomId) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      setIsLoading(true)
-      console.log('Loading messages for room:', roomId)
-
-      let messages = []
-      if (roomId === 'public') {
-        // 加载系统通知和公共聊天记录
-        const [notifications, chatHistory] = await Promise.all([
-          getSystemNotifications(session.accessToken, session.user.login),
-          loadChatHistory(session.accessToken, session.user.login, 'public')
-        ])
-
-        // 合并系统通知和聊天记录，按时间排序
-        messages = [
-          ...(notifications || []).map(notification => ({
-            ...notification,
-            createdAt: notification.timestamp,
-            type: 'system'
-          })),
-          ...(chatHistory || []).filter(msg => msg.type !== 'system')
-        ].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-      } else if (roomId === 'kimi-ai') {
-        messages = await loadAIChatHistory(session.accessToken, session.user.login)
-      } else {
-        messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
-      }
-
-      // 确保消息格式正确
-      const formattedMessages = (messages || []).map(msg => ({
-        content: msg.content || '',
-        user: {
-          name: msg.user?.name || 'Unknown User',
-          image: msg.user?.image || '/default-avatar.png',
-          id: msg.user?.id || 'unknown'
-        },
-        createdAt: msg.createdAt || new Date().toISOString(),
-        type: msg.type || 'message'
-      }))
-
-      console.log('Loaded formatted messages:', formattedMessages)
-      setMessages(formattedMessages)
-    } catch (error) {
-      console.error('Error loading messages:', error)
-      setMessages([])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   // 修改切换聊天室的逻辑
   useEffect(() => {
     const loadChatMessages = async () => {
@@ -214,23 +182,6 @@ export default function Home() {
       try {
         setIsLoading(true)
         console.log('Loading messages for chat:', activeChat)
-
-        // 确保聊天室存在
-        const rooms = await getChatRooms(session.accessToken, session.user.login)
-        const chatExists = rooms.some(room => room.id === activeChat)
-        
-        if (!chatExists) {
-          // 如果聊天室不存在，创建它
-          await initializeChatRoom(
-            session.accessToken,
-            session.user.login,
-            activeChat,
-            activeChat === 'public' ? '公共聊天室' :
-            activeChat === 'kimi-ai' ? 'Kimi AI 助手' :
-            `聊天室 ${activeChat}`,
-            activeChat === 'kimi-ai' ? 'ai' : 'room'
-          )
-        }
 
         // 从 GitHub 加载消息
         const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
@@ -245,7 +196,8 @@ export default function Home() {
               image: msg.user?.image || '/default-avatar.png',
               id: msg.user?.id || 'unknown'
             },
-            createdAt: msg.createdAt || new Date().toISOString()
+            createdAt: msg.createdAt || new Date().toISOString(),
+            type: msg.type || 'message'
           }))
 
           setMessages(formattedMessages)
@@ -253,6 +205,19 @@ export default function Home() {
         } else {
           setMessages([])
           console.log('No messages found, set empty array')
+        }
+
+        // 更新配置中的活动聊天室
+        if (userConfig) {
+          const updatedConfig = {
+            ...userConfig,
+            settings: {
+              ...userConfig.settings,
+              activeChat
+            },
+            last_updated: new Date().toISOString()
+          }
+          await updateConfig(session.accessToken, session.user.login, updatedConfig)
         }
       } catch (error) {
         console.error('Error loading messages:', error)
@@ -326,7 +291,7 @@ export default function Home() {
         
         const updatedMessages = [...messagesWithoutTyping, aiMessage];
         
-        // 保���更新后的消息
+        // 保存更新后的消息
         saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
           .catch(error => console.error('Error saving AI chat history:', error));
         
@@ -873,7 +838,7 @@ export default function Home() {
         <main className="flex-1 p-4 overflow-hidden">
           {currentView === 'chat' ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
-              {/* 消息列表区��� - 优化滚动容器 */}
+              {/* 消息列表区 - 优化滚动容器 */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {messages.map((message, index) => (
                   <div
