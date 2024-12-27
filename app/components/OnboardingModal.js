@@ -7,9 +7,41 @@ export default function OnboardingModal({ isOpen, onClose, session }) {
   const [error, setError] = useState(null)
 
   const handleCreateRepository = async () => {
+    if (!session?.user?.login || !session.accessToken) {
+      setError('用户未登录或 token 无效')
+      return
+    }
+
     try {
       setIsCreating(true)
       setError(null)
+
+      // 创建仓库
+      const response = await fetch('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          name: 'dock-chat-data',
+          description: 'Personal data storage for Dock Chat',
+          private: true,
+          auto_init: true
+        })
+      })
+
+      if (!response.ok) {
+        if (response.status === 422) {
+          // 仓库已存在
+          setStep(2)
+          return
+        }
+        throw new Error(`Failed to create repository: ${response.status}`)
+      }
+
+      // 初始化仓库内容
       await createDataRepository(session.accessToken, session.user.login)
       setStep(2)
     } catch (error) {
@@ -74,7 +106,7 @@ export default function OnboardingModal({ isOpen, onClose, session }) {
         {step === 2 && (
           <div className="space-y-4">
             <p className="text-gray-600 dark:text-gray-300">
-              太好了！数据仓库已经创建成功。现在您可以：
+              太好了！数据仓库已经准备就绪。现在您可以：
             </p>
             <ul className="list-disc list-inside text-gray-600 dark:text-gray-300 space-y-2">
               <li>创建和加入聊天室</li>
