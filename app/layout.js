@@ -1,22 +1,28 @@
-import { Inter } from 'next/font/google'
-import './globals.css'
 import { Providers } from './providers'
-
-const inter = Inter({ subsets: ['latin'] })
+import './globals.css'
 
 export const metadata = {
-  title: 'Telegraph Chat - 实时聊天应用',
-  description: '一个基于 Next.js 和 GitHub 认证的实时聊天应用',
+  title: 'Dock Chat',
+  description: '一个简单的聊天应用',
 }
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="zh-CN" className="h-full">
-      <body className={`${inter.className} h-full antialiased`}>
+    <html lang="zh" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <style>
+          {`
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            }
+          `}
+        </style>
+      </head>
+      <body>
         <Providers>
-          <div className="min-h-full">
-            {children}
-          </div>
+          {children}
         </Providers>
       </body>
     </html>

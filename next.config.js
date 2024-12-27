@@ -15,6 +15,21 @@ const nextConfig = {
         destination: '/:path*',
       }
     ]
+  },
+  experimental: {
+    webpackConfig: (config) => {
+      config.module = config.module || {};
+      config.module.rules = config.module.rules || [];
+      config.module.rules.push({
+        test: /\.js$/,
+        loader: 'string-replace-loader',
+        options: {
+          search: 'process.env.NODE_TLS_REJECT_UNAUTHORIZED',
+          replace: "'0'"
+        }
+      });
+      return config;
+    }
   }
 }
 
