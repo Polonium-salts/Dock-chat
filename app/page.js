@@ -104,7 +104,8 @@ export default function Home() {
     const initializeData = async () => {
       if (session?.user?.login && session.accessToken) {
         try {
-          // 加载用户���置
+          setIsLoading(true)
+          // 加载用户配置
           const config = await getConfig(session.accessToken, session.user.login)
           if (config) {
             setUserConfig(config)
@@ -112,29 +113,39 @@ export default function Home() {
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
-            
-            // 加载聊天室列表
-            const rooms = await getChatRooms(session.accessToken, session.user.login)
-            if (rooms.length > 0) {
-              setContacts(prev => {
-                const existingIds = new Set(prev.map(c => c.id))
-                const newRooms = rooms.filter(room => !existingIds.has(room.id))
-                return [...prev, ...newRooms]
-              })
-            }
+          }
 
-            // 设置活动聊天室并加载消息
+          // 加载聊天室列表
+          const rooms = await getChatRooms(session.accessToken, session.user.login)
+          if (rooms.length > 0) {
+            // 更新聊天室列表，保留现有的聊天室
+            setContacts(prev => {
+              const existingRooms = new Map(prev.map(room => [room.id, room]))
+              const updatedRooms = rooms.map(room => ({
+                ...room,
+                unread: existingRooms.get(room.id)?.unread || 0
+              }))
+              return updatedRooms
+            })
+
+            // 设置活动聊天室
             let targetChat = 'public'
-            if (config.settings?.activeChat) {
-              targetChat = config.settings.activeChat
+            if (config?.settings?.activeChat) {
+              // 确保目标聊天室存在
+              const chatExists = rooms.some(room => room.id === config.settings.activeChat)
+              if (chatExists) {
+                targetChat = config.settings.activeChat
+              }
             }
             setActiveChat(targetChat)
 
-            // 立即加载消息
+            // 加载消息
             await loadMessages(targetChat)
           }
         } catch (error) {
           console.error('Error initializing data:', error)
+        } finally {
+          setIsLoading(false)
         }
       }
     }
@@ -184,15 +195,32 @@ export default function Home() {
   // 修改切换聊天室的逻辑
   useEffect(() => {
     const loadChatMessages = async () => {
-      if (!session?.user?.login || !session.accessToken || !activeChat) return;
+      if (!session?.user?.login || !session.accessToken || !activeChat) return
 
       try {
-        setIsLoading(true);
-        console.log('Loading messages for chat:', activeChat);
+        setIsLoading(true)
+        console.log('Loading messages for chat:', activeChat)
+
+        // 确保聊天室存在
+        const rooms = await getChatRooms(session.accessToken, session.user.login)
+        const chatExists = rooms.some(room => room.id === activeChat)
+        
+        if (!chatExists) {
+          // 如果聊天室不存在，创建它
+          await initializeChatRoom(
+            session.accessToken,
+            session.user.login,
+            activeChat,
+            activeChat === 'public' ? '公共聊天室' :
+            activeChat === 'kimi-ai' ? 'Kimi AI 助手' :
+            `聊天室 ${activeChat}`,
+            activeChat === 'kimi-ai' ? 'ai' : 'room'
+          )
+        }
 
         // 从 GitHub 加载消息
-        const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat);
-        console.log('Loaded messages:', messages);
+        const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
+        console.log('Loaded messages:', messages)
 
         if (Array.isArray(messages) && messages.length > 0) {
           // 确保消息格式正确
@@ -204,24 +232,24 @@ export default function Home() {
               id: msg.user?.id || 'unknown'
             },
             createdAt: msg.createdAt || new Date().toISOString()
-          }));
+          }))
 
-          setMessages(formattedMessages);
-          console.log('Set formatted messages:', formattedMessages);
+          setMessages(formattedMessages)
+          console.log('Set formatted messages:', formattedMessages)
         } else {
-          setMessages([]);
-          console.log('No messages found, set empty array');
+          setMessages([])
+          console.log('No messages found, set empty array')
         }
       } catch (error) {
-        console.error('Error loading messages:', error);
-        setMessages([]);
+        console.error('Error loading messages:', error)
+        setMessages([])
       } finally {
-        setIsLoading(false);
+        setIsLoading(false)
       }
-    };
+    }
 
-    loadChatMessages();
-  }, [activeChat, session]);
+    loadChatMessages()
+  }, [activeChat, session])
 
   // 保存消息到 GitHub
   const saveMessages = async (roomId, messages) => {
@@ -408,7 +436,7 @@ export default function Home() {
     }
   }
 
-  // 检查是否需要显示新手引导
+  // 检查是否需要显���新手引导
   useEffect(() => {
     const checkOnboarding = async () => {
       if (session?.user?.login && session.accessToken) {
