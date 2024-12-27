@@ -14,20 +14,36 @@ export async function middleware(request) {
     return new NextResponse(null, { status: 200, headers: response.headers })
   }
 
-  // 获取主机名和子域名
-  const host = request.headers.get('host')
-  const subdomain = host?.split('.')[0]
-  const isCustomDomain = host && !host.includes('localhost') && !host.includes('127.0.0.1')
+  // 获取路径
+  const path = request.nextUrl.pathname
+  
+  // 如果是 API 路由，直接返回
+  if (path.startsWith('/api')) {
+    return response
+  }
 
-  // 如果是自定义域名，检查用户登录状态
-  if (isCustomDomain && subdomain !== 'www') {
+  // 如果是根路径，检查用户是否已登录
+  if (path === '/') {
     const token = await getToken({ req: request })
+    if (token?.login) {
+      // 如果已登录，重定向到用户的个人路径
+      return NextResponse.redirect(new URL(`/${token.login}`, request.url))
+    }
+    return response
+  }
+
+  // 如果是用户路径，验证用户是否有权限访问
+  const username = path.split('/')[1]
+  if (username) {
+    const token = await getToken({ req: request })
+    if (!token) {
+      // 未登录用户重定向到首页
+      return NextResponse.redirect(new URL('/', request.url))
+    }
     
-    // 如果用户未登录或子域名与用户名不匹配，重定向到主域名
-    if (!token || (token.login && token.login !== subdomain)) {
-      const url = new URL(request.url)
-      const mainDomain = host.split('.').slice(1).join('.')
-      return NextResponse.redirect(`https://${mainDomain}${url.pathname}`)
+    if (token.login !== username) {
+      // 如果访问的不是自己的路径，重定向到自己的路径
+      return NextResponse.redirect(new URL(`/${token.login}`, request.url))
     }
   }
 
@@ -36,6 +52,8 @@ export async function middleware(request) {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
-  ],
+    '/',
+    '/:username*',
+    '/api/:path*'
+  ]
 } 

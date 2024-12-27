@@ -107,26 +107,18 @@ export default function Home() {
           setIsLoading(true)
           console.log('Initializing data...')
 
-          // 更新浏览器 URL 为用户子域名
-          if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-            const currentHost = window.location.hostname
-            const isMainDomain = !currentHost.includes('.')
-            const isWrongSubdomain = currentHost.split('.')[0] !== session.user.login
-            
-            if (isMainDomain || isWrongSubdomain) {
-              const protocol = window.location.protocol
-              const domain = currentHost.includes('.') ? currentHost.split('.').slice(1).join('.') : currentHost
-              const newUrl = `${protocol}//${session.user.login}.${domain}${window.location.pathname}`
-              window.location.href = newUrl
-              return
-            }
-          }
-
           // 确保仓库和基本结构存在
           const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
           if (!hasRepo) {
             console.log('Creating new repository...')
             await createDataRepository(session.accessToken, session.user.login)
+          }
+
+          // 更新 URL 路径
+          const currentPath = window.location.pathname
+          const username = session.user.login
+          if (currentPath === '/' || currentPath !== `/${username}`) {
+            window.history.replaceState({}, '', `/${username}`)
           }
 
           // 加载用户配置
@@ -633,7 +625,7 @@ export default function Home() {
       await updateConfig(session.accessToken, session.user.login, updatedConfig)
 
       // 可以选择是否也从 GitHub 仓库中删除聊天记录
-      // 这里暂时不实现，因为可能需要保留历史记录
+      // 这里暂时不实现，因为可能需要保留历���记录
     } catch (error) {
       console.error('Error deleting chat room:', error)
     }
@@ -1012,7 +1004,7 @@ export default function Home() {
                   }}
                   className="px-4 py-2 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg"
                 >
-                  确认
+                  确���
                 </button>
               </div>
             </div>
