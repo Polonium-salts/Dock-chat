@@ -51,30 +51,63 @@ export default function Home() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // 添加加载状态超时处理
+  useEffect(() => {
+    let timeoutId;
+    
+    if (isLoading) {
+      timeoutId = setTimeout(() => {
+        setIsLoading(false)
+        console.error('Loading timeout, resetting state')
+      }, 10000) // 10秒超时
+    }
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
+  }, [isLoading])
+
   // WebSocket 连接
   useEffect(() => {
-    if (session) {
+    if (!session) return;
+
+    let connectionAttempts = 0;
+    const maxAttempts = 3;
+    
+    const connectSocket = () => {
       console.log('Initializing socket connection...')
       const socket = io(window.location.origin, {
         path: '/api/socket',
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 3,
         reconnectionDelay: 1000,
+        timeout: 5000
       })
 
       socket.on('connect', () => {
         console.log('Socket connected')
         setIsConnected(true)
-        socket.emit('join', { 
-          room: activeChat,
-          userId: session.user.id
-        })
+        connectionAttempts = 0
+        if (activeChat) {
+          socket.emit('join', { 
+            room: activeChat,
+            userId: session.user.id
+          })
+        }
       })
 
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
+        connectionAttempts++
+        
+        if (connectionAttempts >= maxAttempts) {
+          console.log('Max connection attempts reached')
+          socket.disconnect()
+        }
       })
 
       socket.on('disconnect', (reason) => {
@@ -97,60 +130,67 @@ export default function Home() {
         }
       }
     }
+
+    const connection = connectSocket()
+    return () => connection()
   }, [session, activeChat])
 
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      if (session?.user?.login && session.accessToken) {
-        try {
-          setIsLoading(true)
-          console.log('Initializing data...')
+      if (!session?.user?.login || !session.accessToken) return;
 
-          // 确保仓库和基本结构存在
-          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
-          if (!hasRepo) {
-            console.log('Creating new repository...')
-            await createDataRepository(session.accessToken, session.user.login)
+      try {
+        setIsLoading(true)
+        console.log('Initializing data...')
+
+        // 确保仓库和基本结构存在
+        const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+        if (!hasRepo) {
+          console.log('Creating new repository...')
+          await createDataRepository(session.accessToken, session.user.login)
+        }
+
+        // 更新 URL 路径
+        const currentPath = window.location.pathname
+        const username = session.user.login
+        if (currentPath === '/' || currentPath !== `/${username}`) {
+          window.history.replaceState({}, '', `/${username}`)
+        }
+
+        // 并行加载数据
+        const [config, rooms] = await Promise.all([
+          getConfig(session.accessToken, session.user.login),
+          getChatRooms(session.accessToken, session.user.login)
+        ])
+
+        console.log('Loaded config:', config)
+        console.log('Loaded chat rooms:', rooms)
+
+        // 处理配置
+        if (config) {
+          setUserConfig(config)
+          if (config.kimi_settings?.api_key) {
+            setKimiApiKey(config.kimi_settings.api_key)
           }
+        }
 
-          // 更新 URL 路径
-          const currentPath = window.location.pathname
-          const username = session.user.login
-          if (currentPath === '/' || currentPath !== `/${username}`) {
-            window.history.replaceState({}, '', `/${username}`)
-          }
-
-          // 加载用户配置
-          const config = await getConfig(session.accessToken, session.user.login)
-          console.log('Loaded config:', config)
+        // 处理聊天室
+        if (rooms.length > 0) {
+          setContacts(rooms)
           
-          if (config) {
-            setUserConfig(config)
-            // 恢复用户配置
-            if (config.kimi_settings?.api_key) {
-              setKimiApiKey(config.kimi_settings.api_key)
+          // 设置活动聊天室
+          let targetChat = 'public'
+          if (config?.settings?.activeChat) {
+            const chatExists = rooms.some(room => room.id === config.settings.activeChat)
+            if (chatExists) {
+              targetChat = config.settings.activeChat
             }
           }
+          setActiveChat(targetChat)
 
-          // 加载聊天室列表
-          const rooms = await getChatRooms(session.accessToken, session.user.login)
-          console.log('Loaded chat rooms:', rooms)
-          
-          if (rooms.length > 0) {
-            setContacts(rooms)
-
-            // 设置活动聊天室
-            let targetChat = 'public'
-            if (config?.settings?.activeChat) {
-              const chatExists = rooms.some(room => room.id === config.settings.activeChat)
-              if (chatExists) {
-                targetChat = config.settings.activeChat
-              }
-            }
-            setActiveChat(targetChat)
-
-            // 加载消息
+          // 加载消息
+          try {
             const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
             console.log('Loaded messages for', targetChat, ':', messages)
             
@@ -169,12 +209,17 @@ export default function Home() {
             } else {
               setMessages([])
             }
+          } catch (error) {
+            console.error('Error loading messages:', error)
+            setMessages([])
           }
-        } catch (error) {
-          console.error('Error initializing data:', error)
-        } finally {
-          setIsLoading(false)
         }
+      } catch (error) {
+        console.error('Error initializing data:', error)
+        // 显示错误提示
+        alert('初始化数据失败，请刷新页面重试')
+      } finally {
+        setIsLoading(false)
       }
     }
 
@@ -625,7 +670,7 @@ export default function Home() {
       await updateConfig(session.accessToken, session.user.login, updatedConfig)
 
       // 可以选择是否也从 GitHub 仓库中删除聊天记录
-      // 这里暂时不实现，因为可能需要保留历���记录
+      // 这里暂时不实现，因为可能需要保留历史记录
     } catch (error) {
       console.error('Error deleting chat room:', error)
     }
@@ -1004,7 +1049,7 @@ export default function Home() {
                   }}
                   className="px-4 py-2 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg"
                 >
-                  确���
+                  确定
                 </button>
               </div>
             </div>
