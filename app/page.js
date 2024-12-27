@@ -107,6 +107,21 @@ export default function Home() {
           setIsLoading(true)
           console.log('Initializing data...')
 
+          // 更新浏览器 URL 为用户子域名
+          if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+            const currentHost = window.location.hostname
+            const isMainDomain = !currentHost.includes('.')
+            const isWrongSubdomain = currentHost.split('.')[0] !== session.user.login
+            
+            if (isMainDomain || isWrongSubdomain) {
+              const protocol = window.location.protocol
+              const domain = currentHost.includes('.') ? currentHost.split('.').slice(1).join('.') : currentHost
+              const newUrl = `${protocol}//${session.user.login}.${domain}${window.location.pathname}`
+              window.location.href = newUrl
+              return
+            }
+          }
+
           // 确保仓库和基本结构存在
           const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
           if (!hasRepo) {
