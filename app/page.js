@@ -9,7 +9,9 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   PlusCircleIcon,
-  SparklesIcon
+  SparklesIcon,
+  ExclamationCircleIcon,
+  GithubIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import SettingsModal from './components/SettingsModal'
@@ -20,6 +22,16 @@ import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChat
 import ChatRoomSettings from './components/ChatRoomSettings'
 import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, getSystemNotifications, formatSystemNotification } from '@/lib/systemNotifications'
+
+// 添加加载状态组件
+const LoadingSpinner = () => (
+  <div className="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
+    <div className="text-center">
+      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p className="text-gray-600 dark:text-gray-300">正在加载...</p>
+    </div>
+  </div>
+)
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -45,6 +57,7 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false)
   const [autoSaveInterval, setAutoSaveInterval] = useState(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
+  const [initError, setInitError] = useState(null)
 
   // 自动滚动到底部
   useEffect(() => {
@@ -126,7 +139,7 @@ export default function Home() {
         console.log('Cleaning up socket connection...')
         if (socket.connected) {
           socket.emit('leave', { room: activeChat })
-          socket.disconnect()
+        socket.disconnect()
         }
       }
     }
@@ -138,10 +151,14 @@ export default function Home() {
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      if (!session?.user?.login || !session.accessToken) return;
+      if (!session?.user?.login || !session.accessToken) {
+        setIsLoading(false)
+        return
+      }
 
       try {
         setIsLoading(true)
+        setInitError(null)
         console.log('Initializing data...')
 
         // 确保仓库和基本结构存在
@@ -212,12 +229,12 @@ export default function Home() {
           } catch (error) {
             console.error('Error loading messages:', error)
             setMessages([])
+            setInitError('加载消息失败')
           }
         }
       } catch (error) {
         console.error('Error initializing data:', error)
-        // 显示错误提示
-        alert('初始化数据失败，请刷新页面重试')
+        setInitError('初始化数据失败')
       } finally {
         setIsLoading(false)
       }
@@ -383,15 +400,15 @@ export default function Home() {
 
     try {
       setIsSending(true)
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name,
-          image: session.user.image,
-          id: session.user.id
-        },
+    const message = {
+      content: newMessage,
+      user: {
+        name: session.user.name,
+        image: session.user.image,
+        id: session.user.id
+      },
         createdAt: new Date().toISOString()
-      }
+    }
 
       // 添加消息到本地状态
       setMessages(prev => [...prev, message])
@@ -465,9 +482,9 @@ export default function Home() {
       })
 
       if (response.ok) {
-        setContacts(prev => [...prev, newContact])
-        setJoinInput('')
-        setShowJoinModal(false)
+    setContacts(prev => [...prev, newContact])
+    setJoinInput('')
+    setShowJoinModal(false)
         // 切换到新的聊天室
         setActiveChat(joinInput)
       } else {
@@ -722,16 +739,30 @@ export default function Home() {
     }
   }, [session, socket?.connected])
 
-  if (status === 'loading') {
+  // 修改页面渲染逻辑
+  if (status === 'loading' || isLoading) {
+    return <LoadingSpinner />
+  }
+
+  if (initError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-pulse flex items-center justify-center space-x-2">
-            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
-            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
-            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
+      <div className="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
+        <div className="text-center p-6 max-w-sm mx-auto">
+          <div className="text-red-500 mb-4">
+            <ExclamationCircleIcon className="w-12 h-12 mx-auto" />
           </div>
-          <p className="mt-4 text-sm text-gray-500">正在加载...</p>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            {initError}
+          </h3>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            请刷新页面重试，如果问题持续存在，请联系管理员
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            刷新页面
+          </button>
         </div>
       </div>
     )
@@ -739,19 +770,16 @@ export default function Home() {
 
   if (!session) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
-        <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-2xl shadow-lg">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Telegraph Chat</h1>
-            <p className="text-gray-500">实时聊天，随时交流</p>
-          </div>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-8">
+            欢迎使用 Dock Chat
+          </h1>
           <button
             onClick={() => signIn('github')}
-            className="w-full flex items-center justify-center gap-3 p-3 bg-[#24292F] text-white rounded-lg hover:bg-[#24292F]/90 transition-colors duration-200"
+            className="inline-flex items-center px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
           >
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-            </svg>
+            <GithubIcon className="w-6 h-6 mr-2" />
             使用 GitHub 登录
           </button>
         </div>
@@ -759,8 +787,9 @@ export default function Home() {
     )
   }
 
+  // 渲染主界面
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* 左侧导航栏 - 添加固定宽度 */}
       <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
         {/* 用户信息区域 */}
@@ -955,7 +984,7 @@ export default function Home() {
                     {isSending ? (
                       <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <PaperAirplaneIcon className="h-6 w-6" />
+                    <PaperAirplaneIcon className="h-6 w-6" />
                     )}
                   </button>
                 </div>
