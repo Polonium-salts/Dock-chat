@@ -159,8 +159,9 @@ export default function Home() {
 
     try {
       setIsLoading(true)
-      let messages = []
+      console.log('Loading messages for room:', roomId)
 
+      let messages = []
       if (roomId === 'public') {
         // 加载系统通知和公共聊天记录
         const [notifications, chatHistory] = await Promise.all([
@@ -170,7 +171,7 @@ export default function Home() {
 
         // 合并系统通知和聊天记录，按时间排序
         messages = [
-          ...notifications.map(notification => ({
+          ...(notifications || []).map(notification => ({
             ...notification,
             createdAt: notification.timestamp,
             type: 'system'
@@ -183,7 +184,20 @@ export default function Home() {
         messages = await loadChatHistory(session.accessToken, session.user.login, roomId)
       }
 
-      setMessages(messages || [])
+      // 确保消息格式正确
+      const formattedMessages = (messages || []).map(msg => ({
+        content: msg.content || '',
+        user: {
+          name: msg.user?.name || 'Unknown User',
+          image: msg.user?.image || '/default-avatar.png',
+          id: msg.user?.id || 'unknown'
+        },
+        createdAt: msg.createdAt || new Date().toISOString(),
+        type: msg.type || 'message'
+      }))
+
+      console.log('Loaded formatted messages:', formattedMessages)
+      setMessages(formattedMessages)
     } catch (error) {
       console.error('Error loading messages:', error)
       setMessages([])
@@ -312,7 +326,7 @@ export default function Home() {
         
         const updatedMessages = [...messagesWithoutTyping, aiMessage];
         
-        // 保存更新后的消息
+        // 保���更新后的消息
         saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
           .catch(error => console.error('Error saving AI chat history:', error));
         
@@ -378,21 +392,32 @@ export default function Home() {
       if (activeChat === 'kimi-ai') {
         await handleKimiMessage(message.content)
       } else {
+        // 获取当前所有消息，包括新消息
         const updatedMessages = [...messages, message]
-        await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+        try {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          console.log('Successfully saved messages:', updatedMessages)
+        } catch (error) {
+          console.error('Failed to save messages:', error)
+          throw error
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error)
-      setMessages(prev => [...prev.slice(0, -1), {
-        content: '消息发送失败，请重试',
-        user: {
-          name: 'System',
-          image: '/system-avatar.png',
-          id: 'system'
-        },
-        isError: true,
-        createdAt: new Date().toISOString()
-      }])
+      // 移除失败的消息并显示错误
+      setMessages(prev => {
+        const newMessages = prev.slice(0, -1)
+        return [...newMessages, {
+          content: '消息发送失败，请重试',
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          isError: true,
+          createdAt: new Date().toISOString()
+        }]
+      })
     } finally {
       setIsSending(false)
     }
@@ -436,7 +461,7 @@ export default function Home() {
     }
   }
 
-  // 检查是否需要显���新手引导
+  // 检查是否需要显示新手引导
   useEffect(() => {
     const checkOnboarding = async () => {
       if (session?.user?.login && session.accessToken) {
@@ -584,21 +609,22 @@ export default function Home() {
 
   // 消息变化时手动保存
   useEffect(() => {
-    const saveMessages = async () => {
-      if (session?.user?.login && session.accessToken && messages.length > 0) {
-        try {
-          await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
-        } catch (error) {
-          console.error('Error saving messages:', error)
-        }
+    const saveMessagesToGitHub = async () => {
+      if (!session?.user?.login || !session.accessToken || !activeChat || messages.length === 0) return
+
+      try {
+        console.log('Saving messages for room:', activeChat)
+        await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+        console.log('Successfully saved messages')
+      } catch (error) {
+        console.error('Error saving messages:', error)
       }
     }
 
-    // 如果有消息更新，就保存
-    if (messages.length > 0) {
-      saveMessages()
-    }
-  }, [messages])
+    // 使用防抖来避免频繁保存
+    const timeoutId = setTimeout(saveMessagesToGitHub, 1000)
+    return () => clearTimeout(timeoutId)
+  }, [messages, activeChat, session])
 
   // 添加删除聊天室的函数
   const handleDeleteChatRoom = async (roomId) => {
@@ -847,7 +873,7 @@ export default function Home() {
         <main className="flex-1 p-4 overflow-hidden">
           {currentView === 'chat' ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
-              {/* 消息列表区域 - 优化滚动容器 */}
+              {/* 消息列表区��� - 优化滚动容器 */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {messages.map((message, index) => (
                   <div
