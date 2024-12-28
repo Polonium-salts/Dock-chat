@@ -21,6 +21,8 @@ import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChat
 import ChatRoomSettings from './components/ChatRoomSettings'
 import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, formatSystemNotification } from '@/lib/systemNotifications'
+import { useTheme } from 'next-themes'
+import CreateRoomModal from './components/CreateRoomModal'
 
 export default function Home({ username }) {
   const { data: session, status } = useSession()
@@ -47,6 +49,8 @@ export default function Home({ username }) {
   const [isSending, setIsSending] = useState(false)
   const [autoSaveInterval, setAutoSaveInterval] = useState(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
+  const { theme, setTheme } = useTheme()
+  const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
 
   // 动滚动到底部
   useEffect(() => {
@@ -684,6 +688,61 @@ export default function Home({ username }) {
     }
   }, [username, session?.user?.login, router])
 
+  // 添加创建聊天室的处理函数
+  const handleCreateRoom = async (roomData) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      // 生成唯一的房间ID
+      const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      
+      // 初始化聊天室
+      await initializeChatRoom(
+        session.accessToken,
+        session.user.login,
+        roomId,
+        roomData.name,
+        'room',
+        {
+          description: roomData.description,
+          isPrivate: roomData.isPrivate,
+          creator: session.user.login,
+          created_at: new Date().toISOString()
+        }
+      )
+
+      // 更新联系人列表
+      const newContact = {
+        id: roomId,
+        name: roomData.name,
+        type: 'room',
+        unread: 0,
+        description: roomData.description,
+        isPrivate: roomData.isPrivate
+      }
+
+      setContacts(prev => [...prev, newContact])
+      setActiveChat(roomId)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: [...(userConfig.contacts || []), newContact],
+          settings: {
+            ...userConfig.settings,
+            activeChat: roomId
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
+    } catch (error) {
+      console.error('Error creating room:', error)
+      throw error
+    }
+  }
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -779,6 +838,19 @@ export default function Home({ username }) {
 
         {/* 底部按钮区域 */}
         <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+          <button
+            onClick={() => setShowCreateRoomModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+          >
+            <PlusCircleIcon className="w-5 h-5" />
+            创建聊天室
+          </button>
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            {theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+          </button>
           <button
             onClick={addKimiAIChat}
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
@@ -1030,6 +1102,14 @@ export default function Home({ username }) {
           isOpen={showOnboarding}
           onClose={() => setShowOnboarding(false)}
           session={session}
+        />
+      )}
+
+      {/* 添加创建聊天室模态框 */}
+      {showCreateRoomModal && (
+        <CreateRoomModal
+          onClose={() => setShowCreateRoomModal(false)}
+          onCreate={handleCreateRoom}
         />
       )}
     </div>
