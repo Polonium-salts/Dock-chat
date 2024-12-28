@@ -151,11 +151,8 @@ export default function Home() {
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      // 如果已经在加载中，不要重复初始化
-      if (isLoading) return;
-      
-      // 如果没有会话信息，直接结束加载状态
       if (!session?.user?.login || !session.accessToken) {
+        console.log('Session not ready:', { session })
         setIsLoading(false)
         return
       }
@@ -163,129 +160,139 @@ export default function Home() {
       try {
         setIsLoading(true)
         setInitError(null)
-        console.log('Initializing data for user:', session.user.login)
+        console.log('Starting initialization with session:', {
+          user: session.user.login,
+          hasToken: !!session.accessToken
+        })
 
         // 检查仓库状态
-        let hasRepo = false
-        try {
-          hasRepo = await checkDataRepository(session.accessToken, session.user.login)
-          console.log('Repository check result:', hasRepo)
-        } catch (error) {
-          console.error('Error checking repository:', error)
-          setInitError('检查数据仓库失败')
-          return
-        }
+        console.log('Checking repository...')
+        const hasRepo = await checkDataRepository(session.accessToken, session.user.login).catch(error => {
+          console.error('Repository check failed:', error)
+          throw new Error('仓库检查失败: ' + error.message)
+        })
 
-        // 如果仓库不存在，创建新仓库
         if (!hasRepo) {
-          try {
-            console.log('Creating new repository...')
-            await createDataRepository(session.accessToken, session.user.login)
-          } catch (error) {
-            console.error('Error creating repository:', error)
-            setInitError('创建数据仓库失败')
-            return
-          }
+          console.log('Repository not found, creating new one...')
+          await createDataRepository(session.accessToken, session.user.login).catch(error => {
+            console.error('Repository creation failed:', error)
+            throw new Error('仓库创建失败: ' + error.message)
+          })
         }
 
         // 更新 URL 路径
         const currentPath = window.location.pathname
         const username = session.user.login
         if (currentPath === '/' || currentPath !== `/${username}`) {
+          console.log('Updating URL path to:', `/${username}`)
           window.history.replaceState({}, '', `/${username}`)
         }
 
-        // 分步加载数据
-        let config = null
-        try {
-          config = await getConfig(session.accessToken, session.user.login)
-          console.log('Loaded config:', config)
+        // 并行加载数据
+        console.log('Loading config and rooms...')
+        const [config, rooms] = await Promise.all([
+          getConfig(session.accessToken, session.user.login).catch(error => {
+            console.error('Config loading failed:', error)
+            return null
+          }),
+          getChatRooms(session.accessToken, session.user.login).catch(error => {
+            console.error('Rooms loading failed:', error)
+            return []
+          })
+        ])
+
+        console.log('Loaded data:', { config, roomsCount: rooms.length })
+
+        // 处理配置
+        if (config) {
+          console.log('Setting user config...')
+          setUserConfig(config)
+          if (config.kimi_settings?.api_key) {
+            setKimiApiKey(config.kimi_settings.api_key)
+          }
+        } else {
+          console.log('No config found, using defaults')
+        }
+
+        // 处理聊天室
+        if (rooms.length > 0) {
+          console.log('Setting up chat rooms...')
+          // 确保公共聊天室始终存在
+          const hasPublicRoom = rooms.some(room => room.id === 'public')
+          const updatedRooms = hasPublicRoom ? rooms : [
+            { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
+            ...rooms
+          ]
+          setContacts(updatedRooms)
           
-          if (config) {
-            setUserConfig(config)
-            if (config.kimi_settings?.api_key) {
-              setKimiApiKey(config.kimi_settings.api_key)
+          // 设置活动聊天室
+          let targetChat = 'public'
+          if (config?.settings?.activeChat) {
+            const chatExists = updatedRooms.some(room => room.id === config.settings.activeChat)
+            if (chatExists) {
+              targetChat = config.settings.activeChat
             }
           }
-        } catch (error) {
-          console.error('Error loading config:', error)
-          // 配置加载失败不阻止继续
-        }
+          setActiveChat(targetChat)
 
-        let rooms = []
-        try {
-          rooms = await getChatRooms(session.accessToken, session.user.login)
-          console.log('Loaded chat rooms:', rooms)
-          
-          if (rooms.length > 0) {
-            // 确保公共聊天室始终存在
-            if (!rooms.find(room => room.id === 'public')) {
-              rooms.unshift({
-                id: 'public',
-                name: '公共聊天室',
-                type: 'room',
-                unread: 0
-              })
+          // 加载消息
+          try {
+            console.log('Loading messages for chat:', targetChat)
+            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+            console.log('Loaded messages:', messages?.length || 0)
+            
+            if (messages && messages.length > 0) {
+              const formattedMessages = messages.map(msg => ({
+                content: msg.content || '',
+                user: {
+                  name: msg.user?.name || 'Unknown User',
+                  image: msg.user?.image || '/default-avatar.png',
+                  id: msg.user?.id || 'unknown'
+                },
+                createdAt: msg.createdAt || new Date().toISOString(),
+                type: msg.type || 'message'
+              }))
+              setMessages(formattedMessages)
+            } else {
+              console.log('No messages found, setting empty array')
+              setMessages([])
             }
-            setContacts(rooms)
-          }
-        } catch (error) {
-          console.error('Error loading rooms:', error)
-          // 如果加载聊天室失败，至少保留公共聊天室
-          setContacts([{
-            id: 'public',
-            name: '公共聊天室',
-            type: 'room',
-            unread: 0
-          }])
-        }
-
-        // 设置活动聊天室
-        let targetChat = 'public'
-        if (config?.settings?.activeChat && rooms.some(room => room.id === config.settings.activeChat)) {
-          targetChat = config.settings.activeChat
-        }
-        setActiveChat(targetChat)
-
-        // 加载消息
-        try {
-          const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-          console.log('Loaded messages for', targetChat, ':', messages)
-          
-          if (messages && messages.length > 0) {
-            const formattedMessages = messages.map(msg => ({
-              content: msg.content || '',
-              user: {
-                name: msg.user?.name || 'Unknown User',
-                image: msg.user?.image || '/default-avatar.png',
-                id: msg.user?.id || 'unknown'
-              },
-              createdAt: msg.createdAt || new Date().toISOString(),
-              type: msg.type || 'message'
-            }))
-            setMessages(formattedMessages)
-          } else {
+          } catch (error) {
+            console.error('Error loading messages:', error)
             setMessages([])
+            throw new Error('消息加载失败: ' + error.message)
           }
-        } catch (error) {
-          console.error('Error loading messages:', error)
+        } else {
+          console.log('No rooms found, using default public room')
+          setContacts([{ id: 'public', name: '公共聊天室', type: 'room', unread: 0 }])
+          setActiveChat('public')
           setMessages([])
         }
       } catch (error) {
-        console.error('Error in initialization:', error)
-        setInitError('初始化失败，请刷新页面重试')
+        console.error('Initialization failed:', error)
+        setInitError(error.message || '初始化数据失败')
+        // 确保在出错时也设置基本状态
+        setContacts([{ id: 'public', name: '公共聊天室', type: 'room', unread: 0 }])
+        setActiveChat('public')
+        setMessages([])
       } finally {
-        console.log('Initialization completed')
+        console.log('Initialization complete')
         setIsLoading(false)
       }
     }
 
-    // 只在会话状态改变时初始化
-    if (session?.user?.login && session.accessToken && !isLoading) {
-      initializeData()
-    } else if (!session) {
-      setIsLoading(false)
+    // 添加错误边界
+    const safeInitialize = async () => {
+      try {
+        await initializeData()
+      } catch (error) {
+        console.error('Fatal initialization error:', error)
+        setIsLoading(false)
+        setInitError('致命错误：应用程序初始化失败')
+      }
     }
+
+    safeInitialize()
   }, [session])
 
   // 修改切换聊天室的逻辑
@@ -714,7 +721,7 @@ export default function Home() {
     }
 
     try {
-      // 从联系人列表中移除
+      // 从联系人列表��移除
       setContacts(prev => prev.filter(c => c.id !== roomId))
       
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
@@ -745,7 +752,7 @@ export default function Home() {
         try {
           const loginMessage = await generateLoginMessage(session)
           
-          // ��式化系统通知
+          // 格式化系统通知
           const notification = await formatSystemNotification('login', {
             message: loginMessage,
             userInfo: {
@@ -816,7 +823,7 @@ export default function Home() {
   if (!session) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
+          <div className="text-center">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-8">
             欢迎使用 Dock Chat
           </h1>
@@ -894,7 +901,7 @@ export default function Home() {
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
           >
             <SparklesIcon className="w-5 h-5" />
-            添加 AI 助手
+            添加 AI ���手
           </button>
           <button
             onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
