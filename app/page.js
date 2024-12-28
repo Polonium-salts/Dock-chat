@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useSession, signIn, SessionProvider } from 'next-auth/react'
+import { useSession, signIn } from 'next-auth/react'
 import { io } from 'socket.io-client'
 import { 
   PaperAirplaneIcon,
@@ -36,11 +36,7 @@ extensionManager.register(new SystemNotificationExtension())
 extensionManager.register(new RoomSettingsExtension())
 
 export default function HomeWrapper({ username }) {
-  return (
-    <SessionProvider>
-      <Home username={username} />
-    </SessionProvider>
-  )
+  return <Home username={username} />
 }
 
 function Home({ username }) {
@@ -876,7 +872,7 @@ function Home({ username }) {
     }
   }, [session, socket?.connected])
 
-  // 修改页面标题部分
+  // 修改面标题部分
   const pageTitle = currentView === 'chat' 
     ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
     : '个人主页'
@@ -960,7 +956,7 @@ function Home({ username }) {
     }
   }
 
-  // 监听聊天室切换
+  // ��听聊天室切换
   useEffect(() => {
     if (activeChat) {
       loadChatMessages()
@@ -976,7 +972,7 @@ function Home({ username }) {
         console.log('Saving messages for room:', activeChat)
         const savedMessages = await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
         
-        // 更新联系人列���中的消息状态
+        // 更新联系人列表中的消息状态
         const updatedContacts = contacts.map(contact => {
           if (contact.id === activeChat) {
             return {
@@ -1285,7 +1281,7 @@ function Home({ username }) {
           </div>
         </div>
 
-        {/* 聊天室列表 - 添加固定高度和滚动 */}
+        {/* 聊天室列表 - 添��固定高度和滚动 */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {contacts.map(contact => (
             <button
