@@ -180,76 +180,81 @@ export default function Home({ username }) {
     initializeData()
   }, [session])
 
-  // 修改切换聊天室的逻辑
-  useEffect(() => {
-    const loadChatMessages = async () => {
-      if (!session?.user?.login || !session.accessToken || !activeChat) return
+  // 修改加载消息的逻辑
+  const loadChatMessages = async () => {
+    if (!session?.user?.login || !session.accessToken || !activeChat) return
 
-      try {
-        setIsLoading(true)
-        console.log('Loading messages for chat:', activeChat)
+    try {
+      setIsLoading(true)
+      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
+      console.log('Loading messages for chat:', activeChat)
 
-        // 从 GitHub 加载消息
-        const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
-        console.log('Loaded messages:', messages)
+      // 从 GitHub 加载消息
+      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
+      console.log('Loaded messages:', messages)
 
-        if (Array.isArray(messages) && messages.length > 0) {
-          // 确保消息格式正确
-          const formattedMessages = messages.map(msg => ({
-            content: msg.content || '',
-            user: {
-              name: msg.user?.name || 'Unknown User',
-              image: msg.user?.image || '/default-avatar.png',
-              id: msg.user?.id || 'unknown'
-            },
-            createdAt: msg.createdAt || new Date().toISOString(),
-            type: msg.type || 'message'
-          }))
+      if (Array.isArray(messages) && messages.length > 0) {
+        // 使用批量更新来优化性能
+        const formattedMessages = messages.map(msg => ({
+          content: msg.content || '',
+          user: {
+            name: msg.user?.name || 'Unknown User',
+            image: msg.user?.image || '/default-avatar.png',
+            id: msg.user?.id || 'unknown'
+          },
+          createdAt: msg.createdAt || new Date().toISOString(),
+          type: msg.type || 'message'
+        }))
 
+        // 使用 requestAnimationFrame 来优化渲染性能
+        requestAnimationFrame(() => {
           setMessages(formattedMessages)
-          console.log('Set formatted messages:', formattedMessages)
-        } else {
-          setMessages([])
-          console.log('No messages found, set empty array')
-        }
-
-        // 更新配置中的活动聊天室
-        if (userConfig) {
-          const updatedConfig = {
-            ...userConfig,
-            settings: {
-              ...userConfig.settings,
-              activeChat
-            },
-            last_updated: new Date().toISOString()
-          }
-          await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        }
-
-        // 更新联系人列表中的未读消息状态
-        const updatedContacts = contacts.map(contact => {
-          if (contact.id === activeChat) {
-            return {
-              ...contact,
-              unread: 0,
-              last_message: formattedMessages[formattedMessages.length - 1] || null,
-              message_count: formattedMessages.length
-            }
-          }
-          return contact
         })
-        setContacts(updatedContacts)
-
-      } catch (error) {
-        console.error('Error loading messages:', error)
-        setMessages([])
-      } finally {
-        setIsLoading(false)
+        console.log('Set formatted messages:', formattedMessages)
       }
-    }
 
-    loadChatMessages()
-  }, [activeChat, session])
+      // 更新配置中的活动聊天室
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          settings: {
+            ...userConfig.settings,
+            activeChat
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
+
+      // 更新联系人列表中的未读消息状态
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === activeChat) {
+          return {
+            ...contact,
+            unread: 0,
+            last_message: messages[messages.length - 1] || null,
+            message_count: messages.length
+          }
+        }
+        return contact
+      })
+      setContacts(updatedContacts)
+
+    } catch (error) {
+      console.error('Error loading messages:', error)
+      setMessages([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 修改聊天室切换的逻辑
+  const handleChatChange = (chatId) => {
+    if (chatId === activeChat) return
+    setActiveChat(chatId)
+    setMessages([]) // 立即清空消息
+    setIsLoading(true) // 显示加载状态
+  }
 
   // 修改保存消息的逻辑
   const saveMessages = async (roomId, messages) => {
@@ -306,7 +311,7 @@ export default function Home({ username }) {
       setIsWaitingForKimi(true);
       // 显示正在输入状态
       const typingMessage = {
-        content: '正在思考...',
+        content: '正在��考...',
         user: {
           name: 'Kimi AI',
           image: '/kimi-avatar.png',
@@ -346,7 +351,7 @@ export default function Home({ username }) {
       setMessages(prev => {
         const messagesWithoutTyping = prev.filter(msg => !msg.isTyping);
         const errorMessage = {
-          content: '抱歉，我遇到了一些问题。请稍后再试。',
+          content: '抱歉，我��到了一些问题。请稍后再试。',
           user: {
             name: 'Kimi AI',
             image: '/kimi-avatar.png',
@@ -821,6 +826,55 @@ export default function Home({ username }) {
     }
   }
 
+  // 监听聊天室切换
+  useEffect(() => {
+    if (activeChat) {
+      loadChatMessages()
+    }
+  }, [activeChat, session])
+
+  // 优化消息保存逻辑
+  useEffect(() => {
+    if (!activeChat || !messages.length || !session?.user?.login || !session.accessToken) return
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        console.log('Saving messages for room:', activeChat)
+        const savedMessages = await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+        
+        // 更新联系人列表中的消息状态
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === activeChat) {
+            return {
+              ...contact,
+              last_message: savedMessages[savedMessages.length - 1] || null,
+              message_count: savedMessages.length,
+              updated_at: new Date().toISOString()
+            }
+          }
+          return contact
+        })
+        setContacts(updatedContacts)
+
+        // 更新用户配置
+        if (userConfig) {
+          const updatedConfig = {
+            ...userConfig,
+            contacts: updatedContacts,
+            last_updated: new Date().toISOString()
+          }
+          await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        }
+
+        console.log('Successfully saved messages')
+      } catch (error) {
+        console.error('Error saving messages:', error)
+      }
+    }, 1000) // 1秒延迟保存
+
+    return () => clearTimeout(timeoutId)
+  }, [messages, activeChat, session])
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -890,7 +944,7 @@ export default function Home({ username }) {
           {contacts.map(contact => (
             <button
               key={contact.id}
-              onClick={() => setActiveChat(contact.id)}
+              onClick={() => handleChatChange(contact.id)}
               className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
                 activeChat === contact.id
                   ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
@@ -1004,46 +1058,61 @@ export default function Home({ username }) {
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
               {/* 消息列表区 - 优化滚动容器 */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${
-                      message.user.id === session?.user?.id ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
-                    <div className={`flex items-start gap-3 max-w-[70%] ${
-                      message.user.id === session?.user?.id ? 'flex-row-reverse' : ''
-                    }`}>
-                      {message.user.image && (
-                        <Image
-                          src={message.user.image}
-                          alt={message.user.name || '用户头像'}
-                          width={40}
-                          height={40}
-                          className="rounded-full flex-shrink-0"
-                        />
-                      )}
-                      <div className={`flex flex-col ${
-                        message.user.id === session?.user?.id ? 'items-end' : 'items-start'
-                      }`}>
-                        <div className={`rounded-2xl p-4 break-words ${
-                          message.isTyping ? 'bg-gray-100 dark:bg-gray-700 animate-pulse' :
-                          message.isError ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400' :
-                          message.user.id === session?.user?.id
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                        }`}>
-                          <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                          <p className="text-base whitespace-pre-wrap">{message.content}</p>
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          {new Date(message.createdAt).toLocaleTimeString()}
-                        </span>
-                      </div>
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">加载消息中...</p>
                     </div>
                   </div>
-                ))}
-                <div ref={messagesEndRef} />
+                ) : messages.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">暂无消息</p>
+                  </div>
+                ) : (
+                  <>
+                    {messages.map((message, index) => (
+                      <div
+                        key={`${message.createdAt}-${message.user.id}-${index}`}
+                        className={`flex ${
+                          message.user.id === session?.user?.id ? 'justify-end' : 'justify-start'
+                        }`}
+                      >
+                        <div className={`flex items-start gap-3 max-w-[70%] ${
+                          message.user.id === session?.user?.id ? 'flex-row-reverse' : ''
+                        }`}>
+                          {message.user.image && (
+                            <Image
+                              src={message.user.image}
+                              alt={message.user.name || '用户头像'}
+                              width={40}
+                              height={40}
+                              className="rounded-full flex-shrink-0"
+                            />
+                          )}
+                          <div className={`flex flex-col ${
+                            message.user.id === session?.user?.id ? 'items-end' : 'items-start'
+                          }`}>
+                            <div className={`rounded-2xl p-4 break-words ${
+                              message.isTyping ? 'bg-gray-100 dark:bg-gray-700 animate-pulse' :
+                              message.isError ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400' :
+                              message.user.id === session?.user?.id
+                                ? 'bg-blue-500 text-white'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            }`}>
+                              <p className="text-sm font-medium mb-1">{message.user.name}</p>
+                              <p className="text-base whitespace-pre-wrap">{message.content}</p>
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {new Date(message.createdAt).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={messagesEndRef} />
+                  </>
+                )}
               </div>
 
               {/* 输入框区域 - 固定在底部 */}
