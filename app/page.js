@@ -46,7 +46,7 @@ export default function Home({ username }) {
   const [autoSaveInterval, setAutoSaveInterval] = useState(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
 
-  // ���动滚动到底部
+  // 动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -260,7 +260,7 @@ export default function Home({ username }) {
 
     try {
       setIsWaitingForKimi(true);
-      // 显示正在输入状���
+      // 显示正在输入状态
       const typingMessage = {
         content: '正在思考...',
         user: {
@@ -677,11 +677,11 @@ export default function Home({ username }) {
 
   // 检查用户访问权限
   useEffect(() => {
-    if (username && session?.user?.login !== username) {
-      // 如果访问的不是自己的路径，重定向到自己的路径
-      window.location.href = `/${session?.user?.login || ''}`
+    if (username && session?.user?.login && username !== session.user.login) {
+      // 只有在用户已登录且访问的不是自己的路径时才重定向
+      window.location.href = `/${session.user.login}`
     }
-  }, [username, session])
+  }, [username, session?.user?.login])
 
   if (status === 'loading') {
     return (

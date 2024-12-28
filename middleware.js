@@ -29,10 +29,12 @@ export async function middleware(request) {
   if (path === '/') {
     const token = await getToken({ req: request })
     if (token?.login) {
-      // 如果已登录，重定向到用户的个人路径
-      return NextResponse.redirect(new URL(`/${token.login}`, request.url))
+      // 如果已登录且不在自己的路径，重定向到用户的个人路径
+      const userPath = `/${token.login}`
+      if (path !== userPath) {
+        return NextResponse.redirect(new URL(userPath, request.url))
+      }
     }
-    return response
   }
 
   return response
