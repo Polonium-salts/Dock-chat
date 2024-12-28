@@ -23,6 +23,17 @@ import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, formatSystemNotification } from '@/lib/systemNotifications'
 import { useTheme } from 'next-themes'
 import CreateRoomModal from './components/CreateRoomModal'
+import { extensionManager, ExtensionContext } from '@/lib/extensionApi'
+import { FileShareExtension } from '@/lib/extensions/fileShare'
+import { CodeCollabExtension } from '@/lib/extensions/codeCollab'
+import { SystemNotificationExtension } from '@/lib/extensions/systemNotification'
+import { RoomSettingsExtension } from '@/lib/extensions/roomSettings'
+
+// 注册扩展
+extensionManager.register(new FileShareExtension())
+extensionManager.register(new CodeCollabExtension())
+extensionManager.register(new SystemNotificationExtension())
+extensionManager.register(new RoomSettingsExtension())
 
 export default function Home({ username }) {
   const { data: session, status } = useSession()
@@ -51,6 +62,9 @@ export default function Home({ username }) {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
+  const [currentRoom, setCurrentRoom] = useState(null)
+  const [showUpload, setShowUpload] = useState(false)
+  const [showCodeEditor, setShowCodeEditor] = useState(false)
 
   // 动滚动到底部
   useEffect(() => {
@@ -120,23 +134,25 @@ export default function Home({ username }) {
             await createDataRepository(session.accessToken, session.user.login)
           }
 
-          // 加载用户配置
-          const config = await getConfig(session.accessToken, session.user.login)
+          // 预加载所有数据
+          await preloadCache(session.user.login, session.accessToken)
+
+          // 从缓存加载配置
+          const config = getCache(session.user.login, 'config')
           console.log('Loaded config:', config)
           
           if (config) {
             setUserConfig(config)
-            // 恢复用户配置
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
           }
 
-          // 加载聊天室列表（现在会优先使用缓存）
-          const rooms = await getChatRooms(session.accessToken, session.user.login)
+          // 从缓存加载聊天室列表
+          const rooms = getCache(session.user.login, 'rooms')
           console.log('Loaded chat rooms:', rooms)
           
-          if (rooms.length > 0) {
+          if (rooms?.length > 0) {
             setContacts(rooms)
 
             // 设置活动聊天室
@@ -149,11 +165,11 @@ export default function Home({ username }) {
             }
             setActiveChat(targetChat)
 
-            // 加载消息（现在会优先使用缓存）
-            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+            // 从缓存加载消息
+            const messages = getCache(session.user.login, 'messages', targetChat)
             console.log('Loaded messages for', targetChat, ':', messages)
             
-            if (messages && messages.length > 0) {
+            if (messages?.length > 0) {
               const formattedMessages = messages.map(msg => ({
                 content: msg.content || '',
                 user: {
@@ -249,35 +265,72 @@ export default function Home({ username }) {
   }
 
   // 修改聊天室切换的逻辑
-  const handleChatChange = (chatId) => {
+  const handleChatChange = async (chatId) => {
     if (chatId === activeChat) return
     setActiveChat(chatId)
     setMessages([]) // 立即清空消息
     setIsLoading(true) // 显示加载状态
 
-    // 如果切换到系统通知，清除未读消息数
-    if (chatId === 'system') {
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === 'system') {
-          return {
-            ...contact,
-            unread: 0
-          }
+    try {
+      // 从缓存加载消息
+      const cachedMessages = getCache(session.user.login, 'messages', chatId)
+      if (cachedMessages?.length > 0) {
+        const formattedMessages = cachedMessages.map(msg => ({
+          content: msg.content || '',
+          user: {
+            name: msg.user?.name || 'Unknown User',
+            image: msg.user?.image || '/default-avatar.png',
+            id: msg.user?.id || 'unknown'
+          },
+          createdAt: msg.createdAt || new Date().toISOString(),
+          type: msg.type || 'message'
+        }))
+        setMessages(formattedMessages)
+      } else {
+        // 如果缓存中没有消息，从服务器加载
+        const messages = await loadChatHistory(session.accessToken, session.user.login, chatId)
+        if (messages?.length > 0) {
+          const formattedMessages = messages.map(msg => ({
+            content: msg.content || '',
+            user: {
+              name: msg.user?.name || 'Unknown User',
+              image: msg.user?.image || '/default-avatar.png',
+              id: msg.user?.id || 'unknown'
+            },
+            createdAt: msg.createdAt || new Date().toISOString(),
+            type: msg.type || 'message'
+          }))
+          setMessages(formattedMessages)
         }
-        return contact
-      })
-      setContacts(updatedContacts)
-
-      // 更新用户配置
-      if (session?.accessToken && session.user.login && userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          last_updated: new Date().toISOString()
-        }
-        updateConfig(session.accessToken, session.user.login, updatedConfig)
-          .catch(error => console.error('Error updating config:', error))
       }
+
+      // 如果切换到系统通知，清除未读消息数
+      if (chatId === 'system') {
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === 'system') {
+            return {
+              ...contact,
+              unread: 0
+            }
+          }
+          return contact
+        })
+        setContacts(updatedContacts)
+
+        // 更新用户配置
+        if (session?.accessToken && session.user.login && userConfig) {
+          const updatedConfig = {
+            ...userConfig,
+            contacts: updatedContacts,
+            last_updated: new Date().toISOString()
+          }
+          await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -399,10 +452,7 @@ export default function Home({ username }) {
     }
   };
 
-  const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !session || isSending) return
-
+  const handleSendMessage = async (content) => {
     try {
       setIsSending(true)
       const message = {
@@ -431,7 +481,7 @@ export default function Home({ username }) {
       if (activeChat === 'kimi-ai') {
         await handleKimiMessage(message.content)
       } else {
-        // 获取当前所有消息，包括新消息
+        // 获取当前所有消息括新消息
         const updatedMessages = [...messages, message]
         try {
           await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
@@ -440,6 +490,12 @@ export default function Home({ username }) {
           console.error('Failed to save messages:', error)
           throw error
         }
+      }
+
+      // 通知扩展
+      const extensions = extensionManager.getAllExtensions()
+      for (const extension of extensions) {
+        extension.handleMessage(message)
       }
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -753,7 +809,7 @@ export default function Home({ username }) {
           // 保存到系统通知聊天室
           if (session.accessToken && session.user.login) {
             try {
-              // 加载现有系统消息
+              // 加载现有���统消息
               const existingMessages = await loadChatHistory(session.accessToken, session.user.login, 'system')
               const updatedMessages = [...existingMessages, systemMessage]
               
@@ -829,8 +885,8 @@ export default function Home({ username }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      // 生成唯一的房间ID
-      const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      // 生成���一的房间ID
+      const roomId = `${roomData.type === 'basic' ? 'room' : 'ext'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
       // 初始化聊天室
       await initializeChatRoom(
@@ -838,27 +894,37 @@ export default function Home({ username }) {
         session.user.login,
         roomId,
         roomData.name,
-        'room',
+        roomData.type,
         {
           description: roomData.description,
           isPrivate: roomData.isPrivate,
           creator: session.user.login,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          // 如果是扩展类型，添加扩展相关配置
+          ...(roomData.type === 'extended' && {
+            extensionType: roomData.extensionType,
+            extensionConfig: roomData.extensionConfig
+          })
         }
       )
 
-      // 更新联��人列表
+      // 更新联系人列表
       const newContact = {
         id: roomId,
         name: roomData.name,
-        type: 'room',
+        type: roomData.type,
         unread: 0,
         description: roomData.description,
         isPrivate: roomData.isPrivate,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         message_count: 0,
-        last_message: null
+        last_message: null,
+        // 如果是扩展类型，添加扩展相关信息
+        ...(roomData.type === 'extended' && {
+          extensionType: roomData.extensionType,
+          extensionConfig: roomData.extensionConfig
+        })
       }
 
       const updatedContacts = [...contacts, newContact]
@@ -935,6 +1001,218 @@ export default function Home({ username }) {
     return () => clearTimeout(timeoutId)
   }, [messages, activeChat, session])
 
+  // 在组件初始化时初始化扩展
+  useEffect(() => {
+    if (socket && currentRoom) {
+      const context = new ExtensionContext(
+        currentRoom.id,
+        socket,
+        session?.user
+      )
+      extensionManager.initializeAll(context)
+
+      return () => {
+        extensionManager.destroyAll()
+      }
+    }
+  }, [socket, currentRoom, session])
+
+  // 在渲染消息时集成扩展的UI
+  const renderChatMessage = (message) => {
+    // 检查是否是扩展消息
+    if (message.extensionId) {
+      const extension = extensionManager.getExtension(message.extensionId)
+      if (extension) {
+        return extension.render({ message, currentUser: session?.user })
+      }
+    }
+    
+    // 默认消息渲染
+    return (
+      <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+        {/* ... existing code ... */}
+      </div>
+    )
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!newMessage.trim() || !session || isSending) return
+    
+    const content = newMessage.trim()
+    setNewMessage('')
+    await handleSendMessage(content)
+  }
+
+  // 添加文件上传按钮
+  const renderInputTools = () => {
+    const fileShareExtension = extensionManager.getExtension('file-share')
+    const codeCollabExtension = extensionManager.getExtension('code-collab')
+
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowUpload(true)}
+          className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          title="上传文件"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+            />
+          </svg>
+        </button>
+        <button
+          onClick={() => setShowCodeEditor(true)}
+          className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          title="分享代码"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+            />
+          </svg>
+        </button>
+        {showUpload && fileShareExtension && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+              {fileShareExtension.components.get('FileUpload')({
+                onClose: () => setShowUpload(false)
+              })}
+            </div>
+          </div>
+        )}
+        {showCodeEditor && codeCollabExtension && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+              {codeCollabExtension.components.get('CodeEditor')({
+                onClose: () => setShowCodeEditor(false)
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 在用户登录时发送系统通知
+  useEffect(() => {
+    if (session?.user) {
+      const systemNotification = extensionManager.getExtension('system-notification')
+      if (systemNotification) {
+        systemNotification.sendSystemNotification(
+          `欢迎回来，${session.user.name || session.user.login}！`,
+          'success'
+        )
+      }
+    }
+  }, [session])
+
+  // 在切换聊天室时发送系统通知
+  useEffect(() => {
+    if (activeChat && session?.user) {
+      const systemNotification = extensionManager.getExtension('system-notification')
+      if (systemNotification) {
+        const chatName = contacts.find(contact => contact.id === activeChat)?.name || activeChat
+        systemNotification.sendSystemNotification(
+          `已切换到聊天室：${chatName}`,
+          'info'
+        )
+      }
+    }
+  }, [activeChat, contacts, session])
+
+  // 在发生错误时发送系统通知
+  const handleError = (error) => {
+    const systemNotification = extensionManager.getExtension('system-notification')
+    if (systemNotification) {
+      systemNotification.sendSystemNotification(
+        error.message || '发生错误，请稍后重试',
+        'error'
+      )
+    }
+  }
+
+  // 添加聊天室设置按钮
+  const renderRoomHeader = () => {
+    const roomSettingsExtension = extensionManager.getExtension('room-settings')
+    const [showSettings, setShowSettings] = useState(false)
+
+    if (!activeChat || !contacts) return null
+
+    const currentRoom = contacts.find(contact => contact.id === activeChat)
+    if (!currentRoom) return null
+
+    return (
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
+            {currentRoom.name || activeChat}
+          </h2>
+          {currentRoom.description && (
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {currentRoom.description}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setShowSettings(true)}
+          className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          title="聊天室设置"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
+        </button>
+        {showSettings && roomSettingsExtension && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+              {roomSettingsExtension.components.get('RoomSettings')({
+                onClose: () => setShowSettings(false),
+                room: currentRoom
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -976,7 +1254,7 @@ export default function Home({ username }) {
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
       {/* 左侧导航栏 - 添加固定宽度 */}
       <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-        {/* 用户信息区域 */}
+        {/* 用信息区域 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             {session.user.image && (
@@ -1078,42 +1356,8 @@ export default function Home({ username }) {
 
       {/* 主聊天区 - 优化滚动行为 */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-3 flex items-center justify-between relative">
-            <div className="flex flex-col">
-              <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {pageTitle}
-              </h1>
-              {currentView === 'chat' && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {window.location.origin}/{session.user.login}
-                </p>
-              )}
-            </div>
-            {currentView === 'chat' && (
-              <>
-                <button
-                  onClick={() => setShowChatSettings(!showChatSettings)}
-                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  <Cog6ToothIcon className="w-5 h-5" />
-                </button>
-                {showChatSettings && (
-                  <ChatRoomSettings
-                    room={{
-                      id: activeChat,
-                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
-                    }}
-                    onDelete={handleDeleteChatRoom}
-                    onClose={() => setShowChatSettings(false)}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        </header>
-
-        <main className="flex-1 p-4 overflow-hidden">
+        {renderRoomHeader()}
+        <div className="flex-1 overflow-y-auto p-4">
           {currentView === 'chat' ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
               {/* 消息列表区 - 优化滚动容器 */}
@@ -1200,28 +1444,22 @@ export default function Home({ username }) {
               </div>
 
               {/* 输入框区域 - 固定在底部 */}
-              <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
+              <form onSubmit={handleSubmit} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
                 <div className="flex items-center gap-4">
+                  {renderInputTools()}
                   <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
                     placeholder="输入消息..."
-                    disabled={isSending}
+                    className="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
                     type="submit"
-                    className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
-                      isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
-                    }`}
-                    disabled={!newMessage.trim() || !session || isSending}
+                    disabled={isSending}
+                    className="px-4 py-2 text-white bg-blue-500 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                   >
-                    {isSending ? (
-                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <PaperAirplaneIcon className="h-6 w-6" />
-                    )}
+                    发送
                   </button>
                 </div>
               </form>
@@ -1229,7 +1467,7 @@ export default function Home({ username }) {
           ) : (
             <ProfilePage session={session} />
           )}
-        </main>
+        </div>
       </div>
 
       {/* 加入聊天室模态框 */}
