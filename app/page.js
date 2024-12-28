@@ -151,6 +151,10 @@ export default function Home() {
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
+      // 如果已经在加载中，不要重复初始化
+      if (isLoading) return;
+      
+      // 如果没有会话信息，直接结束加载状态
       if (!session?.user?.login || !session.accessToken) {
         setIsLoading(false)
         return
@@ -159,13 +163,29 @@ export default function Home() {
       try {
         setIsLoading(true)
         setInitError(null)
-        console.log('Initializing data...')
+        console.log('Initializing data for user:', session.user.login)
 
-        // 确保仓库和基本结构存在
-        const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+        // 检查仓库状态
+        let hasRepo = false
+        try {
+          hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+          console.log('Repository check result:', hasRepo)
+        } catch (error) {
+          console.error('Error checking repository:', error)
+          setInitError('检查数据仓库失败')
+          return
+        }
+
+        // 如果仓库不存在，创建新仓库
         if (!hasRepo) {
-          console.log('Creating new repository...')
-          await createDataRepository(session.accessToken, session.user.login)
+          try {
+            console.log('Creating new repository...')
+            await createDataRepository(session.accessToken, session.user.login)
+          } catch (error) {
+            console.error('Error creating repository:', error)
+            setInitError('创建数据仓库失败')
+            return
+          }
         }
 
         // 更新 URL 路径
@@ -175,72 +195,97 @@ export default function Home() {
           window.history.replaceState({}, '', `/${username}`)
         }
 
-        // 并行加载数据
-        const [config, rooms] = await Promise.all([
-          getConfig(session.accessToken, session.user.login),
-          getChatRooms(session.accessToken, session.user.login)
-        ])
-
-        console.log('Loaded config:', config)
-        console.log('Loaded chat rooms:', rooms)
-
-        // 处理配置
-        if (config) {
-          setUserConfig(config)
-          if (config.kimi_settings?.api_key) {
-            setKimiApiKey(config.kimi_settings.api_key)
+        // 分步加载数据
+        let config = null
+        try {
+          config = await getConfig(session.accessToken, session.user.login)
+          console.log('Loaded config:', config)
+          
+          if (config) {
+            setUserConfig(config)
+            if (config.kimi_settings?.api_key) {
+              setKimiApiKey(config.kimi_settings.api_key)
+            }
           }
+        } catch (error) {
+          console.error('Error loading config:', error)
+          // 配置加载失败不阻止继续
         }
 
-        // 处理聊天室
-        if (rooms.length > 0) {
-          setContacts(rooms)
+        let rooms = []
+        try {
+          rooms = await getChatRooms(session.accessToken, session.user.login)
+          console.log('Loaded chat rooms:', rooms)
           
-          // 设置活动聊天室
-          let targetChat = 'public'
-          if (config?.settings?.activeChat) {
-            const chatExists = rooms.some(room => room.id === config.settings.activeChat)
-            if (chatExists) {
-              targetChat = config.settings.activeChat
+          if (rooms.length > 0) {
+            // 确保公共聊天室始终存在
+            if (!rooms.find(room => room.id === 'public')) {
+              rooms.unshift({
+                id: 'public',
+                name: '公共聊天室',
+                type: 'room',
+                unread: 0
+              })
             }
+            setContacts(rooms)
           }
-          setActiveChat(targetChat)
+        } catch (error) {
+          console.error('Error loading rooms:', error)
+          // 如果加载聊天室失败，至少保留公共聊天室
+          setContacts([{
+            id: 'public',
+            name: '公共聊天室',
+            type: 'room',
+            unread: 0
+          }])
+        }
 
-          // 加载消息
-          try {
-            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-            console.log('Loaded messages for', targetChat, ':', messages)
-            
-            if (messages && messages.length > 0) {
-              const formattedMessages = messages.map(msg => ({
-                content: msg.content || '',
-                user: {
-                  name: msg.user?.name || 'Unknown User',
-                  image: msg.user?.image || '/default-avatar.png',
-                  id: msg.user?.id || 'unknown'
-                },
-                createdAt: msg.createdAt || new Date().toISOString(),
-                type: msg.type || 'message'
-              }))
-              setMessages(formattedMessages)
-            } else {
-              setMessages([])
-            }
-          } catch (error) {
-            console.error('Error loading messages:', error)
+        // 设置活动聊天室
+        let targetChat = 'public'
+        if (config?.settings?.activeChat && rooms.some(room => room.id === config.settings.activeChat)) {
+          targetChat = config.settings.activeChat
+        }
+        setActiveChat(targetChat)
+
+        // 加载消息
+        try {
+          const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+          console.log('Loaded messages for', targetChat, ':', messages)
+          
+          if (messages && messages.length > 0) {
+            const formattedMessages = messages.map(msg => ({
+              content: msg.content || '',
+              user: {
+                name: msg.user?.name || 'Unknown User',
+                image: msg.user?.image || '/default-avatar.png',
+                id: msg.user?.id || 'unknown'
+              },
+              createdAt: msg.createdAt || new Date().toISOString(),
+              type: msg.type || 'message'
+            }))
+            setMessages(formattedMessages)
+          } else {
             setMessages([])
-            setInitError('加载消息失败')
           }
+        } catch (error) {
+          console.error('Error loading messages:', error)
+          setMessages([])
         }
       } catch (error) {
-        console.error('Error initializing data:', error)
-        setInitError('初始化数据失败')
+        console.error('Error in initialization:', error)
+        setInitError('初始化失败，请刷新页面重试')
       } finally {
+        console.log('Initialization completed')
         setIsLoading(false)
       }
     }
 
-    initializeData()
+    // 只在会话状态改变时初始化
+    if (session?.user?.login && session.accessToken && !isLoading) {
+      initializeData()
+    } else if (!session) {
+      setIsLoading(false)
+    }
   }, [session])
 
   // 修改切换聊天室的逻辑
@@ -700,7 +745,7 @@ export default function Home() {
         try {
           const loginMessage = await generateLoginMessage(session)
           
-          // 格式化系统通知
+          // ��式化系统通知
           const notification = await formatSystemNotification('login', {
             message: loginMessage,
             userInfo: {
