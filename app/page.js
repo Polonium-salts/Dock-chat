@@ -9,9 +9,7 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   PlusCircleIcon,
-  SparklesIcon,
-  ExclamationCircleIcon,
-  GithubIcon
+  SparklesIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import SettingsModal from './components/SettingsModal'
@@ -22,16 +20,6 @@ import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChat
 import ChatRoomSettings from './components/ChatRoomSettings'
 import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, getSystemNotifications, formatSystemNotification } from '@/lib/systemNotifications'
-
-// 添加加载状态组件
-const LoadingSpinner = () => (
-  <div className="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
-    <div className="text-center">
-      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-      <p className="text-gray-600 dark:text-gray-300">正在加载...</p>
-    </div>
-  </div>
-)
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -57,70 +45,36 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false)
   const [autoSaveInterval, setAutoSaveInterval] = useState(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
-  const [initError, setInitError] = useState(null)
 
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // 添加加载状态超时处理
-  useEffect(() => {
-    let timeoutId;
-    
-    if (isLoading) {
-      timeoutId = setTimeout(() => {
-        setIsLoading(false)
-        console.error('Loading timeout, resetting state')
-      }, 10000) // 10秒超时
-    }
-    
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-    }
-  }, [isLoading])
-
   // WebSocket 连接
   useEffect(() => {
-    if (!session) return;
-
-    let connectionAttempts = 0;
-    const maxAttempts = 3;
-    
-    const connectSocket = () => {
+    if (session) {
       console.log('Initializing socket connection...')
       const socket = io(window.location.origin, {
         path: '/api/socket',
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: 3,
+        reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        timeout: 5000
       })
 
       socket.on('connect', () => {
         console.log('Socket connected')
         setIsConnected(true)
-        connectionAttempts = 0
-        if (activeChat) {
-          socket.emit('join', { 
-            room: activeChat,
-            userId: session.user.id
-          })
-        }
+        socket.emit('join', { 
+          room: activeChat,
+          userId: session.user.id
+        })
       })
 
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
-        connectionAttempts++
-        
-        if (connectionAttempts >= maxAttempts) {
-          console.log('Max connection attempts reached')
-          socket.disconnect()
-        }
       })
 
       socket.on('disconnect', (reason) => {
@@ -139,107 +93,59 @@ export default function Home() {
         console.log('Cleaning up socket connection...')
         if (socket.connected) {
           socket.emit('leave', { room: activeChat })
-        socket.disconnect()
+          socket.disconnect()
         }
       }
     }
-
-    const connection = connectSocket()
-    return () => connection()
   }, [session, activeChat])
 
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      if (!session?.user?.login || !session.accessToken) {
-        console.log('Session not ready:', { session })
-        setIsLoading(false)
-        return
-      }
+      if (session?.user?.login && session.accessToken) {
+        try {
+          setIsLoading(true)
+          console.log('Initializing data...')
 
-      try {
-        setIsLoading(true)
-        setInitError(null)
-        console.log('Starting initialization with session:', {
-          user: session.user.login,
-          hasToken: !!session.accessToken
-        })
-
-        // 检查仓库状态
-        console.log('Checking repository...')
-        const hasRepo = await checkDataRepository(session.accessToken, session.user.login).catch(error => {
-          console.error('Repository check failed:', error)
-          throw new Error('仓库检查失败: ' + error.message)
-        })
-
-        if (!hasRepo) {
-          console.log('Repository not found, creating new one...')
-          await createDataRepository(session.accessToken, session.user.login).catch(error => {
-            console.error('Repository creation failed:', error)
-            throw new Error('仓库创建失败: ' + error.message)
-          })
-        }
-
-        // 更新 URL 路径
-        const currentPath = window.location.pathname
-        const username = session.user.login
-        if (currentPath === '/' || currentPath !== `/${username}`) {
-          console.log('Updating URL path to:', `/${username}`)
-          window.history.replaceState({}, '', `/${username}`)
-        }
-
-        // 并行加载数据
-        console.log('Loading config and rooms...')
-        const [config, rooms] = await Promise.all([
-          getConfig(session.accessToken, session.user.login).catch(error => {
-            console.error('Config loading failed:', error)
-            return null
-          }),
-          getChatRooms(session.accessToken, session.user.login).catch(error => {
-            console.error('Rooms loading failed:', error)
-            return []
-          })
-        ])
-
-        console.log('Loaded data:', { config, roomsCount: rooms.length })
-
-        // 处理配置
-        if (config) {
-          console.log('Setting user config...')
-          setUserConfig(config)
-          if (config.kimi_settings?.api_key) {
-            setKimiApiKey(config.kimi_settings.api_key)
+          // 确保仓库和基本结构存在
+          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+          if (!hasRepo) {
+            console.log('Creating new repository...')
+            await createDataRepository(session.accessToken, session.user.login)
           }
-        } else {
-          console.log('No config found, using defaults')
-        }
 
-        // 处理聊天室
-        if (rooms.length > 0) {
-          console.log('Setting up chat rooms...')
-          // 确保公共聊天室始终存在
-          const hasPublicRoom = rooms.some(room => room.id === 'public')
-          const updatedRooms = hasPublicRoom ? rooms : [
-            { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
-            ...rooms
-          ]
-          setContacts(updatedRooms)
+          // 加载用户配置
+          const config = await getConfig(session.accessToken, session.user.login)
+          console.log('Loaded config:', config)
           
-          // 设置活动聊天室
-          let targetChat = 'public'
-          if (config?.settings?.activeChat) {
-            const chatExists = updatedRooms.some(room => room.id === config.settings.activeChat)
-            if (chatExists) {
-              targetChat = config.settings.activeChat
+          if (config) {
+            setUserConfig(config)
+            // 恢复用户配置
+            if (config.kimi_settings?.api_key) {
+              setKimiApiKey(config.kimi_settings.api_key)
             }
           }
-          setActiveChat(targetChat)
 
-          // 加载消息
-          try {
-            console.log('Loading messages for chat:', targetChat)
+          // 加载聊天室列表
+          const rooms = await getChatRooms(session.accessToken, session.user.login)
+          console.log('Loaded chat rooms:', rooms)
+          
+          if (rooms.length > 0) {
+            setContacts(rooms)
+
+            // 设置活动聊天室
+            let targetChat = 'public'
+            if (config?.settings?.activeChat) {
+              const chatExists = rooms.some(room => room.id === config.settings.activeChat)
+              if (chatExists) {
+                targetChat = config.settings.activeChat
+              }
+            }
+            setActiveChat(targetChat)
+
+            // 加载消息
             const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-            console.log('Loaded messages:', messages?.length || 0)
+            console.log('Loaded messages for', targetChat, ':', messages)
             
             if (messages && messages.length > 0) {
               const formattedMessages = messages.map(msg => ({
@@ -254,45 +160,18 @@ export default function Home() {
               }))
               setMessages(formattedMessages)
             } else {
-              console.log('No messages found, setting empty array')
               setMessages([])
             }
-          } catch (error) {
-            console.error('Error loading messages:', error)
-            setMessages([])
-            throw new Error('消息加载失败: ' + error.message)
           }
-        } else {
-          console.log('No rooms found, using default public room')
-          setContacts([{ id: 'public', name: '公共聊天室', type: 'room', unread: 0 }])
-          setActiveChat('public')
-          setMessages([])
+        } catch (error) {
+          console.error('Error initializing data:', error)
+        } finally {
+          setIsLoading(false)
         }
-      } catch (error) {
-        console.error('Initialization failed:', error)
-        setInitError(error.message || '初始化数据失败')
-        // 确保在出错时也设置基本状态
-        setContacts([{ id: 'public', name: '公共聊天室', type: 'room', unread: 0 }])
-        setActiveChat('public')
-        setMessages([])
-      } finally {
-        console.log('Initialization complete')
-        setIsLoading(false)
       }
     }
 
-    // 添加错误边界
-    const safeInitialize = async () => {
-      try {
-        await initializeData()
-      } catch (error) {
-        console.error('Fatal initialization error:', error)
-        setIsLoading(false)
-        setInitError('致命错误：应用程序初始化失败')
-      }
-    }
-
-    safeInitialize()
+    initializeData()
   }, [session])
 
   // 修改切换聊天室的逻辑
@@ -452,15 +331,15 @@ export default function Home() {
 
     try {
       setIsSending(true)
-    const message = {
-      content: newMessage,
-      user: {
-        name: session.user.name,
-        image: session.user.image,
-        id: session.user.id
-      },
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
         createdAt: new Date().toISOString()
-    }
+      }
 
       // 添加消息到本地状态
       setMessages(prev => [...prev, message])
@@ -478,7 +357,7 @@ export default function Home() {
       if (activeChat === 'kimi-ai') {
         await handleKimiMessage(message.content)
       } else {
-        // 获取当前所有消息，包括新消息
+        // 获取当前所有消息，包��新消息
         const updatedMessages = [...messages, message]
         try {
           await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
@@ -490,7 +369,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Failed to send message:', error)
-      // 移除失败的消息并显示错误
+      // 移除失败的消��并显示错误
       setMessages(prev => {
         const newMessages = prev.slice(0, -1)
         return [...newMessages, {
@@ -534,9 +413,9 @@ export default function Home() {
       })
 
       if (response.ok) {
-    setContacts(prev => [...prev, newContact])
-    setJoinInput('')
-    setShowJoinModal(false)
+        setContacts(prev => [...prev, newContact])
+        setJoinInput('')
+        setShowJoinModal(false)
         // 切换到新的聊天室
         setActiveChat(joinInput)
       } else {
@@ -721,7 +600,7 @@ export default function Home() {
     }
 
     try {
-      // 从联系人列表��移除
+      // 从联系人列表中移除
       setContacts(prev => prev.filter(c => c.id !== roomId))
       
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
@@ -729,7 +608,7 @@ export default function Home() {
         setActiveChat('public')
       }
 
-      // 更新配置
+      // 更新���置
       const config = await getConfig(session.accessToken, session.user.login)
       const updatedConfig = {
         ...config,
@@ -791,30 +670,21 @@ export default function Home() {
     }
   }, [session, socket?.connected])
 
-  // 修改页面渲染逻辑
-  if (status === 'loading' || isLoading) {
-    return <LoadingSpinner />
-  }
+  // 修改页面标题部分
+  const pageTitle = currentView === 'chat' 
+    ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
+    : '个人主页'
 
-  if (initError) {
+  if (status === 'loading') {
     return (
-      <div className="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
-        <div className="text-center p-6 max-w-sm mx-auto">
-          <div className="text-red-500 mb-4">
-            <ExclamationCircleIcon className="w-12 h-12 mx-auto" />
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-pulse flex items-center justify-center space-x-2">
+            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
+            <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-            {initError}
-          </h3>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            请刷新页面重试，如果问题持续存在，请联系管理员
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-          >
-            刷新页面
-          </button>
+          <p className="mt-4 text-sm text-gray-500">正在加载...</p>
         </div>
       </div>
     )
@@ -822,16 +692,19 @@ export default function Home() {
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+        <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-2xl shadow-lg">
           <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-8">
-            欢迎使用 Dock Chat
-          </h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Telegraph Chat</h1>
+            <p className="text-gray-500">实时聊天，随时交流</p>
+          </div>
           <button
             onClick={() => signIn('github')}
-            className="inline-flex items-center px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+            className="w-full flex items-center justify-center gap-3 p-3 bg-[#24292F] text-white rounded-lg hover:bg-[#24292F]/90 transition-colors duration-200"
           >
-            <GithubIcon className="w-6 h-6 mr-2" />
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+            </svg>
             使用 GitHub 登录
           </button>
         </div>
@@ -839,9 +712,8 @@ export default function Home() {
     )
   }
 
-  // 渲染主界面
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
       {/* 左侧导航栏 - 添加固定宽度 */}
       <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
         {/* 用户信息区域 */}
@@ -860,7 +732,9 @@ export default function Home() {
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                 {session.user.name || '用户'}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">在线</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                @{session.user.login}
+              </p>
             </div>
           </div>
         </div>
@@ -901,7 +775,7 @@ export default function Home() {
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
           >
             <SparklesIcon className="w-5 h-5" />
-            添加 AI ���手
+            添加 AI 助手
           </button>
           <button
             onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
@@ -939,12 +813,16 @@ export default function Home() {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3 flex items-center justify-between relative">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {currentView === 'chat' 
-                ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
-                : '个人主页'
-              }
-            </h1>
+            <div className="flex flex-col">
+              <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {pageTitle}
+              </h1>
+              {currentView === 'chat' && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {window.location.origin}/{session.user.login}
+                </p>
+              )}
+            </div>
             {currentView === 'chat' && (
               <>
                 <button
@@ -1036,7 +914,7 @@ export default function Home() {
                     {isSending ? (
                       <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                    <PaperAirplaneIcon className="h-6 w-6" />
+                      <PaperAirplaneIcon className="h-6 w-6" />
                     )}
                   </button>
                 </div>
@@ -1130,7 +1008,7 @@ export default function Home() {
                   }}
                   className="px-4 py-2 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg"
                 >
-                  确定
+                  确认
                 </button>
               </div>
             </div>
