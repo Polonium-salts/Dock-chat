@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useSession, signIn } from 'next-auth/react'
+import { useSession, signIn, SessionProvider } from 'next-auth/react'
 import { io } from 'socket.io-client'
 import { 
   PaperAirplaneIcon,
@@ -35,7 +35,15 @@ extensionManager.register(new CodeCollabExtension())
 extensionManager.register(new SystemNotificationExtension())
 extensionManager.register(new RoomSettingsExtension())
 
-export default function Home({ username }) {
+export default function HomeWrapper({ username }) {
+  return (
+    <SessionProvider>
+      <Home username={username} />
+    </SessionProvider>
+  )
+}
+
+function Home({ username }) {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [messages, setMessages] = useState([])
@@ -809,7 +817,7 @@ export default function Home({ username }) {
           // 保存到系统通知聊天室
           if (session.accessToken && session.user.login) {
             try {
-              // 加载现有���统消息
+              // 加载现有系统消息
               const existingMessages = await loadChatHistory(session.accessToken, session.user.login, 'system')
               const updatedMessages = [...existingMessages, systemMessage]
               
@@ -885,7 +893,7 @@ export default function Home({ username }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      // 生成���一的房间ID
+      // 生成唯一的房间ID
       const roomId = `${roomData.type === 'basic' ? 'room' : 'ext'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
       // 初始化聊天室
@@ -968,7 +976,7 @@ export default function Home({ username }) {
         console.log('Saving messages for room:', activeChat)
         const savedMessages = await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
         
-        // 更新联系人列表中的消息状态
+        // 更新联系人列���中的消息状态
         const updatedContacts = contacts.map(contact => {
           if (contact.id === activeChat) {
             return {
