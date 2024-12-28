@@ -764,7 +764,7 @@ export default function Home({ username }) {
         <div className="max-w-sm w-full p-6">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">欢迎使用 Dock Chat</h1>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">请使用 GitHub 账号登录</p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">请使用 GitHub 账号登��</p>
           </div>
           <button
             onClick={() => signIn('github', { callbackUrl: '/' })}
@@ -844,12 +844,6 @@ export default function Home({ username }) {
           >
             <PlusCircleIcon className="w-5 h-5" />
             创建聊天室
-          </button>
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            {theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
           </button>
           <button
             onClick={addKimiAIChat}
@@ -1015,7 +1009,7 @@ export default function Home({ username }) {
             <form onSubmit={handleJoin} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  输入聊天室 ID 或 IP 地址
+                  ��入聊天室 ID 或 IP 地址
                 </label>
                 <input
                   type="text"
