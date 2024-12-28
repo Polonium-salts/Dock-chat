@@ -132,7 +132,7 @@ export default function Home({ username }) {
             }
           }
 
-          // 加载聊天室列表
+          // 加载聊天室列表（现在会优先使用缓存）
           const rooms = await getChatRooms(session.accessToken, session.user.login)
           console.log('Loaded chat rooms:', rooms)
           
@@ -149,7 +149,7 @@ export default function Home({ username }) {
             }
             setActiveChat(targetChat)
 
-            // 加载消息
+            // 加载消息（现在会优先使用缓存）
             const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
             console.log('Loaded messages for', targetChat, ':', messages)
             
@@ -189,7 +189,7 @@ export default function Home({ username }) {
       setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
       console.log('Loading messages for chat:', activeChat)
 
-      // 从 GitHub 加载消息
+      // 从 GitHub 加载消息（现在会优先使用缓存）
       const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
       console.log('Loaded messages:', messages)
 
@@ -254,6 +254,31 @@ export default function Home({ username }) {
     setActiveChat(chatId)
     setMessages([]) // 立即清空消息
     setIsLoading(true) // 显示加载状态
+
+    // 如果切换到系统通知，清除未读消息数
+    if (chatId === 'system') {
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === 'system') {
+          return {
+            ...contact,
+            unread: 0
+          }
+        }
+        return contact
+      })
+      setContacts(updatedContacts)
+
+      // 更新用户配置
+      if (session?.accessToken && session.user.login && userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          last_updated: new Date().toISOString()
+        }
+        updateConfig(session.accessToken, session.user.login, updatedConfig)
+          .catch(error => console.error('Error updating config:', error))
+      }
+    }
   }
 
   // 修改保存消息的逻辑
@@ -311,7 +336,7 @@ export default function Home({ username }) {
       setIsWaitingForKimi(true);
       // 显示正在输入状态
       const typingMessage = {
-        content: '正在��考...',
+        content: '正在思考...',
         user: {
           name: 'Kimi AI',
           image: '/kimi-avatar.png',
@@ -351,7 +376,7 @@ export default function Home({ username }) {
       setMessages(prev => {
         const messagesWithoutTyping = prev.filter(msg => !msg.isTyping);
         const errorMessage = {
-          content: '抱歉，我��到了一些问题。请稍后再试。',
+          content: '抱歉，我遇到了一些问题。请稍后再试。',
           user: {
             name: 'Kimi AI',
             image: '/kimi-avatar.png',
@@ -713,31 +738,66 @@ export default function Home({ username }) {
         try {
           const loginMessage = await generateLoginMessage(session)
           
-          // 格式化系统通知
-          const notification = await formatSystemNotification('login', {
-            message: loginMessage,
-            userInfo: {
-              name: session.user.name,
-              id: session.user.id,
-              email: session.user.email
+          // 创建系统通知消息
+          const systemMessage = {
+            content: loginMessage,
+            user: {
+              name: 'System',
+              image: '/system-avatar.png',
+              id: 'system'
             },
-            loginTime: new Date().toISOString()
+            type: 'system',
+            createdAt: new Date().toISOString()
+          }
+
+          // 保存到系统通知聊天室
+          if (session.accessToken && session.user.login) {
+            try {
+              // 加载现有系统消息
+              const existingMessages = await loadChatHistory(session.accessToken, session.user.login, 'system')
+              const updatedMessages = [...existingMessages, systemMessage]
+              
+              // 保存更新后的消息
+              await saveChatHistory(session.accessToken, session.user.login, 'system', updatedMessages)
+
+              // 更新联系人列表中的系统通知未读数
+              const updatedContacts = contacts.map(contact => {
+                if (contact.id === 'system') {
+                  return {
+                    ...contact,
+                    unread: (contact.unread || 0) + 1,
+                    last_message: systemMessage,
+                    message_count: updatedMessages.length,
+                    updated_at: new Date().toISOString()
+                  }
+                }
+                return contact
+              })
+              setContacts(updatedContacts)
+
+              // 更新用户配置
+              if (userConfig) {
+                const updatedConfig = {
+                  ...userConfig,
+                  contacts: updatedContacts,
+                  last_updated: new Date().toISOString()
+                }
+                await updateConfig(session.accessToken, session.user.login, updatedConfig)
+              }
+            } catch (error) {
+              console.error('Error saving system notification:', error)
+            }
+          }
+
+          // 发送到公共聊天室
+          socket.emit('message', {
+            ...systemMessage,
+            room: 'public'
           })
 
-          if (notification) {
-            // 保存到 GitHub
-            await saveSystemNotification(session.accessToken, session.user.login, notification)
-
-            // 发送到 Socket
-            socket.emit('message', {
-              ...notification,
-              room: 'public'
-            })
-
-            // 如果当前在公共聊天室，更新本地消息
-            if (activeChat === 'public') {
-              setMessages(prev => [...prev, notification])
-            }
+          // 如果当前在公共聊天室，更新本地消息
+          if (activeChat === 'public') {
+            setMessages(prev => [...prev, systemMessage])
           }
         } catch (error) {
           console.error('Error sending login message:', error)
@@ -745,7 +805,7 @@ export default function Home({ username }) {
       }
     }
 
-    // 确保只在初始连接时发送一次登录消息
+    // 确保只在初始连接发送一次登录消息
     if (session?.user && socket?.connected && !socket._loginMessageSent) {
       socket._loginMessageSent = true
       sendLoginMessage()
@@ -787,7 +847,7 @@ export default function Home({ username }) {
         }
       )
 
-      // 更新联系人列表
+      // 更新联��人列表
       const newContact = {
         id: roomId,
         name: roomData.name,
@@ -1075,13 +1135,25 @@ export default function Home({ username }) {
                       <div
                         key={`${message.createdAt}-${message.user.id}-${index}`}
                         className={`flex ${
-                          message.user.id === session?.user?.id ? 'justify-end' : 'justify-start'
+                          message.type === 'system' 
+                            ? 'justify-center'
+                            : message.user.id === session?.user?.id 
+                              ? 'justify-end' 
+                              : 'justify-start'
                         }`}
                       >
-                        <div className={`flex items-start gap-3 max-w-[70%] ${
-                          message.user.id === session?.user?.id ? 'flex-row-reverse' : ''
+                        <div className={`flex items-start gap-3 ${
+                          message.type === 'system'
+                            ? 'max-w-[80%]'
+                            : 'max-w-[70%]'
+                        } ${
+                          message.type === 'system'
+                            ? ''
+                            : message.user.id === session?.user?.id
+                              ? 'flex-row-reverse'
+                              : ''
                         }`}>
-                          {message.user.image && (
+                          {message.user.image && message.type !== 'system' && (
                             <Image
                               src={message.user.image}
                               alt={message.user.name || '用户头像'}
@@ -1091,20 +1163,32 @@ export default function Home({ username }) {
                             />
                           )}
                           <div className={`flex flex-col ${
-                            message.user.id === session?.user?.id ? 'items-end' : 'items-start'
+                            message.type === 'system'
+                              ? 'items-center'
+                              : message.user.id === session?.user?.id
+                                ? 'items-end'
+                                : 'items-start'
                           }`}>
                             <div className={`rounded-2xl p-4 break-words ${
-                              message.isTyping ? 'bg-gray-100 dark:bg-gray-700 animate-pulse' :
-                              message.isError ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400' :
-                              message.user.id === session?.user?.id
-                                ? 'bg-blue-500 text-white'
-                                : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                              message.type === 'system'
+                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm'
+                                : message.isTyping
+                                  ? 'bg-gray-100 dark:bg-gray-700 animate-pulse'
+                                  : message.isError
+                                    ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                                    : message.user.id === session?.user?.id
+                                      ? 'bg-blue-500 text-white'
+                                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                             }`}>
-                              <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                              <p className="text-base whitespace-pre-wrap">{message.content}</p>
+                              {message.type !== 'system' && (
+                                <p className="text-sm font-medium mb-1">{message.user.name}</p>
+                              )}
+                              <p className={`${
+                                message.type === 'system' ? 'text-center' : ''
+                              } whitespace-pre-wrap`}>{message.content}</p>
                             </div>
                             <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {new Date(message.createdAt).toLocaleTimeString()}
+                              {new Date(message.createdAt).toLocaleString()}
                             </span>
                           </div>
                         </div>
