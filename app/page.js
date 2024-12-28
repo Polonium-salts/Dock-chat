@@ -225,6 +225,21 @@ export default function Home({ username }) {
           }
           await updateConfig(session.accessToken, session.user.login, updatedConfig)
         }
+
+        // 更新联系人列表中的未读消息状态
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === activeChat) {
+            return {
+              ...contact,
+              unread: 0,
+              last_message: formattedMessages[formattedMessages.length - 1] || null,
+              message_count: formattedMessages.length
+            }
+          }
+          return contact
+        })
+        setContacts(updatedContacts)
+
       } catch (error) {
         console.error('Error loading messages:', error)
         setMessages([])
@@ -236,18 +251,41 @@ export default function Home({ username }) {
     loadChatMessages()
   }, [activeChat, session])
 
-  // 保存消息到 GitHub
+  // 修改保存消息的逻辑
   const saveMessages = async (roomId, messages) => {
-    if (session?.user?.login && session.accessToken) {
-      try {
-        if (roomId === 'kimi-ai') {
-          await saveAIChatHistory(session.accessToken, session.user.login, messages)
-        } else {
-          await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      console.log('Saving messages for room:', roomId)
+      const savedMessages = await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+      
+      // 更新联系人列表中的消息状态
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === roomId) {
+          return {
+            ...contact,
+            last_message: savedMessages[savedMessages.length - 1] || null,
+            message_count: savedMessages.length,
+            updated_at: new Date().toISOString()
+          }
         }
-      } catch (error) {
-        console.error('Error saving messages:', error)
+        return contact
+      })
+      setContacts(updatedContacts)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
+
+      console.log('Successfully saved messages')
+    } catch (error) {
+      console.error('Error saving messages:', error)
     }
   }
 
@@ -396,43 +434,59 @@ export default function Home({ username }) {
 
   const handleJoin = async (e) => {
     e.preventDefault()
-    if (!joinInput.trim()) return
-
-    const newContact = {
-      id: joinInput,
-      name: `聊天室 ${joinInput}`,
-      type: 'room',
-      unread: 0
-    }
+    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) return
 
     try {
-      // 创建新的聊天室
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          roomId: joinInput,
-          name: `聊天室 ${joinInput}`
-        })
-      })
+      // 初始化聊天室
+      await initializeChatRoom(
+        session.accessToken,
+        session.user.login,
+        joinInput,
+        `聊天室 ${joinInput}`,
+        'room',
+        {
+          creator: session.user.login,
+          created_at: new Date().toISOString()
+        }
+      )
 
-      if (response.ok) {
-        setContacts(prev => [...prev, newContact])
-        setJoinInput('')
-        setShowJoinModal(false)
-        // 切换到新的聊天室
-        setActiveChat(joinInput)
-      } else {
-        console.error('Failed to create chat room')
+      // 更新联系人列表
+      const newContact = {
+        id: joinInput,
+        name: `聊天室 ${joinInput}`,
+        type: 'room',
+        unread: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        last_message: null
+      }
+
+      setContacts(prev => [...prev, newContact])
+      setJoinInput('')
+      setShowJoinModal(false)
+      setActiveChat(joinInput)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: [...contacts, newContact],
+          settings: {
+            ...userConfig.settings,
+            activeChat: joinInput
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
     } catch (error) {
-      console.error('Error creating chat room:', error)
+      console.error('Error joining chat room:', error)
+      alert('加入聊天室失败')
     }
   }
 
-  // 检查是否需要显示新手引导
+  // 修改初始化检查的逻辑
   useEffect(() => {
     const checkOnboarding = async () => {
       if (session?.user?.login && session.accessToken) {
@@ -450,7 +504,20 @@ export default function Home({ username }) {
                 setKimiApiKey(config.kimi_settings.api_key)
               }
               if (config.contacts?.length > 0) {
-                setContacts(config.contacts)
+                // 确保联系人列表包含必要的字段
+                const formattedContacts = config.contacts.map(contact => ({
+                  id: contact.id,
+                  name: contact.name,
+                  type: contact.type,
+                  unread: contact.unread || 0,
+                  created_at: contact.created_at || new Date().toISOString(),
+                  updated_at: contact.updated_at || new Date().toISOString(),
+                  message_count: contact.message_count || 0,
+                  last_message: contact.last_message || null,
+                  description: contact.description,
+                  isPrivate: contact.isPrivate
+                }))
+                setContacts(formattedContacts)
               }
               if (config.settings?.activeChat) {
                 setActiveChat(config.settings.activeChat)
@@ -597,7 +664,7 @@ export default function Home({ username }) {
     return () => clearTimeout(timeoutId)
   }, [messages, activeChat, session])
 
-  // 添加删除聊天室的函数
+  // 修改删除聊天室的逻辑
   const handleDeleteChatRoom = async (roomId) => {
     if (!session?.user?.login || !session.accessToken) return
     if (roomId === 'public' || roomId === 'kimi-ai') {
@@ -607,26 +674,30 @@ export default function Home({ username }) {
 
     try {
       // 从联系人列表中移除
-      setContacts(prev => prev.filter(c => c.id !== roomId))
+      const updatedContacts = contacts.filter(c => c.id !== roomId)
+      setContacts(updatedContacts)
       
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
       if (activeChat === roomId) {
         setActiveChat('public')
       }
 
-      // 更新配置
-      const config = await getConfig(session.accessToken, session.user.login)
-      const updatedConfig = {
-        ...config,
-        contacts: contacts.filter(c => c.id !== roomId),
-        last_updated: new Date().toISOString()
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: activeChat === roomId ? 'public' : activeChat
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
-      await updateConfig(session.accessToken, session.user.login, updatedConfig)
-
-      // 可以选择是否也从 GitHub 仓库中删除聊天记录
-      // 这里暂时不实现，因为可能需要保留历史记录
     } catch (error) {
       console.error('Error deleting chat room:', error)
+      alert('删除聊天室失败')
     }
   }
 
@@ -688,7 +759,7 @@ export default function Home({ username }) {
     }
   }, [username, session?.user?.login, router])
 
-  // 添加创建聊天室的处理函数
+  // 修改创建聊天室的逻辑
   const handleCreateRoom = async (roomData) => {
     if (!session?.user?.login || !session.accessToken) return
 
@@ -718,17 +789,22 @@ export default function Home({ username }) {
         type: 'room',
         unread: 0,
         description: roomData.description,
-        isPrivate: roomData.isPrivate
+        isPrivate: roomData.isPrivate,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        last_message: null
       }
 
-      setContacts(prev => [...prev, newContact])
+      const updatedContacts = [...contacts, newContact]
+      setContacts(updatedContacts)
       setActiveChat(roomId)
 
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
           ...userConfig,
-          contacts: [...(userConfig.contacts || []), newContact],
+          contacts: updatedContacts,
           settings: {
             ...userConfig.settings,
             activeChat: roomId
@@ -737,9 +813,11 @@ export default function Home({ username }) {
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
+
+      setShowCreateRoomModal(false)
     } catch (error) {
       console.error('Error creating room:', error)
-      throw error
+      alert('创建聊天室失败')
     }
   }
 
@@ -764,7 +842,7 @@ export default function Home({ username }) {
         <div className="max-w-sm w-full p-6">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">欢迎使用 Dock Chat</h1>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">请使用 GitHub 账号登��</p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">请使用 GitHub 账号登录</p>
           </div>
           <button
             onClick={() => signIn('github', { callbackUrl: '/' })}
@@ -1009,7 +1087,7 @@ export default function Home({ username }) {
             <form onSubmit={handleJoin} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  ��入聊天室 ID 或 IP 地址
+                  加入聊天室 ID 或 IP 地址
                 </label>
                 <input
                   type="text"
