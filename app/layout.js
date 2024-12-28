@@ -1,5 +1,5 @@
 import { Inter } from 'next/font/google'
-import { SessionProvider } from 'next-auth/react'
+import { Providers } from './providers'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -9,13 +9,13 @@ export const metadata = {
   description: '实时聊天，随时交流',
 }
 
-export default function RootLayout({ children, session }) {
+export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN">
       <body className={inter.className}>
-        <SessionProvider session={session}>
+        <Providers>
           {children}
-        </SessionProvider>
+        </Providers>
       </body>
     </html>
   )

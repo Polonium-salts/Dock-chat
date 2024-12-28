@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useSession, signIn, signOut } from 'next-auth/react'
+import { useSession, signIn } from 'next-auth/react'
 import { io } from 'socket.io-client'
 import { 
   PaperAirplaneIcon,
@@ -12,17 +12,19 @@ import {
   SparklesIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import SettingsModal from './components/SettingsModal'
 import ProfilePage from './components/ProfilePage'
 import OnboardingModal from './components/OnboardingModal'
-import { sendMessageToKimi, clearKimiConversation } from '@/lib/kimi'
-import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, saveAIChatHistory, loadAIChatHistory } from '@/lib/github'
+import { sendMessageToKimi } from '@/lib/kimi'
+import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory } from '@/lib/github'
 import ChatRoomSettings from './components/ChatRoomSettings'
 import { generateLoginMessage } from '@/lib/userInfo'
-import { saveSystemNotification, getSystemNotifications, formatSystemNotification } from '@/lib/systemNotifications'
+import { saveSystemNotification, formatSystemNotification } from '@/lib/systemNotifications'
 
 export default function Home({ username }) {
   const { data: session, status } = useSession()
+  const router = useRouter()
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
@@ -357,7 +359,7 @@ export default function Home({ username }) {
       if (activeChat === 'kimi-ai') {
         await handleKimiMessage(message.content)
       } else {
-        // 获取当前所有消��，包括新消息
+        // 获取当前所有消息，包括新消息
         const updatedMessages = [...messages, message]
         try {
           await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
@@ -678,10 +680,9 @@ export default function Home({ username }) {
   // 检查用户访问权限
   useEffect(() => {
     if (username && session?.user?.login && username !== session.user.login) {
-      // 只有在用户已登录且访问的不是自己的路径时才重定向
-      window.location.href = `/${session.user.login}`
+      router.push(`/${session.user.login}`)
     }
-  }, [username, session?.user?.login])
+  }, [username, session?.user?.login, router])
 
   if (status === 'loading') {
     return (
