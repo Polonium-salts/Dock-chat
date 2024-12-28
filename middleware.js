@@ -17,8 +17,11 @@ export async function middleware(request) {
   // 获取路径
   const path = request.nextUrl.pathname
 
-  // 如果是 API 路由，直接返回
-  if (path.startsWith('/api')) {
+  // 如果是 API 路由或静态资源，直接返回
+  if (path.startsWith('/api') || 
+      path.startsWith('/_next') || 
+      path.includes('/favicon.ico') || 
+      path.includes('/images/')) {
     return response
   }
 
@@ -30,20 +33,6 @@ export async function middleware(request) {
       return NextResponse.redirect(new URL(`/${token.login}`, request.url))
     }
     return response
-  }
-
-  // 如果是用户路径，验证用户是否有权限访问
-  const username = path.split('/')[1]
-  if (username) {
-    const token = await getToken({ req: request })
-    if (!token) {
-      // 未登录用户重定向到首页
-      return NextResponse.redirect(new URL('/', request.url))
-    }
-    if (token.login !== username) {
-      // 如果访问的不是自己的路径，重定向到自己的路径
-      return NextResponse.redirect(new URL(`/${token.login}`, request.url))
-    }
   }
 
   return response
