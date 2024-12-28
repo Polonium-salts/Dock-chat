@@ -17,8 +17,10 @@ const handler = NextAuth({
     async jwt({ token, account, profile }) {
       if (account) {
         token.accessToken = account.access_token
-        token.id = profile.id
-        token.login = profile.login
+        if (profile) {
+          token.login = profile.login
+          token.id = profile.id
+        }
       }
       return token
     },
@@ -27,13 +29,17 @@ const handler = NextAuth({
       if (token.login) {
         session.user.login = token.login
       }
+      if (token.id) {
+        session.user.id = token.id
+      }
       return session
     }
   },
   pages: {
     signIn: '/',
     error: '/'
-  }
+  },
+  debug: process.env.NODE_ENV === 'development'
 })
 
 export { handler as GET, handler as POST } 
