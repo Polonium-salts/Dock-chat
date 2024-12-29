@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import cheerio from 'cheerio'
 
 export async function GET(request) {
   try {
@@ -15,25 +14,23 @@ export async function GET(request) {
     // 获取表情包列表页面
     const response = await fetch(searchUrl)
     const html = await response.text()
-    const $ = cheerio.load(html)
 
-    // 解析表情包数据
+    // 使用正则表达式提取图片信息
+    const imgRegex = /<img[^>]+class="lazy"[^>]+title="([^"]+)"[^>]+data-original="([^"]+)"[^>]*>/g
     const emojis = []
-    $('.tagbqppdiv').each((i, el) => {
-      const $el = $(el)
-      const $img = $el.find('img.lazy')
-      const title = $img.attr('title') || ''
-      const url = $img.attr('data-original') || ''
-      
+    let match
+
+    while ((match = imgRegex.exec(html)) !== null) {
+      const [, title, url] = match
       if (url) {
         emojis.push({
-          id: `emoji-${Date.now()}-${i}`,
+          id: `emoji-${Date.now()}-${emojis.length}`,
           title,
           url,
           source: 'fabiaoqing'
         })
       }
-    })
+    }
 
     return NextResponse.json({ emojis })
   } catch (error) {
