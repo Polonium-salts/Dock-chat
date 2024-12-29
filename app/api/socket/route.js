@@ -1,61 +1,76 @@
 import { Server } from 'socket.io'
-import { addChatMessage, addOnlineUser, removeOnlineUser } from '@/lib/redis'
+import { getRedisClient } from '@/lib/redis'
 
-const ioHandler = (req, res) => {
-  if (!res.socket.server.io) {
-    console.log('Initializing Socket.IO server...')
-    const io = new Server(res.socket.server, {
-      path: '/api/socket',
-      addTrailingSlash: false,
-      cors: {
-        origin: '*',
-        methods: ['GET', 'POST', 'OPTIONS'],
-        credentials: true,
-      },
-      transports: ['websocket', 'polling'],
-    })
+const redis = getRedisClient()
+const ioHandler = new Server({
+  path: '/api/socket',
+})
 
-    io.on('connection', (socket) => {
-      console.log('Client connected:', socket.id)
+ioHandler.on('connection', (socket) => {
+  console.log('Client connected')
 
-      socket.on('join', (data) => {
-        const { room, userId } = data
-        socket.join(room)
-        console.log(`Client ${socket.id} joined room: ${room}`)
-      })
+  socket.on('join', async ({ room, userId }) => {
+    try {
+      await redis.hset('socket_rooms', socket.id, room)
+      socket.join(room)
+      console.log(`User ${userId} joined room ${room}`)
+    } catch (error) {
+      console.error('Error joining room:', error)
+    }
+  })
 
-      socket.on('leave', (data) => {
-        const { room } = data
-        socket.leave(room)
-        console.log(`Client ${socket.id} left room: ${room}`)
-      })
+  socket.on('leave', async ({ room }) => {
+    try {
+      await redis.hdel('socket_rooms', socket.id)
+      socket.leave(room)
+      console.log(`User left room ${room}`)
+    } catch (error) {
+      console.error('Error leaving room:', error)
+    }
+  })
 
-      socket.on('message', (message) => {
-        console.log('Received message:', message)
-        const room = message.room || 'public'
-        io.to(room).emit('message', message)
-      })
+  socket.on('message', async (message) => {
+    try {
+      const room = await redis.hget('socket_rooms', socket.id)
+      if (room) {
+        ioHandler.to(room).emit('message', message)
+        console.log(`Message sent to room ${room}:`, message)
+      }
+    } catch (error) {
+      console.error('Error sending message:', error)
+    }
+  })
 
-      socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id)
-      })
-    })
+  socket.on('disconnect', async () => {
+    try {
+      const room = await redis.hget('socket_rooms', socket.id)
+      if (room) {
+        await redis.hdel('socket_rooms', socket.id)
+        console.log(`User disconnected from room ${room}`)
+      }
+    } catch (error) {
+      console.error('Error handling disconnect:', error)
+    }
+  })
+})
 
-    res.socket.server.io = io
-  } else {
-    console.log('Socket.IO server already running')
+export const GET = async (req, res) => {
+  try {
+    ioHandler.emit('ping', { data: 'ping' })
+    return new Response('Socket is running')
+  } catch (error) {
+    console.error('Socket error:', error)
+    return new Response('Socket error', { status: 500 })
   }
-
-  res.end()
 }
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
-
-export async function GET(req, res) {
-  return ioHandler(req, res)
-}
-
-export async function POST(req, res) {
-  return ioHandler(req, res)
+export const POST = async (req, res) => {
+  try {
+    const data = await req.json()
+    ioHandler.emit(data.event, data.payload)
+    return new Response('Message sent')
+  } catch (error) {
+    console.error('Socket error:', error)
+    return new Response('Socket error', { status: 500 })
+  }
 } 
