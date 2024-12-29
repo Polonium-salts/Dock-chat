@@ -1292,13 +1292,6 @@ export default function Home({ username }) {
             创建聊天室
           </button>
           <button
-            onClick={addKimiAIChat}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
-          >
-            <SparklesIcon className="w-5 h-5" />
-            添加 AI 助手
-          </button>
-          <button
             onClick={() => setShowFriendList(!showFriendList)}
             className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/50 rounded-lg transition-colors"
           >

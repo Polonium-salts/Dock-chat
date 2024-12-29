@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import { Octokit } from '@octokit/rest'
 
 // 从 GitHub 仓库中获取好友列表
-async function getFriendsFromGitHub(octokit, owner, repo) {
+async function getFriendsFromGitHub(octokit, owner) {
   try {
     const response = await octokit.repos.getContent({
       owner,
-      repo,
+      repo: 'dock-chat-data',
       path: 'friends.json',
       ref: 'main'
     })
@@ -22,20 +22,20 @@ async function getFriendsFromGitHub(octokit, owner, repo) {
 }
 
 // 更新 GitHub 仓库中的好友列表
-async function updateFriendsInGitHub(octokit, owner, repo, friends) {
+async function updateFriendsInGitHub(octokit, owner, friends) {
   const content = Buffer.from(JSON.stringify(friends, null, 2)).toString('base64')
 
   try {
     const currentFile = await octokit.repos.getContent({
       owner,
-      repo,
+      repo: 'dock-chat-data',
       path: 'friends.json',
       ref: 'main'
     })
 
     await octokit.repos.createOrUpdateFileContents({
       owner,
-      repo,
+      repo: 'dock-chat-data',
       path: 'friends.json',
       message: '更新好友列表',
       content,
@@ -46,7 +46,7 @@ async function updateFriendsInGitHub(octokit, owner, repo, friends) {
     if (error.status === 404) {
       await octokit.repos.createOrUpdateFileContents({
         owner,
-        repo,
+        repo: 'dock-chat-data',
         path: 'friends.json',
         message: '创建好友列表',
         content,
@@ -71,16 +71,8 @@ export async function GET(request) {
 
     const token = authHeader.replace('Bearer ', '')
     const octokit = new Octokit({ auth: token })
-
-    // 获取用户信息
     const { data: user } = await octokit.users.getAuthenticated()
-
-    // 从数据仓库获取好友列表
-    const friendsData = await getFriendsFromGitHub(
-      octokit,
-      user.login,
-      'dock-chat-data'
-    )
+    const friendsData = await getFriendsFromGitHub(octokit, user.login)
 
     return NextResponse.json(friendsData)
   } catch (error) {
@@ -105,12 +97,11 @@ export async function POST(request) {
 
     const token = authHeader.replace('Bearer ', '')
     const octokit = new Octokit({ auth: token })
-
-    // 获取用户信息
     const { data: user } = await octokit.users.getAuthenticated()
 
-    // 获取要添加的好友 ID
-    const { userId } = await request.json()
+    // 获取要添加的好友信息
+    const body = await request.json()
+    const { userId } = body
     if (!userId) {
       return NextResponse.json(
         { error: '缺少用户 ID' },
@@ -122,11 +113,7 @@ export async function POST(request) {
     const { data: friend } = await octokit.users.getById({ id: userId })
 
     // 从数据仓库获取当前好友列表
-    const friendsData = await getFriendsFromGitHub(
-      octokit,
-      user.login,
-      'dock-chat-data'
-    )
+    const friendsData = await getFriendsFromGitHub(octokit, user.login)
 
     // 检查是否已经是好友
     if (friendsData.friends.some(f => f.id === userId)) {
@@ -140,18 +127,45 @@ export async function POST(request) {
     friendsData.friends.push({
       id: friend.id,
       name: friend.login,
-      avatar_url: friend.avatar_url
+      avatar_url: friend.avatar_url,
+      added_at: new Date().toISOString()
     })
 
     // 更新好友列表
-    await updateFriendsInGitHub(
-      octokit,
-      user.login,
-      'dock-chat-data',
-      friendsData
-    )
+    await updateFriendsInGitHub(octokit, user.login, friendsData)
 
-    return NextResponse.json({ success: true })
+    // 创建私聊聊天室
+    const chatRoomPath = `private-chats/${user.login}-${friend.login}.json`
+    const chatRoom = {
+      id: `private-${Date.now()}`,
+      name: `与 ${friend.login} 的私聊`,
+      type: 'private',
+      participants: [user.id, friend.id],
+      created_at: new Date().toISOString(),
+      messages: []
+    }
+
+    try {
+      await octokit.repos.createOrUpdateFileContents({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: chatRoomPath,
+        message: `创建与 ${friend.login} 的私聊聊天室`,
+        content: Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64'),
+        branch: 'main'
+      })
+    } catch (error) {
+      console.error('Error creating private chat room:', error)
+    }
+
+    return NextResponse.json({
+      success: true,
+      friend: {
+        id: friend.id,
+        name: friend.login,
+        avatar_url: friend.avatar_url
+      }
+    })
   } catch (error) {
     console.error('Error adding friend:', error)
     return NextResponse.json(

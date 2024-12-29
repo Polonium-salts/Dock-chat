@@ -11,6 +11,14 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
   const [roomType, setRoomType] = useState('basic')
   const [extensionType, setExtensionType] = useState('')
   const [kimiApiKey, setKimiApiKey] = useState('')
+  const [aiModel, setAiModel] = useState('kimi')
+  const [aiConfig, setAiConfig] = useState({
+    temperature: 0.7,
+    maxTokens: 2000,
+    topP: 0.9,
+    frequencyPenalty: 0,
+    presencePenalty: 0
+  })
   const [sourceCode, setSourceCode] = useState(null)
   const [selectedRepo, setSelectedRepo] = useState('')
   const [customRepo, setCustomRepo] = useState('')
@@ -72,7 +80,9 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
         } : roomType === 'ai' ? {
           type: 'ai',
           config: {
-            api_key: kimiApiKey
+            model: aiModel,
+            api_key: kimiApiKey,
+            settings: aiConfig
           }
         } : null
       })
@@ -124,17 +134,111 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
           </div>
 
           {roomType === 'ai' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                AI API Key
-              </label>
-              <input
-                type="password"
-                value={kimiApiKey}
-                onChange={(e) => setKimiApiKey(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                placeholder="输入您的 AI API Key"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AI 模型
+                </label>
+                <select
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="kimi">Kimi AI</option>
+                  <option value="gpt-4">GPT-4</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                  <option value="claude">Claude</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  API Key
+                </label>
+                <input
+                  type="password"
+                  value={kimiApiKey}
+                  onChange={(e) => setKimiApiKey(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  placeholder="输入您的 API Key"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  模型参数
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Temperature
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={aiConfig.temperature}
+                      onChange={(e) => setAiConfig(prev => ({
+                        ...prev,
+                        temperature: parseFloat(e.target.value)
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Max Tokens
+                    </label>
+                    <input
+                      type="number"
+                      min="100"
+                      max="4000"
+                      step="100"
+                      value={aiConfig.maxTokens}
+                      onChange={(e) => setAiConfig(prev => ({
+                        ...prev,
+                        maxTokens: parseInt(e.target.value)
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Top P
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={aiConfig.topP}
+                      onChange={(e) => setAiConfig(prev => ({
+                        ...prev,
+                        topP: parseFloat(e.target.value)
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Frequency Penalty
+                    </label>
+                    <input
+                      type="number"
+                      min="-2"
+                      max="2"
+                      step="0.1"
+                      value={aiConfig.frequencyPenalty}
+                      onChange={(e) => setAiConfig(prev => ({
+                        ...prev,
+                        frequencyPenalty: parseFloat(e.target.value)
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
