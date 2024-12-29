@@ -528,55 +528,39 @@ export default function Home({ username }) {
 
   const handleJoin = async (e) => {
     e.preventDefault()
-    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) return
+    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) {
+      alert('请输入有效的聊天室 ID')
+      return
+    }
 
     try {
-      // 初始化聊天室
-      await initializeChatRoom(
-        session.accessToken,
-        session.user.login,
-        joinInput,
-        `聊天室 ${joinInput}`,
-        'room',
-        {
-          creator: session.user.login,
-          created_at: new Date().toISOString()
-        }
-      )
+      setIsLoading(true)
+      const octokit = new Octokit({ auth: session.accessToken })
 
-      // 更新联系人列表
-    const newContact = {
-      id: joinInput,
-      name: `聊天室 ${joinInput}`,
-      type: 'room',
-        unread: 0,
+      // 创建新的聊天室对象
+      const newRoom = {
+        id: joinInput,
+        name: `聊天室 ${joinInput}`,
+        type: 'basic',
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_by: session.user.login,
+        unread: 0,
         message_count: 0,
         last_message: null
       }
 
-    setContacts(prev => [...prev, newContact])
-    setJoinInput('')
-    setShowJoinModal(false)
+      // 更新本地状态
+      setRooms(prev => [...prev, newRoom])
+      setContacts(prev => [...prev, newRoom])
       setActiveChat(joinInput)
+      setJoinInput('')
+      setShowJoinModal(false)
 
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: [...contacts, newContact],
-          settings: {
-            ...userConfig.settings,
-            activeChat: joinInput
-          },
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-      }
     } catch (error) {
       console.error('Error joining chat room:', error)
-      alert('加入聊天室失败')
+      alert('加入聊天室失败，请重试')
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -890,43 +874,40 @@ export default function Home({ username }) {
 
   // 修改创建聊天室的逻辑
   const handleCreateRoom = async (roomData) => {
-    if (!session?.accessToken) return
+    if (!session?.accessToken || !session?.user?.login) {
+      alert('请先登录')
+      return
+    }
 
     try {
+      setIsLoading(true)
       const octokit = new Octokit({ auth: session.accessToken })
-      const { data: user } = await octokit.users.getAuthenticated()
-
+      
       // 生成唯一的聊天室 ID
-      const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const roomId = `room-${Date.now()}`
       
       // 创建新聊天室对象
       const newRoom = {
         id: roomId,
-        ...roomData,
+        name: roomData.name,
+        description: roomData.description || '',
+        type: roomData.type || 'basic',
+        isPrivate: roomData.isPrivate || false,
         created_at: new Date().toISOString(),
-        created_by: user.login,
+        created_by: session.user.login,
+        repository: 'dock-chat-data',
         unread: 0,
         message_count: 0,
         last_message: null
       }
 
-      // 获取目标仓库信息
-      const targetRepo = roomData.repository || 'dock-chat-data'
-      const [repoOwner, repoName] = targetRepo.split('/')
-
       try {
-        // 检查仓库是否存在
-        await octokit.repos.get({
-          owner: repoOwner,
-          repo: repoName
-        })
-
         // 获取现有的聊天室列表
         let roomsData = { rooms: [] }
         try {
           const { data: roomsFile } = await octokit.repos.getContent({
-            owner: repoOwner,
-            repo: repoName,
+            owner: session.user.login,
+            repo: 'dock-chat-data',
             path: 'rooms.json',
             ref: 'main'
           })
@@ -934,7 +915,6 @@ export default function Home({ username }) {
           roomsData = JSON.parse(content)
         } catch (error) {
           if (error.status !== 404) {
-            console.error('Error getting rooms.json:', error)
             throw error
           }
         }
@@ -945,12 +925,11 @@ export default function Home({ username }) {
         // 保存更新后的聊天室列表
         const content = Buffer.from(JSON.stringify(roomsData, null, 2)).toString('base64')
         await octokit.repos.createOrUpdateFileContents({
-          owner: repoOwner,
-          repo: repoName,
+          owner: session.user.login,
+          repo: 'dock-chat-data',
           path: 'rooms.json',
           message: '创建新聊天室',
           content,
-          ...(roomsData.sha ? { sha: roomsData.sha } : {}),
           branch: 'main'
         })
 
@@ -958,28 +937,25 @@ export default function Home({ username }) {
         const chatRoom = {
           id: roomId,
           name: roomData.name,
-          type: roomData.type,
+          type: roomData.type || 'basic',
           messages: [],
           created_at: new Date().toISOString(),
-          created_by: user.login,
-          repository: targetRepo,
-          extension: roomData.extension || null
+          created_by: session.user.login
         }
 
         // 确保 chats 目录存在
         try {
           await octokit.repos.getContent({
-            owner: repoOwner,
-            repo: repoName,
+            owner: session.user.login,
+            repo: 'dock-chat-data',
             path: 'chats',
             ref: 'main'
           })
         } catch (error) {
           if (error.status === 404) {
-            // 创建 chats 目录
             await octokit.repos.createOrUpdateFileContents({
-              owner: repoOwner,
-              repo: repoName,
+              owner: session.user.login,
+              repo: 'dock-chat-data',
               path: 'chats/.gitkeep',
               message: '创建 chats 目录',
               content: '',
@@ -990,8 +966,8 @@ export default function Home({ username }) {
 
         const chatRoomContent = Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64')
         await octokit.repos.createOrUpdateFileContents({
-          owner: repoOwner,
-          repo: repoName,
+          owner: session.user.login,
+          repo: 'dock-chat-data',
           path: `chats/${roomId}.json`,
           message: '创建聊天室消息文件',
           content: chatRoomContent,
@@ -999,41 +975,20 @@ export default function Home({ username }) {
         })
 
         // 更新本地状态
-        const updatedRooms = [...rooms, newRoom]
-        setRooms(updatedRooms)
-        setContacts(updatedRooms)
+        setRooms(prev => [...prev, newRoom])
+        setContacts(prev => [...prev, newRoom])
         setActiveChat(roomId)
-
-        // 更新用户配置
-        if (userConfig) {
-          const updatedConfig = {
-            ...userConfig,
-            contacts: updatedRooms,
-            settings: {
-              ...userConfig.settings,
-              activeChat: roomId
-            },
-            last_updated: new Date().toISOString()
-          }
-          await updateConfig(session.accessToken, user.login, updatedConfig)
-          setUserConfig(updatedConfig)
-        }
-
         setShowCreateRoomModal(false)
+
       } catch (error) {
         console.error('Error creating room:', error)
-        if (error.status === 404) {
-          alert('指定的仓库不存在，请检查仓库名称')
-        } else if (error.status === 403) {
-          alert('没有权限访问指定的仓库，请确保您有写入权限')
-        } else {
-          alert('创建聊天室失败，请重试')
-        }
         throw error
       }
     } catch (error) {
       console.error('Error in handleCreateRoom:', error)
-      throw error
+      alert('创建聊天室失败，请重试')
+    } finally {
+      setIsLoading(false)
     }
   }
 
