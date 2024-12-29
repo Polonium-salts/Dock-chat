@@ -1,13 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverActions: true,
-  },
   images: {
-    domains: ['avatars.githubusercontent.com'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'avatars.githubusercontent.com',
+      },
+    ],
+    unoptimized: true,
   },
   webpack: (config) => {
-    config.externals = [...config.externals, 'bcrypt']
+    config.externals.push({
+      'utf-8-validate': 'commonjs utf-8-validate',
+      'bufferutil': 'commonjs bufferutil',
+    })
     return config
   },
   async headers() {

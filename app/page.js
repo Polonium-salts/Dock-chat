@@ -57,6 +57,10 @@ export default function Home({ username }) {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
+  const [friends, setFriends] = useState([])
+  const [currentFriend, setCurrentFriend] = useState(null)
+  const [privateMessages, setPrivateMessages] = useState([])
+  const [hasMorePrivateMessages, setHasMorePrivateMessages] = useState(false)
 
   // 动滚动到底部
   useEffect(() => {
@@ -279,7 +283,7 @@ export default function Home({ username }) {
         }))
         setMessages(formattedMessages)
       } else {
-        // 如果缓存中没有消息���从服务器加载
+        // 如果缓存中没有消息从服务器加载
         const messages = await loadChatHistory(session.accessToken, session.user.login, chatId)
         if (messages?.length > 0) {
           const formattedMessages = messages.map(msg => ({
@@ -805,7 +809,7 @@ export default function Home({ username }) {
               // 保存更新后的消息
               await saveChatHistory(session.accessToken, session.user.login, 'system', updatedMessages)
 
-              // 更新联系人���表中的系统通知未读数
+              // 更新联系人列表中的系统通知未读数
               const updatedContacts = contacts.map(contact => {
                 if (contact.id === 'system') {
                   return {
@@ -982,6 +986,123 @@ export default function Home({ username }) {
     return () => clearTimeout(timeoutId)
   }, [messages, activeChat, session])
 
+  // 在 useEffect 中添加加载好友列表的逻辑
+  useEffect(() => {
+    if (session) {
+      loadFriends()
+    }
+  }, [session])
+
+  // 添加好友相关的函数
+  const loadFriends = async () => {
+    try {
+      const response = await fetch('/api/friends')
+      if (!response.ok) throw new Error('加载好友列表失败')
+      const friends = await response.json()
+      setFriends(friends)
+    } catch (error) {
+      console.error('Error loading friends:', error)
+      toast.error('加载好友列表失败')
+    }
+  }
+
+  const handleAddFriend = async (username) => {
+    try {
+      const response = await fetch('/api/friends', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || '添加好友失败')
+      }
+      const newFriend = await response.json()
+      setFriends(prev => [...prev, newFriend])
+      toast.success('添加好友成功')
+    } catch (error) {
+      console.error('Error adding friend:', error)
+      toast.error(error.message)
+    }
+  }
+
+  const handleRemoveFriend = async (username) => {
+    try {
+      const response = await fetch('/api/friends', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      })
+      if (!response.ok) throw new Error('删除好友失败')
+      setFriends(prev => prev.filter(f => f.username !== username))
+      if (currentFriend?.username === username) {
+        setCurrentFriend(null)
+        setPrivateMessages([])
+      }
+      toast.success('删除好友成功')
+    } catch (error) {
+      console.error('Error removing friend:', error)
+      toast.error('删除好友失败')
+    }
+  }
+
+  // 添加私聊相关的函数
+  const loadPrivateMessages = async (friendUsername, before = null) => {
+    try {
+      const params = new URLSearchParams({
+        friend: friendUsername,
+        ...(before && { before })
+      })
+      const response = await fetch(`/api/messages/private?${params}`)
+      if (!response.ok) throw new Error('加载私聊消息失败')
+      const { messages, hasMore } = await response.json()
+      
+      if (before) {
+        setPrivateMessages(prev => [...messages, ...prev])
+      } else {
+        setPrivateMessages(messages)
+      }
+      setHasMorePrivateMessages(hasMore)
+    } catch (error) {
+      console.error('Error loading private messages:', error)
+      toast.error('加载私聊消息失败')
+    }
+  }
+
+  const handleStartPrivateChat = async (friend) => {
+    setCurrentFriend(friend)
+    await loadPrivateMessages(friend.username)
+  }
+
+  const handleLoadMorePrivateMessages = async () => {
+    if (!currentFriend || !hasMorePrivateMessages) return
+    const oldestMessage = privateMessages[0]
+    if (oldestMessage) {
+      await loadPrivateMessages(currentFriend.username, oldestMessage.id)
+    }
+  }
+
+  const handleSendPrivateMessage = async (content) => {
+    if (!currentFriend) return
+    
+    try {
+      const response = await fetch('/api/messages/private', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          friendUsername: currentFriend.username,
+          content
+        })
+      })
+      if (!response.ok) throw new Error('发送消息失败')
+      const message = await response.json()
+      setPrivateMessages(prev => [...prev, message])
+    } catch (error) {
+      console.error('Error sending private message:', error)
+      toast.error('发送消息失败')
+    }
+  }
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -1079,8 +1200,8 @@ export default function Home({ username }) {
               )}
               <div className="flex-1 text-left">
                 <span className="text-sm font-medium truncate block">
-                  {contact.name}
-                </span>
+                {contact.name}
+              </span>
                 {contact.type === 'extended' && (
                   <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">
                     {contact.extension?.type === 'file_sharing' ? '文件共享' :

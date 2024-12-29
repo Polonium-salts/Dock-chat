@@ -3,72 +3,31 @@
 import { useState } from 'react'
 import { XMarkIcon } from '@heroicons/react/24/solid'
 
-export default function CreateRoomModal({ onClose, onCreate }) {
-  const [roomName, setRoomName] = useState('')
-  const [roomDescription, setRoomDescription] = useState('')
-  const [isPrivate, setIsPrivate] = useState(false)
+export default function CreateRoomModal({ onClose, onCreateRoom }) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [type, setType] = useState('original')
+  const [sourceCode, setSourceCode] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [roomType, setRoomType] = useState('basic') // 'basic' 或 'extended'
-  const [extensionType, setExtensionType] = useState('') // 扩展类型
-  const [extensionConfig, setExtensionConfig] = useState({}) // 扩展配置
-  const [zipFile, setZipFile] = useState(null)
-  const [isUploading, setIsUploading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!roomName.trim()) return
+    if (!name.trim() || isLoading) return
 
     setIsLoading(true)
-    setUploadError('')
     try {
-      let extension = null
-      if (roomType === 'extended') {
-        if (zipFile) {
-          // 处理 ZIP 文件
-          const formData = new FormData()
-          formData.append('file', zipFile)
-          
-          setIsUploading(true)
-          const uploadResponse = await fetch('/api/upload/zip', {
-            method: 'POST',
-            body: formData
-          })
-
-          if (!uploadResponse.ok) {
-            const error = await uploadResponse.json()
-            throw new Error(error.message || '上传 ZIP 文件失败')
-          }
-
-          const { sourceCode } = await uploadResponse.json()
-          extension = {
-            type: 'custom',
-            sourceCode,
-            config: extensionConfig
-          }
-        } else {
-          extension = {
-            type: extensionType,
-            config: extensionConfig
-          }
-        }
-      }
-
-      await onCreate({
-        name: roomName.trim(),
-        description: roomDescription.trim(),
-        isPrivate,
-        type: roomType,
-        extension
+      await onCreateRoom({
+        name: name.trim(),
+        description: description.trim(),
+        type,
+        sourceCode: type === 'extended' ? sourceCode.trim() : undefined
       })
       onClose()
     } catch (error) {
       console.error('Error creating room:', error)
-      setUploadError(error.message)
       alert('创建聊天室失败，请重试')
     } finally {
       setIsLoading(false)
-      setIsUploading(false)
     }
   }
 
@@ -76,7 +35,7 @@ export default function CreateRoomModal({ onClose, onCreate }) {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">创建聊天室</h2>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">创建聊天室</h3>
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -87,192 +46,13 @@ export default function CreateRoomModal({ onClose, onCreate }) {
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label htmlFor="roomType" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              聊天室类型 *
-            </label>
-            <select
-              id="roomType"
-              value={roomType}
-              onChange={(e) => {
-                setRoomType(e.target.value)
-                if (e.target.value === 'basic') {
-                  setExtensionType('')
-                  setExtensionConfig({})
-                }
-              }}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-            >
-              <option value="basic">基础聊天室</option>
-              <option value="extended">扩展聊天室</option>
-            </select>
-          </div>
-
-          {roomType === 'extended' && (
-            <div>
-              <label htmlFor="extensionType" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                扩展类型 *
-              </label>
-              <select
-                id="extensionType"
-                value={extensionType}
-                onChange={(e) => {
-                  setExtensionType(e.target.value)
-                  setExtensionConfig({})
-                  setZipFile(null)
-                }}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                required={roomType === 'extended'}
-              >
-                <option value="">选择扩展类型</option>
-                <option value="custom">自定义扩展（导入 ZIP）</option>
-                <option value="file_sharing">文件共享</option>
-                <option value="code_collaboration">代码协作</option>
-                <option value="whiteboard">在线白板</option>
-                <option value="video_chat">视频聊天</option>
-                <option value="game_room">游戏房间</option>
-              </select>
-            </div>
-          )}
-
-          {roomType === 'extended' && extensionType === 'custom' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                上传源代码（ZIP）
-              </label>
-              <input
-                type="file"
-                accept=".zip"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file && file.type === 'application/zip') {
-                    setZipFile(file)
-                    setUploadError('')
-                  } else {
-                    setUploadError('请选择有效的 ZIP 文件')
-                    setZipFile(null)
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              />
-              {uploadError && (
-                <p className="mt-1 text-sm text-red-500">{uploadError}</p>
-              )}
-              {zipFile && (
-                <p className="mt-1 text-sm text-gray-500">
-                  已选择：{zipFile.name} ({Math.round(zipFile.size / 1024)} KB)
-                </p>
-              )}
-            </div>
-          )}
-
-          {roomType === 'extended' && extensionType && (
-            <div className="space-y-4">
-              {extensionType === 'file_sharing' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      最大文件大小 (MB)
-                    </label>
-                    <input
-                      type="number"
-                      value={extensionConfig.maxFileSize || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        maxFileSize: parseInt(e.target.value)
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      min="1"
-                      max="1000"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      允许的文件类型
-                    </label>
-                    <input
-                      type="text"
-                      value={extensionConfig.allowedTypes || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        allowedTypes: e.target.value
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="例如: .pdf,.doc,.txt"
-                    />
-                  </div>
-                </>
-              )}
-
-              {extensionType === 'code_collaboration' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      支持的编程语言
-                    </label>
-                    <input
-                      type="text"
-                      value={extensionConfig.languages || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        languages: e.target.value
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="例如: javascript,python,java"
-                    />
-                  </div>
-                </>
-              )}
-
-              {extensionType === 'game_room' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      游戏类型
-                    </label>
-                    <select
-                      value={extensionConfig.gameType || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        gameType: e.target.value
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      <option value="">选择游戏类型</option>
-                      <option value="chess">国际象棋</option>
-                      <option value="gobang">五子棋</option>
-                      <option value="cards">扑克游戏</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      最大玩家数
-                    </label>
-                    <input
-                      type="number"
-                      value={extensionConfig.maxPlayers || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        maxPlayers: parseInt(e.target.value)
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      min="2"
-                      max="10"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="roomName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              聊天室名称 *
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              聊天室名称
             </label>
             <input
               type="text"
-              id="roomName"
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
               placeholder="输入聊天室名称"
               required
@@ -280,33 +60,63 @@ export default function CreateRoomModal({ onClose, onCreate }) {
           </div>
 
           <div>
-            <label htmlFor="roomDescription" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              描述
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              描述（可选）
             </label>
             <textarea
-              id="roomDescription"
-              value={roomDescription}
-              onChange={(e) => setRoomDescription(e.target.value)}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-              placeholder="聊天室描述（可选）"
+              placeholder="输入聊天室描述"
               rows={3}
             />
           </div>
 
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="isPrivate"
-              checked={isPrivate}
-              onChange={(e) => setIsPrivate(e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label htmlFor="isPrivate" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-              设为私密聊天室
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              聊天室类型
             </label>
+            <div className="flex gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  value="original"
+                  checked={type === 'original'}
+                  onChange={(e) => setType(e.target.value)}
+                  className="mr-2"
+                />
+                <span className="text-gray-700 dark:text-gray-300">原版</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  value="extended"
+                  checked={type === 'extended'}
+                  onChange={(e) => setType(e.target.value)}
+                  className="mr-2"
+                />
+                <span className="text-gray-700 dark:text-gray-300">扩展版</span>
+              </label>
+            </div>
           </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
+          {type === 'extended' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                源代码
+              </label>
+              <textarea
+                value={sourceCode}
+                onChange={(e) => setSourceCode(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white font-mono"
+                placeholder="输入源代码"
+                rows={10}
+                required={type === 'extended'}
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
@@ -316,7 +126,7 @@ export default function CreateRoomModal({ onClose, onCreate }) {
             </button>
             <button
               type="submit"
-              disabled={isLoading || !roomName.trim() || (roomType === 'extended' && !extensionType)}
+              disabled={isLoading || !name.trim() || (type === 'extended' && !sourceCode.trim())}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? '创建中...' : '创建'}
