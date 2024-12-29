@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server'
 import { Octokit } from '@octokit/rest'
-import axios from 'axios'
-import cheerio from 'cheerio'
 
 // 从 fabiaoqing.com 获取表情包
 async function fetchEmojisFromFabiaoqing(page = 1) {
   try {
-    const response = await axios.get(`https://fabiaoqing.com/biaoqing/lists/page/${page}.html`)
-    const $ = cheerio.load(response.data)
+    const response = await fetch(`https://fabiaoqing.com/biaoqing/lists/page/${page}.html`)
+    const html = await response.text()
+    
+    // 使用正则表达式提取图片信息
+    const imgPattern = /<img[^>]*title="([^"]*)"[^>]*data-original="([^"]*)"[^>]*>/g
     const emojis = []
+    let match
 
-    $('.tagbqppdiv').each((i, el) => {
-      const img = $(el).find('img')
-      const title = img.attr('title')
-      const url = img.attr('data-original')
+    while ((match = imgPattern.exec(html)) !== null) {
+      const [_, title, url] = match
       if (url && title) {
         emojis.push({
           title,
@@ -21,7 +21,7 @@ async function fetchEmojisFromFabiaoqing(page = 1) {
           source: 'fabiaoqing'
         })
       }
-    })
+    }
 
     return emojis
   } catch (error) {

@@ -33,6 +33,7 @@ import { useTheme } from 'next-themes'
 import CreateRoomModal from './components/CreateRoomModal'
 import FriendList from './components/FriendList'
 import { Octokit } from '@octokit/core'
+import EmojiPicker from './components/EmojiPicker'
 
 export default function Home({ username }) {
   const { data: session, status } = useSession()
@@ -1471,6 +1472,12 @@ export default function Home({ username }) {
                   {/* 输入框区域 - 固定在底部 */}
                   <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-4">
+                      <EmojiPicker
+                        session={session}
+                        onSelect={(emoji) => {
+                          setNewMessage(prev => prev + ` ![${emoji.title}](${emoji.url}) `)
+                        }}
+                      />
                       <input
                         type="text"
                         value={newMessage}
