@@ -66,6 +66,10 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
       alert('请输入 AI API Key')
       return
     }
+    if (!selectedRepo && selectedRepo !== 'dock-chat-data') {
+      alert('请选择存储仓库')
+      return
+    }
 
     setIsLoading(true)
     try {
@@ -74,6 +78,7 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
         description: roomDescription.trim(),
         type: roomType,
         isPrivate,
+        repository: selectedRepo === 'custom' ? customRepo : selectedRepo,
         extension: roomType === 'extended' ? {
           type: extensionType,
           config: {}

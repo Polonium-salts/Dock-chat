@@ -910,13 +910,17 @@ export default function Home({ username }) {
         last_message: null
       }
 
+      // 获取目标仓库信息
+      const targetRepo = roomData.repository || 'dock-chat-data'
+      const [repoOwner, repoName] = targetRepo.split('/')
+
       try {
         // 获取现有的聊天室列表
         let roomsData = { rooms: [] }
         try {
           const { data: roomsFile } = await octokit.repos.getContent({
-            owner: user.login,
-            repo: 'dock-chat-data',
+            owner: repoOwner,
+            repo: repoName,
             path: 'rooms.json',
             ref: 'main'
           })
@@ -934,8 +938,8 @@ export default function Home({ username }) {
         // 保存更新后的聊天室列表
         const content = Buffer.from(JSON.stringify(roomsData, null, 2)).toString('base64')
         await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
+          owner: repoOwner,
+          repo: repoName,
           path: 'rooms.json',
           message: '创建新聊天室',
           content,
@@ -950,13 +954,14 @@ export default function Home({ username }) {
           type: roomData.type,
           messages: [],
           created_at: new Date().toISOString(),
-          created_by: user.login
+          created_by: user.login,
+          repository: targetRepo
         }
 
         const chatRoomContent = Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64')
         await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
+          owner: repoOwner,
+          repo: repoName,
           path: `chats/${roomId}.json`,
           message: '创建聊天室消息文件',
           content: chatRoomContent,
