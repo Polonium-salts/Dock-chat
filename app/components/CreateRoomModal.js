@@ -10,7 +10,7 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
   const [isLoading, setIsLoading] = useState(false)
   const [roomType, setRoomType] = useState('basic')
   const [extensionType, setExtensionType] = useState('')
-  const [extensionConfig, setExtensionConfig] = useState({})
+  const [kimiApiKey, setKimiApiKey] = useState('')
   const [sourceCode, setSourceCode] = useState(null)
   const [selectedRepo, setSelectedRepo] = useState('')
   const [customRepo, setCustomRepo] = useState('')
@@ -54,36 +54,13 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!roomName.trim()) return
-    if (roomType === 'extended' && !sourceCode) {
-      alert('请选择源代码文件')
+    if (roomType === 'ai' && !kimiApiKey) {
+      alert('请输入 AI API Key')
       return
     }
 
     setIsLoading(true)
     try {
-      // 如果是扩展聊天室，先上传源代码
-      let sourceCodeUrl = null
-      if (roomType === 'extended' && sourceCode) {
-        const formData = new FormData()
-        formData.append('file', sourceCode)
-        formData.append('repo', selectedRepo === 'custom' ? customRepo : selectedRepo)
-        
-        const uploadResponse = await fetch('/api/upload-source-code', {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`
-          }
-        })
-        
-        if (!uploadResponse.ok) {
-          throw new Error('源代码上传失败')
-        }
-        
-        const { url } = await uploadResponse.json()
-        sourceCodeUrl = url
-      }
-
       await onCreate({
         name: roomName.trim(),
         description: roomDescription.trim(),
@@ -91,15 +68,18 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
         type: roomType,
         extension: roomType === 'extended' ? {
           type: extensionType,
-          sourceCode: sourceCodeUrl,
-          config: extensionConfig,
-          repository: selectedRepo === 'custom' ? customRepo : selectedRepo
+          config: {}
+        } : roomType === 'ai' ? {
+          type: 'ai',
+          config: {
+            api_key: kimiApiKey
+          }
         } : null
       })
       onClose()
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
+      alert('创建聊天室失败')
     } finally {
       setIsLoading(false)
     }
@@ -116,51 +96,57 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">创建聊天室</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            创建聊天室
+          </h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <XMarkIcon className="h-6 w-6" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label htmlFor="roomType" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              聊天室类型 *
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              聊天室类型
             </label>
             <select
-              id="roomType"
               value={roomType}
-              onChange={(e) => {
-                setRoomType(e.target.value)
-                if (e.target.value === 'basic') {
-                  setExtensionType('')
-                  setExtensionConfig({})
-                }
-              }}
+              onChange={(e) => setRoomType(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
             >
               <option value="basic">基础聊天室</option>
+              <option value="ai">AI 助手</option>
               <option value="extended">扩展聊天室</option>
             </select>
           </div>
 
+          {roomType === 'ai' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                AI API Key
+              </label>
+              <input
+                type="password"
+                value={kimiApiKey}
+                onChange={(e) => setKimiApiKey(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                placeholder="输入您的 AI API Key"
+              />
+            </div>
+          )}
+
           {roomType === 'extended' && (
             <div>
-              <label htmlFor="extensionType" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                扩展类型 *
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                扩展类型
               </label>
               <select
-                id="extensionType"
                 value={extensionType}
-                onChange={(e) => {
-                  setExtensionType(e.target.value)
-                  setExtensionConfig({})
-                }}
+                onChange={(e) => setExtensionType(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                required={roomType === 'extended'}
               >
                 <option value="">选择扩展类型</option>
                 <option value="file_sharing">文件共享</option>
@@ -172,130 +158,28 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
             </div>
           )}
 
-          {roomType === 'extended' && extensionType && (
-            <div className="space-y-4">
-              {extensionType === 'file_sharing' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      最大文件大小 (MB)
-                    </label>
-                    <input
-                      type="number"
-                      value={extensionConfig.maxFileSize || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        maxFileSize: parseInt(e.target.value)
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      min="1"
-                      max="1000"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      允许的文件类型
-                    </label>
-                    <input
-                      type="text"
-                      value={extensionConfig.allowedTypes || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        allowedTypes: e.target.value
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="例如: .pdf,.doc,.txt"
-                    />
-                  </div>
-                </>
-              )}
-
-              {extensionType === 'code_collaboration' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      支持的编程语言
-                    </label>
-                    <input
-                      type="text"
-                      value={extensionConfig.languages || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        languages: e.target.value
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="例如: javascript,python,java"
-                    />
-                  </div>
-                </>
-              )}
-
-              {extensionType === 'game_room' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      游戏类型
-                    </label>
-                    <select
-                      value={extensionConfig.gameType || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        gameType: e.target.value
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      <option value="">选择游戏类型</option>
-                      <option value="chess">国际象棋</option>
-                      <option value="gobang">五子棋</option>
-                      <option value="cards">扑克游戏</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      最大玩家数
-                    </label>
-                    <input
-                      type="number"
-                      value={extensionConfig.maxPlayers || ''}
-                      onChange={(e) => setExtensionConfig(prev => ({
-                        ...prev,
-                        maxPlayers: parseInt(e.target.value)
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      min="2"
-                      max="10"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
           <div>
-            <label htmlFor="roomName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              聊天室名称 *
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              聊天室名称
             </label>
             <input
               type="text"
-              id="roomName"
               value={roomName}
               onChange={(e) => setRoomName(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
               placeholder="输入聊天室名称"
-              required
             />
           </div>
 
           <div>
-            <label htmlFor="roomDescription" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              描述
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              聊天室描述
             </label>
             <textarea
-              id="roomDescription"
               value={roomDescription}
               onChange={(e) => setRoomDescription(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-              placeholder="聊天室描述（可选）"
+              placeholder="输入聊天室描述（可选）"
               rows={3}
             />
           </div>
@@ -308,8 +192,11 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
               onChange={(e) => setIsPrivate(e.target.checked)}
               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
             />
-            <label htmlFor="isPrivate" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-              设为私密聊天室
+            <label
+              htmlFor="isPrivate"
+              className="ml-2 block text-sm text-gray-700 dark:text-gray-300"
+            >
+              私密聊天室
             </label>
           </div>
 
@@ -383,12 +270,7 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
             </button>
             <button
               type="submit"
-              disabled={
-                isLoading || 
-                !roomName.trim() || 
-                (roomType === 'extended' && (!sourceCode || !selectedRepo)) ||
-                (selectedRepo === 'custom' && !customRepo.trim())
-              }
+              disabled={isLoading || !roomName.trim() || (roomType === 'extended' && !extensionType) || (roomType === 'ai' && !kimiApiKey)}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? '创建中...' : '创建'}
