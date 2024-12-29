@@ -15,7 +15,9 @@ import {
   PencilSquareIcon,
   VideoCameraIcon,
   PuzzlePieceIcon,
-  CubeIcon
+  CubeIcon,
+  UserPlusIcon,
+  PlusIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -29,6 +31,8 @@ import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, formatSystemNotification } from '@/lib/systemNotifications'
 import { useTheme } from 'next-themes'
 import CreateRoomModal from './components/CreateRoomModal'
+import FriendList from './components/FriendList'
+import { Octokit } from '@octokit/core'
 
 export default function Home({ username }) {
   const { data: session, status } = useSession()
@@ -57,10 +61,8 @@ export default function Home({ username }) {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
-  const [friends, setFriends] = useState([])
-  const [currentFriend, setCurrentFriend] = useState(null)
-  const [privateMessages, setPrivateMessages] = useState([])
-  const [hasMorePrivateMessages, setHasMorePrivateMessages] = useState(false)
+  const [showFriendList, setShowFriendList] = useState(false)
+  const [privateChatRooms, setPrivateChatRooms] = useState([])
 
   // 动滚动到底部
   useEffect(() => {
@@ -109,9 +111,9 @@ export default function Home({ username }) {
         console.log('Cleaning up socket connection...')
         if (socket.connected) {
           socket.emit('leave', { room: activeChat })
-        socket.disconnect()
+          socket.disconnect()
+        }
       }
-    }
     }
   }, [session, activeChat])
 
@@ -283,7 +285,7 @@ export default function Home({ username }) {
         }))
         setMessages(formattedMessages)
       } else {
-        // 如果缓存中没有消息从服务器加载
+        // 如果缓存中没有消息，从服务器加载
         const messages = await loadChatHistory(session.accessToken, session.user.login, chatId)
         if (messages?.length > 0) {
           const formattedMessages = messages.map(msg => ({
@@ -986,121 +988,145 @@ export default function Home({ username }) {
     return () => clearTimeout(timeoutId)
   }, [messages, activeChat, session])
 
-  // 在 useEffect 中添加加载好友列表的逻辑
+  // 加载私聊聊天室
+  const loadPrivateChatRooms = async () => {
+    if (!session?.accessToken) return
+
+    try {
+      const octokit = new Octokit({ auth: session.accessToken })
+      const { data: user } = await octokit.users.getAuthenticated()
+      
+      const response = await octokit.repos.getContent({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: 'private-chats.json',
+        ref: 'main'
+      })
+
+      const content = Buffer.from(response.data.content, 'base64').toString()
+      const { rooms } = JSON.parse(content)
+      setPrivateChatRooms(rooms || [])
+    } catch (error) {
+      if (error.status !== 404) {
+        console.error('Error loading private chat rooms:', error)
+      }
+    }
+  }
+
+  // 创建或更新私聊聊天室
+  const createOrUpdatePrivateChat = async (friend) => {
+    if (!session?.accessToken) return
+
+    try {
+      const octokit = new Octokit({ auth: session.accessToken })
+      const { data: user } = await octokit.users.getAuthenticated()
+
+      // 检查是否已存在与该好友的私聊
+      const existingRoom = privateChatRooms.find(
+        room => room.participants.includes(friend.id)
+      )
+
+      if (existingRoom) {
+        // 如果已存在，切换到该聊天室
+        setCurrentRoom(existingRoom)
+        setShowFriendList(false)
+        return
+      }
+
+      // 创建新的私聊聊天室
+      const newRoom = {
+        id: `private-${Date.now()}`,
+        name: `与 ${friend.name} 的私聊`,
+        type: 'private',
+        participants: [user.id, friend.id],
+        created_at: new Date().toISOString()
+      }
+
+      // 更新私聊列表
+      const updatedRooms = [...privateChatRooms, newRoom]
+      const content = Buffer.from(
+        JSON.stringify({ rooms: updatedRooms }, null, 2)
+      ).toString('base64')
+
+      try {
+        const currentFile = await octokit.repos.getContent({
+          owner: user.login,
+          repo: 'dock-chat-data',
+          path: 'private-chats.json',
+          ref: 'main'
+        })
+
+        await octokit.repos.createOrUpdateFileContents({
+          owner: user.login,
+          repo: 'dock-chat-data',
+          path: 'private-chats.json',
+          message: '更新私聊列表',
+          content,
+          sha: currentFile.data.sha,
+          branch: 'main'
+        })
+      } catch (error) {
+        if (error.status === 404) {
+          await octokit.repos.createOrUpdateFileContents({
+            owner: user.login,
+            repo: 'dock-chat-data',
+            path: 'private-chats.json',
+            message: '创建私聊列表',
+            content,
+            branch: 'main'
+          })
+        } else {
+          throw error
+        }
+      }
+
+      setPrivateChatRooms(updatedRooms)
+      setCurrentRoom(newRoom)
+      setShowFriendList(false)
+    } catch (error) {
+      console.error('Error creating private chat:', error)
+      alert('创建私聊失败，请重试')
+    }
+  }
+
+  // 在组件加载时加载私聊聊天室
   useEffect(() => {
-    if (session) {
-      loadFriends()
+    if (session?.accessToken) {
+      loadPrivateChatRooms()
     }
   }, [session])
 
-  // 添加好友相关的函数
-  const loadFriends = async () => {
-    try {
-      const response = await fetch('/api/friends')
-      if (!response.ok) throw new Error('加载好友列表失败')
-      const friends = await response.json()
-      setFriends(friends)
-    } catch (error) {
-      console.error('Error loading friends:', error)
-      toast.error('加载好友列表失败')
-    }
-  }
-
-  const handleAddFriend = async (username) => {
-    try {
-      const response = await fetch('/api/friends', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '添加好友失败')
-      }
-      const newFriend = await response.json()
-      setFriends(prev => [...prev, newFriend])
-      toast.success('添加好友成功')
-    } catch (error) {
-      console.error('Error adding friend:', error)
-      toast.error(error.message)
-    }
-  }
-
-  const handleRemoveFriend = async (username) => {
-    try {
-      const response = await fetch('/api/friends', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      })
-      if (!response.ok) throw new Error('删除好友失败')
-      setFriends(prev => prev.filter(f => f.username !== username))
-      if (currentFriend?.username === username) {
-        setCurrentFriend(null)
-        setPrivateMessages([])
-      }
-      toast.success('删除好友成功')
-    } catch (error) {
-      console.error('Error removing friend:', error)
-      toast.error('删除好友失败')
-    }
-  }
-
-  // 添加私聊相关的函数
-  const loadPrivateMessages = async (friendUsername, before = null) => {
-    try {
-      const params = new URLSearchParams({
-        friend: friendUsername,
-        ...(before && { before })
-      })
-      const response = await fetch(`/api/messages/private?${params}`)
-      if (!response.ok) throw new Error('加载私聊消息失败')
-      const { messages, hasMore } = await response.json()
-      
-      if (before) {
-        setPrivateMessages(prev => [...messages, ...prev])
-      } else {
-        setPrivateMessages(messages)
-      }
-      setHasMorePrivateMessages(hasMore)
-    } catch (error) {
-      console.error('Error loading private messages:', error)
-      toast.error('加载私聊消息失败')
-    }
-  }
-
-  const handleStartPrivateChat = async (friend) => {
-    setCurrentFriend(friend)
-    await loadPrivateMessages(friend.username)
-  }
-
-  const handleLoadMorePrivateMessages = async () => {
-    if (!currentFriend || !hasMorePrivateMessages) return
-    const oldestMessage = privateMessages[0]
-    if (oldestMessage) {
-      await loadPrivateMessages(currentFriend.username, oldestMessage.id)
-    }
-  }
-
-  const handleSendPrivateMessage = async (content) => {
-    if (!currentFriend) return
-    
-    try {
-      const response = await fetch('/api/messages/private', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          friendUsername: currentFriend.username,
-          content
-        })
-      })
-      if (!response.ok) throw new Error('发送消息失败')
-      const message = await response.json()
-      setPrivateMessages(prev => [...prev, message])
-    } catch (error) {
-      console.error('Error sending private message:', error)
-      toast.error('发送消息失败')
-    }
+  // 修改聊天室列表渲染
+  const renderRoomList = () => {
+    const allRooms = [...rooms, ...privateChatRooms]
+    return allRooms.length > 0 ? (
+      <ul className="space-y-2">
+        {allRooms.map(room => (
+          <li
+            key={room.id}
+            className={`flex items-center justify-between p-2 rounded-md cursor-pointer ${
+              currentRoom?.id === room.id
+                ? 'bg-blue-100 dark:bg-blue-900'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            onClick={() => setCurrentRoom(room)}
+          >
+            <div className="flex items-center space-x-2">
+              <span className={`w-2 h-2 rounded-full ${
+                room.type === 'private' ? 'bg-purple-500' : 'bg-green-500'
+              }`} />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {room.name}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <div className="text-sm text-gray-500 dark:text-gray-400">
+        暂无聊天室
+      </div>
+    )
   }
 
   if (status === 'loading') {
@@ -1142,130 +1168,37 @@ export default function Home({ username }) {
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* 左侧导航栏 - 添加固定宽度 */}
-      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-        {/* 用户信息区域 */}
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            {session.user.image && (
-              <Image
-                src={session.user.image}
-                alt={session.user.name || '用户头像'}
-                width={40}
-                height={40}
-                className="rounded-full"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {session.user.name || '用户'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                @{session.user.login}
-              </p>
+      {/* 左侧边栏 */}
+      <div className="w-64 border-r border-gray-200 dark:border-gray-800">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
+              聊天室
+            </h2>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowFriendList(!showFriendList)}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <UserPlusIcon className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setShowCreateRoomModal(true)}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <PlusIcon className="w-5 h-5" />
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* 聊天室列表 - 添加固定高度和滚动 */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {contacts.map(contact => (
-            <button
-              key={contact.id}
-              onClick={() => handleChatChange(contact.id)}
-              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                activeChat === contact.id
-                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
-              }`}
-            >
-              {contact.type === 'ai' ? (
-                <SparklesIcon className="w-5 h-5 flex-shrink-0" />
-              ) : contact.type === 'extended' ? (
-                contact.extension?.type === 'file_sharing' ? (
-                  <DocumentIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'code_collaboration' ? (
-                  <CodeBracketIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'whiteboard' ? (
-                  <PencilSquareIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'video_chat' ? (
-                  <VideoCameraIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'game_room' ? (
-                  <PuzzlePieceIcon className="w-5 h-5 flex-shrink-0" />
-                ) : (
-                  <CubeIcon className="w-5 h-5 flex-shrink-0" />
-                )
-              ) : (
-                <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
-              )}
-              <div className="flex-1 text-left">
-                <span className="text-sm font-medium truncate block">
-                {contact.name}
-              </span>
-                {contact.type === 'extended' && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">
-                    {contact.extension?.type === 'file_sharing' ? '文件共享' :
-                     contact.extension?.type === 'code_collaboration' ? '代码协作' :
-                     contact.extension?.type === 'whiteboard' ? '在线白板' :
-                     contact.extension?.type === 'video_chat' ? '视频聊天' :
-                     contact.extension?.type === 'game_room' ? '游戏房间' : '扩展聊天室'}
-                  </span>
-                )}
-              </div>
-              {contact.unread > 0 && (
-                <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
-                  {contact.unread}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* 底部按钮区域 */}
-        <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
-          <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-          >
-            <PlusCircleIcon className="w-5 h-5" />
-            创建聊天室
-          </button>
-          <button
-            onClick={addKimiAIChat}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
-          >
-            <SparklesIcon className="w-5 h-5" />
-            添加 AI 助手
-          </button>
-          <button
-            onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
-            className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
-              currentView === 'profile'
-                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-            } rounded-lg transition-colors`}
-          >
-            {currentView === 'chat' ? (
-              <UserCircleIcon className="w-5 h-5" />
-            ) : (
-              <UserGroupIcon className="w-5 h-5" />
-            )}
-            {currentView === 'chat' ? '个人主页' : '返回聊天'}
-          </button>
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-          >
-            <PlusCircleIcon className="w-5 h-5" />
-            加入聊天室
-          </button>
-          <button
-            onClick={() => setShowSettingsModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <Cog6ToothIcon className="w-5 h-5" />
-            设置
-          </button>
+          {showFriendList ? (
+            <FriendList
+              session={session}
+              onStartPrivateChat={createOrUpdatePrivateChat}
+            />
+          ) : (
+            renderRoomList()
+          )}
         </div>
       </div>
 

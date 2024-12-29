@@ -1,12 +1,24 @@
 {
-  "version": 2,
-  "builds": [
+  "buildCommand": "prisma generate && next build",
+  "installCommand": "npm install --legacy-peer-deps",
+  "framework": "nextjs",
+  "headers": [
     {
-      "src": "package.json",
-      "use": "@vercel/next",
-      "config": {
-        "buildCommand": "next build"
-      }
+      "source": "/api/socket",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,POST,OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type"
+        }
+      ]
     }
   ]
 } 
