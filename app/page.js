@@ -889,49 +889,32 @@ export default function Home({ username }) {
         id: `room-${Date.now()}`,
         ...roomData,
         created_at: new Date().toISOString(),
-        created_by: user.login
+        created_by: user.login,
+        unread: 0,
+        message_count: 0,
+        last_message: null
       }
 
-      // 更新聊天室列表
-      const updatedRooms = [...rooms, newRoom]
-      const content = Buffer.from(
-        JSON.stringify({ rooms: updatedRooms }, null, 2)
-      ).toString('base64')
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newRoom]
+      setContacts(updatedContacts)
 
-      try {
-        const currentFile = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          ref: 'main'
-        })
-
-        await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          message: '更新聊天室列表',
-          content,
-          sha: currentFile.data.sha,
-          branch: 'main'
-        })
-      } catch (error) {
-        if (error.status === 404) {
-          await octokit.repos.createOrUpdateFileContents({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'rooms.json',
-            message: '创建聊天室列表',
-            content,
-            branch: 'main'
-          })
-        } else {
-          throw error
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: newRoom.id
+          },
+          last_updated: new Date().toISOString()
         }
+        await updateConfig(session.accessToken, user.login, updatedConfig)
       }
 
-      setRooms(updatedRooms)
-      setCurrentRoom(newRoom)
+      // 切换到新聊天室
+      setActiveChat(newRoom.id)
       setShowCreateRoomModal(false)
     } catch (error) {
       console.error('Error creating room:', error)

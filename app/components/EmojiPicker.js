@@ -1,93 +1,108 @@
-import { useState, useEffect, useRef } from 'react'
-import { FaceSmileIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline'
-import Image from 'next/image'
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { FaceSmileIcon, ArrowUpTrayIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { Octokit } from '@octokit/rest'
 
 export default function EmojiPicker({ session, onSelect }) {
   const [isOpen, setIsOpen] = useState(false)
   const [emojis, setEmojis] = useState([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(false)
   const [source, setSource] = useState('all')
-  const [uploadTitle, setUploadTitle] = useState('')
+  const [page, setPage] = useState(1)
   const [showUploadForm, setShowUploadForm] = useState(false)
-  const fileInputRef = useRef(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const containerRef = useRef(null)
+  const scrollRef = useRef(null)
 
   // 加载表情包
   const loadEmojis = async (reset = false) => {
-    if (isLoading) return
-    
+    if (loading) return
+    setLoading(true)
+
     try {
-      setIsLoading(true)
-      const response = await fetch(
-        `/api/emojis?page=${reset ? 1 : page}&source=${source}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`
+      let newEmojis = []
+      const currentPage = reset ? 1 : page
+
+      if (source === 'fabiaoqing' || source === 'all') {
+        // 从表情包网站加载
+        const response = await fetch(`/api/emojis/search?q=${searchQuery}&page=${currentPage}`)
+        const data = await response.json()
+        newEmojis = [...newEmojis, ...data.emojis]
+      }
+
+      if (source === 'user' || source === 'all') {
+        // 从用户的 GitHub 仓库加载
+        const octokit = new Octokit({ auth: session.accessToken })
+        try {
+          const { data } = await octokit.repos.getContent({
+            owner: session.user.login,
+            repo: 'dock-chat-data',
+            path: 'emojis',
+            ref: 'main'
+          })
+
+          if (Array.isArray(data)) {
+            const userEmojis = data
+              .filter(file => file.type === 'file' && /\.(gif|png|jpg|jpeg)$/i.test(file.name))
+              .map(file => ({
+                id: file.sha,
+                title: file.name.replace(/\.[^/.]+$/, ''),
+                url: file.download_url,
+                source: 'user'
+              }))
+            newEmojis = [...newEmojis, ...userEmojis]
+          }
+        } catch (error) {
+          if (error.status !== 404) {
+            console.error('Error loading user emojis:', error)
           }
         }
-      )
-      const data = await response.json()
-      
-      if (reset) {
-        setEmojis(data.emojis)
-        setPage(1)
-      } else {
-        setEmojis(prev => [...prev, ...data.emojis])
+      }
+
+      // 过滤搜索结果
+      if (searchQuery) {
+        newEmojis = newEmojis.filter(emoji => 
+          emoji.title.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      }
+
+      setEmojis(reset ? newEmojis : [...emojis, ...newEmojis])
+      if (!reset) {
+        setPage(currentPage + 1)
       }
     } catch (error) {
       console.error('Error loading emojis:', error)
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
-  // 处理表情包上传
-  const handleUpload = async (e) => {
-    e.preventDefault()
-    const file = fileInputRef.current?.files?.[0]
-    if (!file || !uploadTitle) return
+  // 上传表情包
+  const handleUpload = async (file) => {
+    if (!file || !session?.accessToken) return
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('title', uploadTitle)
+      const octokit = new Octokit({ auth: session.accessToken })
+      const content = await file.arrayBuffer()
+      const base64Content = Buffer.from(content).toString('base64')
 
-      const response = await fetch('/api/emojis', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`
-        },
-        body: formData
+      await octokit.repos.createOrUpdateFileContents({
+        owner: session.user.login,
+        repo: 'dock-chat-data',
+        path: `emojis/${file.name}`,
+        message: '上传表情包',
+        content: base64Content,
+        branch: 'main'
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        setEmojis(prev => [
-          {
-            title: data.title,
-            url: data.url,
-            source: 'user'
-          },
-          ...prev
-        ])
-        setShowUploadForm(false)
-        setUploadTitle('')
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-      }
+      // 重新加载表情包
+      setSource('user')
+      loadEmojis(true)
+      setShowUploadForm(false)
     } catch (error) {
       console.error('Error uploading emoji:', error)
-      alert('上传表情包失败，请重试')
-    }
-  }
-
-  // 处理滚动加载
-  const handleScroll = (e) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.target
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && !isLoading) {
-      setPage(prev => prev + 1)
+      alert('上传失败，请重试')
     }
   }
 
@@ -108,14 +123,22 @@ export default function EmojiPicker({ session, onSelect }) {
     if (isOpen) {
       loadEmojis(true)
     }
-  }, [isOpen, source])
+  }, [isOpen, source, searchQuery])
 
   // 滚动加载更多
   useEffect(() => {
-    if (isOpen && page > 1) {
-      loadEmojis()
+    if (!scrollRef.current) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+      if (scrollHeight - scrollTop <= clientHeight * 1.5) {
+        loadEmojis()
+      }
     }
-  }, [page])
+
+    scrollRef.current.addEventListener('scroll', handleScroll)
+    return () => scrollRef.current?.removeEventListener('scroll', handleScroll)
+  }, [emojis])
 
   return (
     <div className="relative" ref={containerRef}>
@@ -148,57 +171,49 @@ export default function EmojiPicker({ session, onSelect }) {
               </button>
             </div>
 
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="搜索表情..."
+                className="w-full px-3 py-1.5 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+              <MagnifyingGlassIcon className="absolute left-2.5 top-2 w-4 h-4 text-gray-400" />
+            </div>
+
             {showUploadForm && (
-              <form onSubmit={handleUpload} className="space-y-2 mb-2">
-                <input
-                  type="text"
-                  value={uploadTitle}
-                  onChange={(e) => setUploadTitle(e.target.value)}
-                  placeholder="表情包名称"
-                  className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
+              <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded">
                 <input
                   type="file"
-                  ref={fileInputRef}
-                  accept=".gif,.png,.jpg,.jpeg"
-                  className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/50 dark:file:text-blue-400"
+                  accept="image/gif,image/png,image/jpeg"
+                  onChange={(e) => handleUpload(e.target.files[0])}
+                  className="text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-1 file:px-3 file:text-xs file:font-medium file:border-0 file:rounded-md file:bg-blue-50 file:text-blue-600 dark:file:bg-blue-900/50 dark:file:text-blue-400"
                 />
-                <button
-                  type="submit"
-                  disabled={!uploadTitle}
-                  className="w-full px-3 py-1 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50"
-                >
-                  上传
-                </button>
-              </form>
+              </div>
             )}
           </div>
 
-          <div
-            className="p-2 max-h-60 overflow-y-auto grid grid-cols-4 gap-2"
-            onScroll={handleScroll}
-          >
-            {emojis.map((emoji, index) => (
-              <button
-                key={`${emoji.url}-${index}`}
-                onClick={() => {
-                  onSelect(emoji)
-                  setIsOpen(false)
-                }}
-                className="aspect-square rounded hover:bg-gray-100 dark:hover:bg-gray-700 p-1"
-              >
-                <Image
-                  src={emoji.url}
-                  alt={emoji.title}
-                  width={60}
-                  height={60}
-                  className="w-full h-full object-contain"
-                />
-              </button>
-            ))}
-            {isLoading && (
-              <div className="col-span-4 py-4 text-center">
-                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-blue-600"></div>
+          <div ref={scrollRef} className="max-h-60 overflow-y-auto p-2">
+            <div className="grid grid-cols-4 gap-2">
+              {emojis.map((emoji) => (
+                <button
+                  key={emoji.id}
+                  onClick={() => onSelect(emoji)}
+                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                >
+                  <img
+                    src={emoji.url}
+                    alt={emoji.title}
+                    className="w-full h-auto object-contain"
+                    loading="lazy"
+                  />
+                </button>
+              ))}
+            </div>
+            {loading && (
+              <div className="text-center py-2">
+                <div className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-blue-600"></div>
               </div>
             )}
           </div>

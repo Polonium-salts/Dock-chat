@@ -101,22 +101,36 @@ export async function POST(request) {
 
     // 获取要添加的好友信息
     const body = await request.json()
-    const { userId } = body
-    if (!userId) {
+    const { friendId } = body
+    if (!friendId) {
       return NextResponse.json(
-        { error: '缺少用户 ID' },
+        { error: '缺少好友 ID' },
         { status: 400 }
       )
     }
 
     // 获取好友信息
-    const { data: friend } = await octokit.users.getById({ id: userId })
+    const { data: friend } = await octokit.users.getById({ id: parseInt(friendId) })
 
     // 从数据仓库获取当前好友列表
-    const friendsData = await getFriendsFromGitHub(octokit, user.login)
+    let friendsData = { friends: [] }
+    try {
+      const response = await octokit.repos.getContent({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: 'friends.json',
+        ref: 'main'
+      })
+      const content = Buffer.from(response.data.content, 'base64').toString()
+      friendsData = JSON.parse(content)
+    } catch (error) {
+      if (error.status !== 404) {
+        throw error
+      }
+    }
 
     // 检查是否已经是好友
-    if (friendsData.friends.some(f => f.id === userId)) {
+    if (friendsData.friends.some(f => f.id === friend.id)) {
       return NextResponse.json(
         { error: '已经是好友了' },
         { status: 400 }
@@ -124,47 +138,74 @@ export async function POST(request) {
     }
 
     // 添加新好友
-    friendsData.friends.push({
+    const newFriend = {
       id: friend.id,
-      name: friend.login,
+      login: friend.login,
+      name: friend.name || friend.login,
       avatar_url: friend.avatar_url,
       added_at: new Date().toISOString()
-    })
+    }
+    friendsData.friends.push(newFriend)
 
     // 更新好友列表
-    await updateFriendsInGitHub(octokit, user.login, friendsData)
+    const content = Buffer.from(JSON.stringify(friendsData, null, 2)).toString('base64')
+    try {
+      const currentFile = await octokit.repos.getContent({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: 'friends.json',
+        ref: 'main'
+      })
+
+      await octokit.repos.createOrUpdateFileContents({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: 'friends.json',
+        message: '更新好友列表',
+        content,
+        sha: currentFile.data.sha,
+        branch: 'main'
+      })
+    } catch (error) {
+      if (error.status === 404) {
+        await octokit.repos.createOrUpdateFileContents({
+          owner: user.login,
+          repo: 'dock-chat-data',
+          path: 'friends.json',
+          message: '创建好友列表',
+          content,
+          branch: 'main'
+        })
+      } else {
+        throw error
+      }
+    }
 
     // 创建私聊聊天室
-    const chatRoomPath = `private-chats/${user.login}-${friend.login}.json`
+    const chatRoomId = `private-${user.id}-${friend.id}`
     const chatRoom = {
-      id: `private-${Date.now()}`,
-      name: `与 ${friend.login} 的私聊`,
+      id: chatRoomId,
+      name: `与 ${friend.name || friend.login} 的私聊`,
       type: 'private',
       participants: [user.id, friend.id],
       created_at: new Date().toISOString(),
       messages: []
     }
 
-    try {
-      await octokit.repos.createOrUpdateFileContents({
-        owner: user.login,
-        repo: 'dock-chat-data',
-        path: chatRoomPath,
-        message: `创建与 ${friend.login} 的私聊聊天室`,
-        content: Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64'),
-        branch: 'main'
-      })
-    } catch (error) {
-      console.error('Error creating private chat room:', error)
-    }
+    const chatRoomContent = Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64')
+    await octokit.repos.createOrUpdateFileContents({
+      owner: user.login,
+      repo: 'dock-chat-data',
+      path: `chats/${chatRoomId}.json`,
+      message: `创建与 ${friend.login} 的私聊聊天室`,
+      content: chatRoomContent,
+      branch: 'main'
+    })
 
     return NextResponse.json({
       success: true,
-      friend: {
-        id: friend.id,
-        name: friend.login,
-        avatar_url: friend.avatar_url
-      }
+      friend: newFriend,
+      chatRoom
     })
   } catch (error) {
     console.error('Error adding friend:', error)
