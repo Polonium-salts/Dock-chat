@@ -11,29 +11,64 @@ export default function CreateRoomModal({ onClose, onCreate }) {
   const [roomType, setRoomType] = useState('basic') // 'basic' 或 'extended'
   const [extensionType, setExtensionType] = useState('') // 扩展类型
   const [extensionConfig, setExtensionConfig] = useState({}) // 扩展配置
+  const [zipFile, setZipFile] = useState(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!roomName.trim()) return
 
     setIsLoading(true)
+    setUploadError('')
     try {
+      let extension = null
+      if (roomType === 'extended') {
+        if (zipFile) {
+          // 处理 ZIP 文件
+          const formData = new FormData()
+          formData.append('file', zipFile)
+          
+          setIsUploading(true)
+          const uploadResponse = await fetch('/api/upload/zip', {
+            method: 'POST',
+            body: formData
+          })
+
+          if (!uploadResponse.ok) {
+            const error = await uploadResponse.json()
+            throw new Error(error.message || '上传 ZIP 文件失败')
+          }
+
+          const { sourceCode } = await uploadResponse.json()
+          extension = {
+            type: 'custom',
+            sourceCode,
+            config: extensionConfig
+          }
+        } else {
+          extension = {
+            type: extensionType,
+            config: extensionConfig
+          }
+        }
+      }
+
       await onCreate({
         name: roomName.trim(),
         description: roomDescription.trim(),
         isPrivate,
         type: roomType,
-        extension: roomType === 'extended' ? {
-          type: extensionType,
-          config: extensionConfig
-        } : null
+        extension
       })
       onClose()
     } catch (error) {
       console.error('Error creating room:', error)
+      setUploadError(error.message)
       alert('创建聊天室失败，请重试')
     } finally {
       setIsLoading(false)
+      setIsUploading(false)
     }
   }
 
@@ -83,17 +118,50 @@ export default function CreateRoomModal({ onClose, onCreate }) {
                 onChange={(e) => {
                   setExtensionType(e.target.value)
                   setExtensionConfig({})
+                  setZipFile(null)
                 }}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                 required={roomType === 'extended'}
               >
                 <option value="">选择扩展类型</option>
+                <option value="custom">自定义扩展（导入 ZIP）</option>
                 <option value="file_sharing">文件共享</option>
                 <option value="code_collaboration">代码协作</option>
                 <option value="whiteboard">在线白板</option>
                 <option value="video_chat">视频聊天</option>
                 <option value="game_room">游戏房间</option>
               </select>
+            </div>
+          )}
+
+          {roomType === 'extended' && extensionType === 'custom' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                上传源代码（ZIP）
+              </label>
+              <input
+                type="file"
+                accept=".zip"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file && file.type === 'application/zip') {
+                    setZipFile(file)
+                    setUploadError('')
+                  } else {
+                    setUploadError('请选择有效的 ZIP 文件')
+                    setZipFile(null)
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              />
+              {uploadError && (
+                <p className="mt-1 text-sm text-red-500">{uploadError}</p>
+              )}
+              {zipFile && (
+                <p className="mt-1 text-sm text-gray-500">
+                  已选择：{zipFile.name} ({Math.round(zipFile.size / 1024)} KB)
+                </p>
+              )}
             </div>
           )}
 
