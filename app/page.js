@@ -113,9 +113,9 @@ export default function Home({ username }) {
         console.log('Cleaning up socket connection...')
         if (socket.connected) {
           socket.emit('leave', { room: activeChat })
-          socket.disconnect()
-        }
+        socket.disconnect()
       }
+    }
     }
   }, [session, activeChat])
 
@@ -528,171 +528,57 @@ export default function Home({ username }) {
     }
   }
 
-  // 修改加入聊天室的逻辑
   const handleJoin = async (e) => {
     e.preventDefault()
-    if (!joinInput.trim() || !session?.accessToken) return
+    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) return
 
     try {
-      setIsLoading(true)
-      const octokit = new Octokit({ auth: session.accessToken })
-      const { data: user } = await octokit.users.getAuthenticated()
-
-      // 处理输入的 ID、IP 或链接
-      let roomId = joinInput.trim()
-      let roomName = ''
-
-      // 检查是否是 IP 地址
-      const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/
-      if (ipRegex.test(roomId)) {
-        roomName = `IP 聊天室 ${roomId}`
-      } 
-      // 检查是否是链接
-      else if (roomId.startsWith('http://') || roomId.startsWith('https://')) {
-        try {
-          const url = new URL(roomId)
-          roomId = url.hostname
-          roomName = `链接聊天室 ${url.hostname}`
-        } catch (error) {
-          alert('无效的链接格式')
-          setIsLoading(false)
-          return
+      // 初始化聊天室
+      await initializeChatRoom(
+        session.accessToken,
+        session.user.login,
+        joinInput,
+        `聊天室 ${joinInput}`,
+        'room',
+        {
+          creator: session.user.login,
+          created_at: new Date().toISOString()
         }
-      }
-      // 普通聊天室 ID
-      else {
-        roomName = `聊天室 ${roomId}`
-      }
+      )
 
-      // 创建新聊天室
-      const newRoom = {
-        id: roomId,
-        name: roomName,
-        type: 'room',
-        created_at: new Date().toISOString(),
-        created_by: user.login,
+      // 更新联系人列表
+    const newContact = {
+      id: joinInput,
+      name: `聊天室 ${joinInput}`,
+      type: 'room',
         unread: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         message_count: 0,
-        last_message: null,
-        source: ipRegex.test(roomId) ? 'ip' : roomId.startsWith('http') ? 'url' : 'id'
+        last_message: null
       }
 
-      // 从 GitHub 获取当前的聊天室列表
-      let roomsData = { rooms: [] }
-      try {
-        const response = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          ref: 'main'
-        })
-        const content = Buffer.from(response.data.content, 'base64').toString()
-        roomsData = JSON.parse(content)
-      } catch (error) {
-        if (error.status !== 404) {
-          throw error
-        }
-      }
-
-      // 检查聊天室是否已存在
-      if (roomsData.rooms.some(room => room.id === roomId)) {
-        alert('已经加入过这个聊天室了')
-        setShowJoinModal(false)
-        setJoinInput('')
-        return
-      }
-
-      // 添加新聊天室
-      roomsData.rooms = [...(roomsData.rooms || []), newRoom]
-
-      // 保存更新后的聊天室列表
-      const updatedContent = Buffer.from(JSON.stringify(roomsData, null, 2)).toString('base64')
-      try {
-        const currentFile = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          ref: 'main'
-        })
-
-        await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          message: '加入新聊天室',
-          content: updatedContent,
-          sha: currentFile.data.sha,
-          branch: 'main'
-        })
-      } catch (error) {
-        if (error.status === 404) {
-          await octokit.repos.createOrUpdateFileContents({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'rooms.json',
-            message: '创建聊天室列表',
-            content: updatedContent,
-            branch: 'main'
-          })
-        } else {
-          throw error
-        }
-      }
-
-      // 创建聊天室的消息文件
-      const chatRoomContent = Buffer.from(JSON.stringify({
-        id: newRoom.id,
-        name: newRoom.name,
-        type: newRoom.type,
-        created_at: newRoom.created_at,
-        created_by: newRoom.created_by,
-        source: newRoom.source,
-        messages: []
-      }, null, 2)).toString('base64')
-
-      await octokit.repos.createOrUpdateFileContents({
-        owner: user.login,
-        repo: 'dock-chat-data',
-        path: `chats/${newRoom.id}.json`,
-        message: `创建聊天室 ${newRoom.name}`,
-        content: chatRoomContent,
-        branch: 'main'
-      })
-
-      // 更新本地状态
-      setContacts(prev => [...prev, newRoom])
-      setActiveChat(newRoom.id)
-      setShowJoinModal(false)
-      setJoinInput('')
+    setContacts(prev => [...prev, newContact])
+    setJoinInput('')
+    setShowJoinModal(false)
+      setActiveChat(joinInput)
 
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
           ...userConfig,
-          contacts: [...contacts, newRoom],
+          contacts: [...contacts, newContact],
           settings: {
             ...userConfig.settings,
-            activeChat: newRoom.id
+            activeChat: joinInput
           },
           last_updated: new Date().toISOString()
         }
-        await updateConfig(session.accessToken, user.login, updatedConfig)
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
-
-      // 如果有 socket 连接，加入聊天室
-      if (socket?.connected) {
-        socket.emit('join', {
-          room: newRoom.id,
-          userId: session.user.id
-        })
-      }
-
-      alert('成功加入聊天室！')
     } catch (error) {
       console.error('Error joining chat room:', error)
-      alert('加入聊天室失败，请重试')
-    } finally {
-      setIsLoading(false)
+      alert('加入聊天室失败')
     }
   }
 
@@ -876,77 +762,27 @@ export default function Home({ username }) {
 
   // 修改删除聊天室的逻辑
   const handleDeleteChatRoom = async (roomId) => {
-    if (!session?.accessToken || !session.user.login) return
-    if (roomId === 'public' || roomId === 'system') {
+    if (!session?.user?.login || !session.accessToken) return
+    if (roomId === 'public' || roomId === 'kimi-ai') {
       alert('系统聊天室不能删除')
       return
     }
 
     try {
-      setIsLoading(true)
-      const octokit = new Octokit({ auth: session.accessToken })
-
-      // 从 GitHub 获取当前的聊天室列表
-      const response = await octokit.repos.getContent({
-        owner: session.user.login,
-        repo: 'dock-chat-data',
-        path: 'rooms.json',
-        ref: 'main'
-      })
-
-      const content = Buffer.from(response.data.content, 'base64').toString()
-      const roomsData = JSON.parse(content)
-
-      // 从列表中移除要删除的聊天室
-      roomsData.rooms = roomsData.rooms.filter(room => room.id !== roomId)
-
-      // 保存更新后的聊天室列表
-      const updatedContent = Buffer.from(JSON.stringify(roomsData, null, 2)).toString('base64')
-      await octokit.repos.createOrUpdateFileContents({
-        owner: session.user.login,
-        repo: 'dock-chat-data',
-        path: 'rooms.json',
-        message: '删除聊天室',
-        content: updatedContent,
-        sha: response.data.sha,
-        branch: 'main'
-      })
-
-      // 删除聊天室的消息文件
-      try {
-        const chatFileResponse = await octokit.repos.getContent({
-          owner: session.user.login,
-          repo: 'dock-chat-data',
-          path: `chats/${roomId}.json`,
-          ref: 'main'
-        })
-
-        await octokit.repos.deleteFile({
-          owner: session.user.login,
-          repo: 'dock-chat-data',
-          path: `chats/${roomId}.json`,
-          message: `删除聊天室 ${roomId} 的消息`,
-          sha: chatFileResponse.data.sha,
-          branch: 'main'
-        })
-      } catch (error) {
-        if (error.status !== 404) {
-          console.error('Error deleting chat file:', error)
-        }
-      }
-
-      // 更新本地状态
-      setContacts(prev => prev.filter(contact => contact.id !== roomId))
+      // 从联系人列表中移除
+      const updatedContacts = contacts.filter(c => c.id !== roomId)
+      setContacts(updatedContacts)
+      
+      // 如果当前正在查看被删除的聊天室，切换到公共聊天室
       if (activeChat === roomId) {
         setActiveChat('public')
-        setMessages([])
       }
 
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
           ...userConfig,
-          contacts: contacts.filter(contact => contact.id !== roomId),
+          contacts: updatedContacts,
           settings: {
             ...userConfig.settings,
             activeChat: activeChat === roomId ? 'public' : activeChat
@@ -955,14 +791,9 @@ export default function Home({ username }) {
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
-
-      alert('聊天室已删除')
     } catch (error) {
       console.error('Error deleting chat room:', error)
-      alert('删除聊天室失败，请重试')
-    } finally {
-      setIsLoading(false)
-      setShowChatSettings(false)
+      alert('删除聊天室失败')
     }
   }
 
@@ -1477,8 +1308,8 @@ export default function Home({ username }) {
               )}
               <div className="flex-1 text-left">
                 <span className="text-sm font-medium truncate block">
-                  {contact.name}
-                </span>
+                {contact.name}
+              </span>
                 {contact.type === 'extended' && (
                   <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">
                     {contact.extension?.type === 'file_sharing' ? '文件共享' :
@@ -1560,9 +1391,9 @@ export default function Home({ username }) {
             <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
               <div className="px-4 py-3 flex items-center justify-between relative">
                 <div className="flex flex-col">
-                  <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
                     {pageTitle}
-                  </h1>
+            </h1>
                   {currentView === 'chat' && (
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {window.location.origin}/{session.user.login}
@@ -1571,31 +1402,32 @@ export default function Home({ username }) {
                 </div>
                 {currentView === 'chat' && (
                   <>
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowChatSettings(!showChatSettings)}
-                        className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg transition-colors"
-                      >
-                        <Cog6ToothIcon className="w-5 h-5" />
-                      </button>
-                      {showChatSettings && (
-                        <ChatRoomSettings
-                          room={contacts.find(c => c.id === activeChat) || { id: activeChat, name: '未知聊天室' }}
-                          onDelete={handleDeleteChatRoom}
-                          onClose={() => setShowChatSettings(false)}
-                        />
-                      )}
-                    </div>
+                    <button
+                      onClick={() => setShowChatSettings(!showChatSettings)}
+                      className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    >
+                      <Cog6ToothIcon className="w-5 h-5" />
+                    </button>
+                    {showChatSettings && (
+                      <ChatRoomSettings
+                        room={{
+                          id: activeChat,
+                          name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
+                        }}
+                        onDelete={handleDeleteChatRoom}
+                        onClose={() => setShowChatSettings(false)}
+                      />
+                    )}
                   </>
                 )}
-              </div>
-            </header>
+          </div>
+        </header>
 
-            <main className="flex-1 p-4 overflow-hidden">
-              {currentView === 'chat' ? (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
+        <main className="flex-1 p-4 overflow-hidden">
+          {currentView === 'chat' ? (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
                   {/* 消息列表区 - 优化滚动容器 */}
-                  <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     {isLoading ? (
                       <div className="flex items-center justify-center h-full">
                         <div className="flex flex-col items-center space-y-4">
@@ -1609,10 +1441,10 @@ export default function Home({ username }) {
                       </div>
                     ) : (
                       <>
-                        {messages.map((message, index) => (
-                          <div
+                {messages.map((message, index) => (
+                  <div
                             key={`${message.createdAt}-${message.user.id}-${index}`}
-                            className={`flex ${
+                    className={`flex ${
                               message.type === 'system' 
                                 ? 'justify-center'
                                 : message.user.id === session?.user?.id 
@@ -1632,15 +1464,15 @@ export default function Home({ username }) {
                                   : ''
                             }`}>
                               {message.user.image && message.type !== 'system' && (
-                                <Image
-                                  src={message.user.image}
-                                  alt={message.user.name || '用户头像'}
-                                  width={40}
-                                  height={40}
+                        <Image
+                          src={message.user.image}
+                          alt={message.user.name || '用户头像'}
+                          width={40}
+                          height={40}
                                   className="rounded-full flex-shrink-0"
-                                />
-                              )}
-                              <div className={`flex flex-col ${
+                        />
+                      )}
+                      <div className={`flex flex-col ${
                                 message.type === 'system'
                                   ? 'items-center'
                                   : message.user.id === session?.user?.id
@@ -1655,47 +1487,47 @@ export default function Home({ username }) {
                                       : message.isError
                                         ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
                                         : message.user.id === session?.user?.id
-                                          ? 'bg-blue-500 text-white'
-                                          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                                }`}>
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                        }`}>
                                   {message.type !== 'system' && (
-                                    <p className="text-sm font-medium mb-1">{message.user.name}</p>
+                          <p className="text-sm font-medium mb-1">{message.user.name}</p>
                                   )}
                                   <p className={`${
                                     message.type === 'system' ? 'text-center' : ''
                                   } whitespace-pre-wrap`}>{message.content}</p>
-                                </div>
-                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                   {new Date(message.createdAt).toLocaleString()}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        <div ref={messagesEndRef} />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
                       </>
                     )}
-                  </div>
+              </div>
 
                   {/* 输入框区域 - 固定在底部 */}
                   <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4">
                       <EmojiPicker
                         session={session}
                         onSelect={(emoji) => {
                           setNewMessage(prev => prev + ` ![${emoji.title}](${emoji.url}) `)
                         }}
                       />
-                      <input
-                        type="text"
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
-                        placeholder="输入消息..."
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
+                    placeholder="输入消息..."
                         disabled={isSending}
-                      />
-                      <button
-                        type="submit"
+                  />
+                  <button
+                    type="submit"
                         className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
                           isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
                         }`}
@@ -1704,16 +1536,16 @@ export default function Home({ username }) {
                         {isSending ? (
                           <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         ) : (
-                          <PaperAirplaneIcon className="h-6 w-6" />
+                    <PaperAirplaneIcon className="h-6 w-6" />
                         )}
-                      </button>
-                    </div>
-                  </form>
+                  </button>
                 </div>
-              ) : (
-                <ProfilePage session={session} />
-              )}
-            </main>
+              </form>
+            </div>
+          ) : (
+            <ProfilePage session={session} />
+          )}
+        </main>
           </div>
         )}
       </div>
@@ -1726,51 +1558,29 @@ export default function Home({ username }) {
             <form onSubmit={handleJoin} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  输入聊天室信息
+                  加入聊天室 ID 或 IP 地址
                 </label>
                 <input
                   type="text"
                   value={joinInput}
                   onChange={(e) => setJoinInput(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="输入聊天室 ID、IP 地址或链接"
+                  placeholder="例如：room-123 或 192.168.1.1"
                 />
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  支持以下格式：
-                  <br />
-                  • 聊天室 ID（例如：room-123）
-                  <br />
-                  • IP 地址（例如：192.168.1.1）
-                  <br />
-                  • 网站链接（例如：https://example.com）
-                </p>
               </div>
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowJoinModal(false)
-                    setJoinInput('')
-                  }}
+                  onClick={() => setShowJoinModal(false)}
                   className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  disabled={!joinInput.trim() || isLoading}
-                  className={`px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg ${
-                    isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
-                  }`}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg"
                 >
-                  {isLoading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>加入中...</span>
-                    </div>
-                  ) : (
-                    '加入'
-                  )}
+                  加入
                 </button>
               </div>
             </form>
