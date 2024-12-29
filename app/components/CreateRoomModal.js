@@ -299,6 +299,36 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              存储仓库 *
+            </label>
+            <select
+              value={selectedRepo}
+              onChange={(e) => setSelectedRepo(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white mb-2"
+            >
+              <option value="">选择仓库</option>
+              <option value="dock-chat-data">默认数据仓库</option>
+              {repositories.map(repo => (
+                <option key={repo.full_name} value={repo.full_name}>
+                  {repo.name} {repo.private ? '(私有)' : '(公开)'}
+                </option>
+              ))}
+              <option value="custom">自定义仓库</option>
+            </select>
+
+            {selectedRepo === 'custom' && (
+              <input
+                type="text"
+                value={customRepo}
+                onChange={(e) => setCustomRepo(e.target.value)}
+                placeholder="输入仓库全名 (例如: username/repo)"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+              />
+            )}
+          </div>
+
           <div className="flex items-center">
             <input
               type="checkbox"
@@ -341,36 +371,6 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
                     {sourceCode ? sourceCode.name : '未选择文件'}
                   </span>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  存储仓库 *
-                </label>
-                <select
-                  value={selectedRepo}
-                  onChange={(e) => setSelectedRepo(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white mb-2"
-                >
-                  <option value="">选择仓库</option>
-                  <option value="dock-chat-data">默认数据仓库</option>
-                  {repositories.map(repo => (
-                    <option key={repo.full_name} value={repo.full_name}>
-                      {repo.name} {repo.private ? '(私有)' : '(公开)'}
-                    </option>
-                  ))}
-                  <option value="custom">自定义仓库</option>
-                </select>
-
-                {selectedRepo === 'custom' && (
-                  <input
-                    type="text"
-                    value={customRepo}
-                    onChange={(e) => setCustomRepo(e.target.value)}
-                    placeholder="输入仓库全名 (例如: username/repo)"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  />
-                )}
               </div>
             </>
           )}
