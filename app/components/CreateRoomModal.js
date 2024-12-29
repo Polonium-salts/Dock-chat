@@ -61,24 +61,40 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!roomName.trim()) return
+    if (!roomName.trim()) {
+      alert('请输入聊天室名称')
+      return
+    }
     if (roomType === 'ai' && !kimiApiKey) {
       alert('请输入 AI API Key')
       return
     }
-    if (!selectedRepo && selectedRepo !== 'dock-chat-data') {
+    if (!selectedRepo) {
       alert('请选择存储仓库')
+      return
+    }
+    if (roomType === 'extended' && !extensionType) {
+      alert('请选择扩展类型')
+      return
+    }
+    if (selectedRepo === 'custom' && !customRepo.trim()) {
+      alert('请输入自定义仓库名称')
+      return
+    }
+    if (selectedRepo === 'custom' && !customRepo.includes('/')) {
+      alert('自定义仓库名称格式错误，请使用 "用户名/仓库名" 格式')
       return
     }
 
     setIsLoading(true)
     try {
+      const repository = selectedRepo === 'custom' ? customRepo : selectedRepo
       const roomData = {
         name: roomName.trim(),
         description: roomDescription.trim(),
         type: roomType,
         isPrivate,
-        repository: selectedRepo === 'custom' ? customRepo : selectedRepo,
+        repository,
         extension: roomType === 'extended' ? {
           type: extensionType,
           config: {}
@@ -98,9 +114,16 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
       }
 
       await onCreate(roomData)
+      onClose()
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
+      if (error.message?.includes('not found')) {
+        alert('指定的仓库不存在，请检查仓库名称')
+      } else if (error.message?.includes('permission')) {
+        alert('没有权限访问指定的仓库，请确保您有写入权限')
+      } else {
+        alert('创建聊天室失败，请重试')
+      }
     } finally {
       setIsLoading(false)
     }

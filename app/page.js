@@ -915,6 +915,12 @@ export default function Home({ username }) {
       const [repoOwner, repoName] = targetRepo.split('/')
 
       try {
+        // 检查仓库是否存在
+        await octokit.repos.get({
+          owner: repoOwner,
+          repo: repoName
+        })
+
         // 获取现有的聊天室列表
         let roomsData = { rooms: [] }
         try {
@@ -928,6 +934,7 @@ export default function Home({ username }) {
           roomsData = JSON.parse(content)
         } catch (error) {
           if (error.status !== 404) {
+            console.error('Error getting rooms.json:', error)
             throw error
           }
         }
@@ -955,7 +962,30 @@ export default function Home({ username }) {
           messages: [],
           created_at: new Date().toISOString(),
           created_by: user.login,
-          repository: targetRepo
+          repository: targetRepo,
+          extension: roomData.extension || null
+        }
+
+        // 确保 chats 目录存在
+        try {
+          await octokit.repos.getContent({
+            owner: repoOwner,
+            repo: repoName,
+            path: 'chats',
+            ref: 'main'
+          })
+        } catch (error) {
+          if (error.status === 404) {
+            // 创建 chats 目录
+            await octokit.repos.createOrUpdateFileContents({
+              owner: repoOwner,
+              repo: repoName,
+              path: 'chats/.gitkeep',
+              message: '创建 chats 目录',
+              content: '',
+              branch: 'main'
+            })
+          }
         }
 
         const chatRoomContent = Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64')
@@ -991,12 +1021,19 @@ export default function Home({ username }) {
 
         setShowCreateRoomModal(false)
       } catch (error) {
-        console.error('Error saving room:', error)
-        throw new Error('保存聊天室失败')
+        console.error('Error creating room:', error)
+        if (error.status === 404) {
+          alert('指定的仓库不存在，请检查仓库名称')
+        } else if (error.status === 403) {
+          alert('没有权限访问指定的仓库，请确保您有写入权限')
+        } else {
+          alert('创建聊天室失败，请重试')
+        }
+        throw error
       }
     } catch (error) {
-      console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
+      console.error('Error in handleCreateRoom:', error)
+      throw error
     }
   }
 
