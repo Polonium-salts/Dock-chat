@@ -1,80 +1,46 @@
 import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
 import { Octokit } from '@octokit/rest'
-
-// 从 GitHub 仓库中获取好友列表
-async function getFriendsFromGitHub(octokit, owner) {
-  try {
-    const response = await octokit.repos.getContent({
-      owner,
-      repo: 'dock-chat-data',
-      path: 'friends.json',
-      ref: 'main'
-    })
-
-    const content = Buffer.from(response.data.content, 'base64').toString()
-    return JSON.parse(content)
-  } catch (error) {
-    if (error.status === 404) {
-      return { friends: [] }
-    }
-    throw error
-  }
-}
-
-// 更新 GitHub 仓库中的好友列表
-async function updateFriendsInGitHub(octokit, owner, friends) {
-  const content = Buffer.from(JSON.stringify(friends, null, 2)).toString('base64')
-
-  try {
-    const currentFile = await octokit.repos.getContent({
-      owner,
-      repo: 'dock-chat-data',
-      path: 'friends.json',
-      ref: 'main'
-    })
-
-    await octokit.repos.createOrUpdateFileContents({
-      owner,
-      repo: 'dock-chat-data',
-      path: 'friends.json',
-      message: '更新好友列表',
-      content,
-      sha: currentFile.data.sha,
-      branch: 'main'
-    })
-  } catch (error) {
-    if (error.status === 404) {
-      await octokit.repos.createOrUpdateFileContents({
-        owner,
-        repo: 'dock-chat-data',
-        path: 'friends.json',
-        message: '创建好友列表',
-        content,
-        branch: 'main'
-      })
-    } else {
-      throw error
-    }
-  }
-}
 
 // 获取好友列表
 export async function GET(request) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: '未授权' },
-        { status: 401 }
-      )
+    const session = await getServerSession()
+    if (!session?.accessToken) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const token = authHeader.replace('Bearer ', '')
-    const octokit = new Octokit({ auth: token })
+    const octokit = new Octokit({ auth: session.accessToken })
     const { data: user } = await octokit.users.getAuthenticated()
-    const friendsData = await getFriendsFromGitHub(octokit, user.login)
 
-    return NextResponse.json(friendsData)
+    try {
+      // 从私有仓库获取好友列表
+      const { data: friendsFile } = await octokit.repos.getContent({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: 'friends.json',
+        ref: 'main'
+      })
+
+      const content = Buffer.from(friendsFile.content, 'base64').toString()
+      const { friends } = JSON.parse(content)
+      return NextResponse.json({ friends })
+    } catch (error) {
+      if (error.status === 404) {
+        // 如果文件不存在，创建空的好友列表
+        const content = Buffer.from(JSON.stringify({ friends: [] })).toString('base64')
+        await octokit.repos.createOrUpdateFileContents({
+          owner: user.login,
+          repo: 'dock-chat-data',
+          path: 'friends.json',
+          message: '初始化好友列表',
+          content,
+          branch: 'main'
+        })
+        return NextResponse.json({ friends: [] })
+      }
+      throw error
+    }
   } catch (error) {
     console.error('Error getting friends:', error)
     return NextResponse.json(
@@ -87,126 +53,81 @@ export async function GET(request) {
 // 添加好友
 export async function POST(request) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: '未授权' },
-        { status: 401 }
-      )
+    const session = await getServerSession()
+    if (!session?.accessToken) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const token = authHeader.replace('Bearer ', '')
-    const octokit = new Octokit({ auth: token })
+    const { friendId, friendName, friendAvatar } = await request.json()
+    if (!friendId || !friendName) {
+      return NextResponse.json({ error: '缺少必要参数' }, { status: 400 })
+    }
+
+    const octokit = new Octokit({ auth: session.accessToken })
     const { data: user } = await octokit.users.getAuthenticated()
 
-    // 获取要添加的好友信息
-    const body = await request.json()
-    const { friendId } = body
-    if (!friendId) {
-      return NextResponse.json(
-        { error: '缺少好友 ID' },
-        { status: 400 }
-      )
-    }
-
-    // 获取好友信息
-    const { data: friend } = await octokit.users.getById({ id: parseInt(friendId) })
-
-    // 从数据仓库获取当前好友列表
+    // 获取现有好友列表
     let friendsData = { friends: [] }
     try {
-      const response = await octokit.repos.getContent({
+      const { data: friendsFile } = await octokit.repos.getContent({
         owner: user.login,
         repo: 'dock-chat-data',
         path: 'friends.json',
         ref: 'main'
       })
-      const content = Buffer.from(response.data.content, 'base64').toString()
+      const content = Buffer.from(friendsFile.content, 'base64').toString()
       friendsData = JSON.parse(content)
-    } catch (error) {
-      if (error.status !== 404) {
-        throw error
+
+      // 检查是否已经是好友
+      if (friendsData.friends.some(friend => friend.id === friendId)) {
+        return NextResponse.json({ error: '已经是好友了' }, { status: 400 })
       }
-    }
 
-    // 检查是否已经是好友
-    if (friendsData.friends.some(f => f.id === friend.id)) {
-      return NextResponse.json(
-        { error: '已经是好友了' },
-        { status: 400 }
-      )
-    }
-
-    // 添加新好友
-    const newFriend = {
-      id: friend.id,
-      login: friend.login,
-      name: friend.name || friend.login,
-      avatar_url: friend.avatar_url,
-      added_at: new Date().toISOString()
-    }
-    friendsData.friends.push(newFriend)
-
-    // 更新好友列表
-    const content = Buffer.from(JSON.stringify(friendsData, null, 2)).toString('base64')
-    try {
-      const currentFile = await octokit.repos.getContent({
-        owner: user.login,
-        repo: 'dock-chat-data',
-        path: 'friends.json',
-        ref: 'main'
+      // 添加新好友
+      friendsData.friends.push({
+        id: friendId,
+        name: friendName,
+        avatar: friendAvatar,
+        addedAt: new Date().toISOString()
       })
 
+      // 保存更新后的好友列表
+      const updatedContent = Buffer.from(JSON.stringify(friendsData, null, 2)).toString('base64')
       await octokit.repos.createOrUpdateFileContents({
         owner: user.login,
         repo: 'dock-chat-data',
         path: 'friends.json',
-        message: '更新好友列表',
-        content,
-        sha: currentFile.data.sha,
+        message: '添加新好友',
+        content: updatedContent,
+        sha: friendsFile.sha,
         branch: 'main'
       })
+
+      return NextResponse.json({ success: true, friend: friendsData.friends[friendsData.friends.length - 1] })
     } catch (error) {
       if (error.status === 404) {
+        // 如果文件不存在，创建新的好友列表
+        friendsData.friends.push({
+          id: friendId,
+          name: friendName,
+          avatar: friendAvatar,
+          addedAt: new Date().toISOString()
+        })
+
+        const content = Buffer.from(JSON.stringify(friendsData, null, 2)).toString('base64')
         await octokit.repos.createOrUpdateFileContents({
           owner: user.login,
           repo: 'dock-chat-data',
           path: 'friends.json',
-          message: '创建好友列表',
+          message: '创建好友列表并添加好友',
           content,
           branch: 'main'
         })
-      } else {
-        throw error
+
+        return NextResponse.json({ success: true, friend: friendsData.friends[0] })
       }
+      throw error
     }
-
-    // 创建私聊聊天室
-    const chatRoomId = `private-${user.id}-${friend.id}`
-    const chatRoom = {
-      id: chatRoomId,
-      name: `与 ${friend.name || friend.login} 的私聊`,
-      type: 'private',
-      participants: [user.id, friend.id],
-      created_at: new Date().toISOString(),
-      messages: []
-    }
-
-    const chatRoomContent = Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64')
-    await octokit.repos.createOrUpdateFileContents({
-      owner: user.login,
-      repo: 'dock-chat-data',
-      path: `chats/${chatRoomId}.json`,
-      message: `创建与 ${friend.login} 的私聊聊天室`,
-      content: chatRoomContent,
-      branch: 'main'
-    })
-
-    return NextResponse.json({
-      success: true,
-      friend: newFriend,
-      chatRoom
-    })
   } catch (error) {
     console.error('Error adding friend:', error)
     return NextResponse.json(
