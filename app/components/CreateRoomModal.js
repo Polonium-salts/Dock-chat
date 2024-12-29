@@ -69,11 +69,11 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
 
     setIsLoading(true)
     try {
-      await onCreate({
+      const roomData = {
         name: roomName.trim(),
         description: roomDescription.trim(),
-        isPrivate,
         type: roomType,
+        isPrivate,
         extension: roomType === 'extended' ? {
           type: extensionType,
           config: {}
@@ -84,12 +84,18 @@ export default function CreateRoomModal({ onClose, onCreate, session }) {
             api_key: kimiApiKey,
             settings: aiConfig
           }
-        } : null
-      })
-      onClose()
+        } : null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        unread: 0,
+        last_message: null
+      }
+
+      await onCreate(roomData)
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败')
+      alert('创建聊天室失败，请重试')
     } finally {
       setIsLoading(false)
     }
