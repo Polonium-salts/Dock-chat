@@ -1200,194 +1200,307 @@ export default function Home({ username }) {
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* 左侧边栏 */}
-      <div className="w-64 border-r border-gray-200 dark:border-gray-800">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
-              聊天室
-            </h2>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setShowFriendList(!showFriendList)}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <UserPlusIcon className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setShowCreateRoomModal(true)}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <PlusIcon className="w-5 h-5" />
-              </button>
+      {/* 左侧导航栏 - 添加固定宽度 */}
+      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        {/* 用户信息区域 */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            {session.user.image && (
+              <Image
+                src={session.user.image}
+                alt={session.user.name || '用户头像'}
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                {session.user.name || '用户'}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                @{session.user.login}
+              </p>
             </div>
           </div>
+        </div>
 
-          {showFriendList ? (
+        {/* 聊天室列表 - 添加固定高度和滚动 */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {contacts.map(contact => (
+            <button
+              key={contact.id}
+              onClick={() => handleChatChange(contact.id)}
+              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                activeChat === contact.id
+                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
+              }`}
+            >
+              {contact.type === 'ai' ? (
+                <SparklesIcon className="w-5 h-5 flex-shrink-0" />
+              ) : contact.type === 'extended' ? (
+                contact.extension?.type === 'file_sharing' ? (
+                  <DocumentIcon className="w-5 h-5 flex-shrink-0" />
+                ) : contact.extension?.type === 'code_collaboration' ? (
+                  <CodeBracketIcon className="w-5 h-5 flex-shrink-0" />
+                ) : contact.extension?.type === 'whiteboard' ? (
+                  <PencilSquareIcon className="w-5 h-5 flex-shrink-0" />
+                ) : contact.extension?.type === 'video_chat' ? (
+                  <VideoCameraIcon className="w-5 h-5 flex-shrink-0" />
+                ) : contact.extension?.type === 'game_room' ? (
+                  <PuzzlePieceIcon className="w-5 h-5 flex-shrink-0" />
+                ) : (
+                  <CubeIcon className="w-5 h-5 flex-shrink-0" />
+                )
+              ) : contact.type === 'private' ? (
+                <UserPlusIcon className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
+              )}
+              <div className="flex-1 text-left">
+                <span className="text-sm font-medium truncate block">
+                  {contact.name}
+                </span>
+                {contact.type === 'extended' && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">
+                    {contact.extension?.type === 'file_sharing' ? '文件共享' :
+                     contact.extension?.type === 'code_collaboration' ? '代码协作' :
+                     contact.extension?.type === 'whiteboard' ? '在线白板' :
+                     contact.extension?.type === 'video_chat' ? '视频聊天' :
+                     contact.extension?.type === 'game_room' ? '游戏房间' : '扩展聊天室'}
+                  </span>
+                )}
+              </div>
+              {contact.unread > 0 && (
+                <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  {contact.unread}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* 底部按钮区域 */}
+        <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+          <button
+            onClick={() => setShowCreateRoomModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+          >
+            <PlusCircleIcon className="w-5 h-5" />
+            创建聊天室
+          </button>
+          <button
+            onClick={addKimiAIChat}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
+          >
+            <SparklesIcon className="w-5 h-5" />
+            添加 AI 助手
+          </button>
+          <button
+            onClick={() => setShowFriendList(!showFriendList)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+          >
+            <UserPlusIcon className="w-5 h-5" />
+            {showFriendList ? '返回聊天' : '好友列表'}
+          </button>
+          <button
+            onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
+            className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
+              currentView === 'profile'
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            } rounded-lg transition-colors`}
+          >
+            {currentView === 'chat' ? (
+              <UserCircleIcon className="w-5 h-5" />
+            ) : (
+              <UserGroupIcon className="w-5 h-5" />
+            )}
+            {currentView === 'chat' ? '个人主页' : '返回聊天'}
+          </button>
+          <button
+            onClick={() => setShowJoinModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+          >
+            <PlusCircleIcon className="w-5 h-5" />
+            加入聊天室
+          </button>
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <Cog6ToothIcon className="w-5 h-5" />
+            设置
+          </button>
+        </div>
+      </div>
+
+      {/* 主聊天区域 */}
+      <div className="flex-1">
+        {showFriendList ? (
+          <div className="bg-white dark:bg-gray-800 h-full">
             <FriendList
               session={session}
               onStartPrivateChat={createOrUpdatePrivateChat}
             />
-          ) : (
-            renderRoomList()
-          )}
-        </div>
-      </div>
-
-      {/* 主聊天区 - 优化滚动行为 */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-3 flex items-center justify-between relative">
-            <div className="flex flex-col">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {pageTitle}
-            </h1>
-              {currentView === 'chat' && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {window.location.origin}/{session.user.login}
-                </p>
-              )}
-            </div>
-            {currentView === 'chat' && (
-              <>
-                <button
-                  onClick={() => setShowChatSettings(!showChatSettings)}
-                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  <Cog6ToothIcon className="w-5 h-5" />
-                </button>
-                {showChatSettings && (
-                  <ChatRoomSettings
-                    room={{
-                      id: activeChat,
-                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
-                    }}
-                    onDelete={handleDeleteChatRoom}
-                    onClose={() => setShowChatSettings(false)}
-                  />
-                )}
-              </>
-            )}
           </div>
-        </header>
-
-        <main className="flex-1 p-4 overflow-hidden">
-          {currentView === 'chat' ? (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
-              {/* 消息列表区 - 优化滚动容器 */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {isLoading ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="flex flex-col items-center space-y-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">加载消息中...</p>
-                    </div>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">暂无消息</p>
-                  </div>
-                ) : (
+        ) : (
+          <div className="flex flex-col h-full">
+            <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+              <div className="px-4 py-3 flex items-center justify-between relative">
+                <div className="flex flex-col">
+                  <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {pageTitle}
+                  </h1>
+                  {currentView === 'chat' && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {window.location.origin}/{session.user.login}
+                    </p>
+                  )}
+                </div>
+                {currentView === 'chat' && (
                   <>
-                {messages.map((message, index) => (
-                  <div
-                        key={`${message.createdAt}-${message.user.id}-${index}`}
-                    className={`flex ${
-                          message.type === 'system' 
-                            ? 'justify-center'
-                            : message.user.id === session?.user?.id 
-                              ? 'justify-end' 
-                              : 'justify-start'
-                        }`}
-                      >
-                        <div className={`flex items-start gap-3 ${
-                          message.type === 'system'
-                            ? 'max-w-[80%]'
-                            : 'max-w-[70%]'
-                        } ${
-                          message.type === 'system'
-                            ? ''
-                            : message.user.id === session?.user?.id
-                              ? 'flex-row-reverse'
-                              : ''
-                        }`}>
-                          {message.user.image && message.type !== 'system' && (
-                        <Image
-                          src={message.user.image}
-                          alt={message.user.name || '用户头像'}
-                          width={40}
-                          height={40}
-                              className="rounded-full flex-shrink-0"
-                        />
-                      )}
-                      <div className={`flex flex-col ${
-                            message.type === 'system'
-                              ? 'items-center'
-                              : message.user.id === session?.user?.id
-                                ? 'items-end'
-                                : 'items-start'
-                          }`}>
-                            <div className={`rounded-2xl p-4 break-words ${
-                              message.type === 'system'
-                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm'
-                                : message.isTyping
-                                  ? 'bg-gray-100 dark:bg-gray-700 animate-pulse'
-                                  : message.isError
-                                    ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
-                                    : message.user.id === session?.user?.id
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                        }`}>
-                              {message.type !== 'system' && (
-                          <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                              )}
-                              <p className={`${
-                                message.type === 'system' ? 'text-center' : ''
-                              } whitespace-pre-wrap`}>{message.content}</p>
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {new Date(message.createdAt).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
+                    <button
+                      onClick={() => setShowChatSettings(!showChatSettings)}
+                      className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    >
+                      <Cog6ToothIcon className="w-5 h-5" />
+                    </button>
+                    {showChatSettings && (
+                      <ChatRoomSettings
+                        room={{
+                          id: activeChat,
+                          name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
+                        }}
+                        onDelete={handleDeleteChatRoom}
+                        onClose={() => setShowChatSettings(false)}
+                      />
+                    )}
                   </>
                 )}
               </div>
+            </header>
 
-              {/* 输入框区域 - 固定在底部 */}
-              <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
-                <div className="flex items-center gap-4">
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
-                    placeholder="输入消息..."
-                    disabled={isSending}
-                  />
-                  <button
-                    type="submit"
-                    className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
-                      isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
-                    }`}
-                    disabled={!newMessage.trim() || !session || isSending}
-                  >
-                    {isSending ? (
-                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <main className="flex-1 p-4 overflow-hidden">
+              {currentView === 'chat' ? (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
+                  {/* 消息列表区 - 优化滚动容器 */}
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {isLoading ? (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="flex flex-col items-center space-y-4">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">加载消息中...</p>
+                        </div>
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="flex items-center justify-center h-full">
+                        <p className="text-sm text-gray-500 dark:text-gray-400">暂无消息</p>
+                      </div>
                     ) : (
-                    <PaperAirplaneIcon className="h-6 w-6" />
+                      <>
+                        {messages.map((message, index) => (
+                          <div
+                            key={`${message.createdAt}-${message.user.id}-${index}`}
+                            className={`flex ${
+                              message.type === 'system' 
+                                ? 'justify-center'
+                                : message.user.id === session?.user?.id 
+                                  ? 'justify-end' 
+                                  : 'justify-start'
+                            }`}
+                          >
+                            <div className={`flex items-start gap-3 ${
+                              message.type === 'system'
+                                ? 'max-w-[80%]'
+                                : 'max-w-[70%]'
+                            } ${
+                              message.type === 'system'
+                                ? ''
+                                : message.user.id === session?.user?.id
+                                  ? 'flex-row-reverse'
+                                  : ''
+                            }`}>
+                              {message.user.image && message.type !== 'system' && (
+                                <Image
+                                  src={message.user.image}
+                                  alt={message.user.name || '用户头像'}
+                                  width={40}
+                                  height={40}
+                                  className="rounded-full flex-shrink-0"
+                                />
+                              )}
+                              <div className={`flex flex-col ${
+                                message.type === 'system'
+                                  ? 'items-center'
+                                  : message.user.id === session?.user?.id
+                                    ? 'items-end'
+                                    : 'items-start'
+                              }`}>
+                                <div className={`rounded-2xl p-4 break-words ${
+                                  message.type === 'system'
+                                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm'
+                                    : message.isTyping
+                                      ? 'bg-gray-100 dark:bg-gray-700 animate-pulse'
+                                      : message.isError
+                                        ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                                        : message.user.id === session?.user?.id
+                                          ? 'bg-blue-500 text-white'
+                                          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                                }`}>
+                                  {message.type !== 'system' && (
+                                    <p className="text-sm font-medium mb-1">{message.user.name}</p>
+                                  )}
+                                  <p className={`${
+                                    message.type === 'system' ? 'text-center' : ''
+                                  } whitespace-pre-wrap`}>{message.content}</p>
+                                </div>
+                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {new Date(message.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                      </>
                     )}
-                  </button>
+                  </div>
+
+                  {/* 输入框区域 - 固定在底部 */}
+                  <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="text"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
+                        placeholder="输入消息..."
+                        disabled={isSending}
+                      />
+                      <button
+                        type="submit"
+                        className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
+                          isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
+                        }`}
+                        disabled={!newMessage.trim() || !session || isSending}
+                      >
+                        {isSending ? (
+                          <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <PaperAirplaneIcon className="h-6 w-6" />
+                        )}
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </form>
-            </div>
-          ) : (
-            <ProfilePage session={session} />
-          )}
-        </main>
+              ) : (
+                <ProfilePage session={session} />
+              )}
+            </main>
+          </div>
+        )}
       </div>
 
       {/* 加入聊天室模态框 */}
@@ -1493,6 +1606,7 @@ export default function Home({ username }) {
         <CreateRoomModal
           onClose={() => setShowCreateRoomModal(false)}
           onCreate={handleCreateRoom}
+          session={session}
         />
       )}
     </div>
