@@ -63,6 +63,7 @@ export default function Home({ username }) {
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
   const [showFriendList, setShowFriendList] = useState(false)
   const [privateChatRooms, setPrivateChatRooms] = useState([])
+  const [rooms, setRooms] = useState([])
 
   // 动滚动到底部
   useEffect(() => {
@@ -877,65 +878,63 @@ export default function Home({ username }) {
 
   // 修改创建聊天室的逻辑
   const handleCreateRoom = async (roomData) => {
-    if (!session?.user?.login || !session.accessToken) return
+    if (!session?.accessToken) return
 
     try {
-      // 生成唯一的房间ID
-      const roomId = `${roomData.type === 'extended' ? 'ext' : 'room'}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      
-      // 初始化聊天室
-      await initializeChatRoom(
-        session.accessToken,
-        session.user.login,
-        roomId,
-        roomData.name,
-        roomData.type,
-        {
-          description: roomData.description,
-          isPrivate: roomData.isPrivate,
-          creator: session.user.login,
-          created_at: new Date().toISOString(),
-          extension: roomData.extension
-        }
-      )
+      const octokit = new Octokit({ auth: session.accessToken })
+      const { data: user } = await octokit.users.getAuthenticated()
 
-      // 更新联系人列表
-      const newContact = {
-        id: roomId,
-        name: roomData.name,
-        type: roomData.type,
-        extension: roomData.extension,
-        unread: 0,
-        description: roomData.description,
-        isPrivate: roomData.isPrivate,
+      const newRoom = {
+        id: `room-${Date.now()}`,
+        ...roomData,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        message_count: 0,
-        last_message: null
+        created_by: user.login
       }
 
-      const updatedContacts = [...contacts, newContact]
-      setContacts(updatedContacts)
-      setActiveChat(roomId)
+      // 更新聊天室列表
+      const updatedRooms = [...rooms, newRoom]
+      const content = Buffer.from(
+        JSON.stringify({ rooms: updatedRooms }, null, 2)
+      ).toString('base64')
 
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          settings: {
-            ...userConfig.settings,
-            activeChat: roomId
-          },
-          last_updated: new Date().toISOString()
+      try {
+        const currentFile = await octokit.repos.getContent({
+          owner: user.login,
+          repo: 'dock-chat-data',
+          path: 'rooms.json',
+          ref: 'main'
+        })
+
+        await octokit.repos.createOrUpdateFileContents({
+          owner: user.login,
+          repo: 'dock-chat-data',
+          path: 'rooms.json',
+          message: '更新聊天室列表',
+          content,
+          sha: currentFile.data.sha,
+          branch: 'main'
+        })
+      } catch (error) {
+        if (error.status === 404) {
+          await octokit.repos.createOrUpdateFileContents({
+            owner: user.login,
+            repo: 'dock-chat-data',
+            path: 'rooms.json',
+            message: '创建聊天室列表',
+            content,
+            branch: 'main'
+          })
+        } else {
+          throw error
         }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
       }
 
+      setRooms(updatedRooms)
+      setCurrentRoom(newRoom)
       setShowCreateRoomModal(false)
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败')
+      alert('创建聊天室失败，请重试')
     }
   }
 
@@ -1128,6 +1127,39 @@ export default function Home({ username }) {
       </div>
     )
   }
+
+  // 加载聊天室列表
+  const loadRooms = async () => {
+    if (!session?.accessToken) return
+
+    try {
+      const octokit = new Octokit({ auth: session.accessToken })
+      const { data: user } = await octokit.users.getAuthenticated()
+      
+      const response = await octokit.repos.getContent({
+        owner: user.login,
+        repo: 'dock-chat-data',
+        path: 'rooms.json',
+        ref: 'main'
+      })
+
+      const content = Buffer.from(response.data.content, 'base64').toString()
+      const { rooms: roomsList } = JSON.parse(content)
+      setRooms(roomsList || [])
+    } catch (error) {
+      if (error.status !== 404) {
+        console.error('Error loading rooms:', error)
+      }
+    }
+  }
+
+  // 在组件加载时加载聊天室和私聊列表
+  useEffect(() => {
+    if (session?.accessToken) {
+      loadRooms()
+      loadPrivateChatRooms()
+    }
+  }, [session])
 
   if (status === 'loading') {
     return (
