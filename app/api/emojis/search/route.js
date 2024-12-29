@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import axios from 'axios'
 import cheerio from 'cheerio'
 
 export async function GET(request) {
@@ -10,14 +9,15 @@ export async function GET(request) {
 
     // 构建搜索 URL
     const searchUrl = query
-      ? `https://fabiaoqing.com/search/search/keyword/${encodeURIComponent(query)}/type/bq/page/${page}.html`
+      ? `https://fabiaoqing.com/search/search/keyword/${encodeURIComponent(query)}/page/${page}.html`
       : `https://fabiaoqing.com/biaoqing/lists/page/${page}.html`
 
-    // 获取页面内容
-    const response = await axios.get(searchUrl)
-    const $ = cheerio.load(response.data)
+    // 获取表情包列表页面
+    const response = await fetch(searchUrl)
+    const html = await response.text()
+    const $ = cheerio.load(html)
 
-    // 解析表情包列表
+    // 解析表情包数据
     const emojis = []
     $('.tagbqppdiv').each((i, el) => {
       const $el = $(el)
@@ -27,7 +27,7 @@ export async function GET(request) {
       
       if (url) {
         emojis.push({
-          id: `fabiaoqing-${page}-${i}`,
+          id: `emoji-${Date.now()}-${i}`,
           title,
           url,
           source: 'fabiaoqing'
@@ -35,13 +35,9 @@ export async function GET(request) {
       }
     })
 
-    return NextResponse.json({
-      emojis,
-      page,
-      hasMore: emojis.length > 0
-    })
+    return NextResponse.json({ emojis })
   } catch (error) {
-    console.error('Error fetching emojis:', error)
+    console.error('Error searching emojis:', error)
     return NextResponse.json(
       { error: '获取表情包失败' },
       { status: 500 }

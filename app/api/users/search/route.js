@@ -19,7 +19,7 @@ export async function GET(request) {
     const query = searchParams.get('q')
     if (!query) {
       return NextResponse.json(
-        { error: '请提供搜索关键词' },
+        { error: '缺少搜索关键词' },
         { status: 400 }
       )
     }
@@ -27,36 +27,23 @@ export async function GET(request) {
     // 搜索用户
     const { data } = await octokit.search.users({
       q: query,
-      per_page: 10
+      per_page: 10,
+      page: 1
     })
 
-    // 获取详细的用户信息
-    const users = await Promise.all(
-      data.items.map(async (user) => {
-        try {
-          const { data: userDetail } = await octokit.users.getByUsername({
-            username: user.login
-          })
-          return {
-            id: userDetail.id,
-            login: userDetail.login,
-            name: userDetail.name || userDetail.login,
-            avatar_url: userDetail.avatar_url,
-            bio: userDetail.bio
-          }
-        } catch (error) {
-          console.error(`Error fetching user details for ${user.login}:`, error)
-          return null
-        }
-      })
-    )
+    // 获取当前用户信息
+    const { data: currentUser } = await octokit.users.getAuthenticated()
 
-    // 过滤掉获取失败的用户
-    const validUsers = users.filter(user => user !== null)
+    // 过滤掉当前用户
+    const users = data.items
+      .filter(user => user.id !== currentUser.id)
+      .map(user => ({
+        id: user.id,
+        name: user.login,
+        avatar_url: user.avatar_url
+      }))
 
-    return NextResponse.json({
-      users: validUsers
-    })
+    return NextResponse.json({ users })
   } catch (error) {
     console.error('Error searching users:', error)
     return NextResponse.json(

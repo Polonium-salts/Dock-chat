@@ -122,87 +122,85 @@ export default function Home({ username }) {
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      if (session?.user?.login && session.accessToken) {
+      if (!session?.user?.login || !session.accessToken) return
+
+      try {
+        setIsLoading(true)
+        console.log('Initializing data...')
+
+        const octokit = new Octokit({ auth: session.accessToken })
+        const { data: user } = await octokit.users.getAuthenticated()
+
+        // 加载用户配置
+        let config = null
         try {
-          setIsLoading(true)
-          console.log('Initializing data...')
-
-          const octokit = new Octokit({ auth: session.accessToken })
-
-          // 确保仓库和基本结构存在
-          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
-          if (!hasRepo) {
-            console.log('Creating new repository...')
-            await createDataRepository(session.accessToken, session.user.login)
+          const { data: configFile } = await octokit.repos.getContent({
+            owner: user.login,
+            repo: 'dock-chat-data',
+            path: 'config.json',
+            ref: 'main'
+          })
+          const content = Buffer.from(configFile.content, 'base64').toString()
+          config = JSON.parse(content)
+          setUserConfig(config)
+        } catch (error) {
+          if (error.status !== 404) {
+            console.error('Error loading config:', error)
           }
+        }
 
-          // 加载用户配置
-          let config = null
-          try {
-            const configResponse = await octokit.repos.getContent({
-              owner: session.user.login,
-              repo: 'dock-chat-data',
-              path: 'config.json',
-              ref: 'main'
-            })
-            const configContent = Buffer.from(configResponse.data.content, 'base64').toString()
-            config = JSON.parse(configContent)
-            setUserConfig(config)
-          } catch (error) {
-            if (error.status !== 404) {
-              console.error('Error loading config:', error)
-            }
-          }
+        // 加载聊天室列表
+        try {
+          const { data: roomsFile } = await octokit.repos.getContent({
+            owner: user.login,
+            repo: 'dock-chat-data',
+            path: 'rooms.json',
+            ref: 'main'
+          })
+          const content = Buffer.from(roomsFile.content, 'base64').toString()
+          const { rooms: roomsList } = JSON.parse(content)
+          
+          // 确保基本聊天室存在
+          const defaultRooms = [
+            { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
+            { id: 'system', name: '系统通知', type: 'system', unread: 0 }
+          ]
 
-          // 加载聊天室列表
-          let roomsData = { rooms: [{ id: 'public', name: '公共聊天室', type: 'room', unread: 0 }] }
-          try {
-            const roomsResponse = await octokit.repos.getContent({
-              owner: session.user.login,
-              repo: 'dock-chat-data',
-              path: 'rooms.json',
-              ref: 'main'
-            })
-            const roomsContent = Buffer.from(roomsResponse.data.content, 'base64').toString()
-            roomsData = JSON.parse(roomsContent)
-          } catch (error) {
-            if (error.status !== 404) {
-              console.error('Error loading rooms:', error)
-            }
-          }
-
-          // 确保公共聊天室始终存在
-          if (!roomsData.rooms.some(room => room.id === 'public')) {
-            roomsData.rooms.unshift({
-              id: 'public',
-              name: '公共聊天室',
-              type: 'room',
-              unread: 0,
-              created_at: new Date().toISOString()
+          const updatedRooms = [...defaultRooms]
+          if (Array.isArray(roomsList)) {
+            roomsList.forEach(room => {
+              if (!updatedRooms.some(r => r.id === room.id)) {
+                updatedRooms.push({
+                  ...room,
+                  unread: room.unread || 0,
+                  message_count: room.message_count || 0,
+                  last_message: room.last_message || null
+                })
+              }
             })
           }
 
-          // 更新本地状态
-          setContacts(roomsData.rooms)
-          setRooms(roomsData.rooms)
+          setRooms(updatedRooms)
+          setContacts(updatedRooms)
 
           // 设置活动聊天室
           const targetChat = config?.settings?.activeChat || 'public'
           setActiveChat(targetChat)
 
-          // 加载活动聊天室的消息
-          if (targetChat) {
-            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-            if (Array.isArray(messages)) {
-              setMessages(messages)
-            }
+          // 加载当前聊天室的消息
+          const messages = await loadChatHistory(session.accessToken, user.login, targetChat)
+          if (Array.isArray(messages)) {
+            setMessages(messages)
           }
-
         } catch (error) {
-          console.error('Error initializing data:', error)
-        } finally {
-          setIsLoading(false)
+          if (error.status !== 404) {
+            console.error('Error loading rooms:', error)
+          }
         }
+      } catch (error) {
+        console.error('Error initializing data:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
 
@@ -908,70 +906,15 @@ export default function Home({ username }) {
         last_message: null
       }
 
-      // 从 GitHub 获取当前的聊天室列表
-      let roomsData = { rooms: [] }
-      try {
-        const response = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          ref: 'main'
-        })
-        const content = Buffer.from(response.data.content, 'base64').toString()
-        roomsData = JSON.parse(content)
-      } catch (error) {
-        if (error.status !== 404) {
-          throw error
-        }
-      }
-
-      // 添加新聊天室
-      roomsData.rooms = [...(roomsData.rooms || []), newRoom]
-
-      // 保存更新后的聊天室列表
-      const updatedContent = Buffer.from(JSON.stringify(roomsData, null, 2)).toString('base64')
-      try {
-        const currentFile = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          ref: 'main'
-        })
-
-        await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          message: '更新聊天室列表',
-          content: updatedContent,
-          sha: currentFile.data.sha,
-          branch: 'main'
-        })
-      } catch (error) {
-        if (error.status === 404) {
-          await octokit.repos.createOrUpdateFileContents({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'rooms.json',
-            message: '创建聊天室列表',
-            content: updatedContent,
-            branch: 'main'
-          })
-        } else {
-          throw error
-        }
-      }
-
-      // 更新本地状态
-      setContacts(prev => [...prev, newRoom])
-      setActiveChat(newRoom.id)
-      setShowCreateRoomModal(false)
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newRoom]
+      setContacts(updatedContacts)
 
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
           ...userConfig,
-          contacts: [...contacts, newRoom],
+          contacts: updatedContacts,
           settings: {
             ...userConfig.settings,
             activeChat: newRoom.id
@@ -980,6 +923,10 @@ export default function Home({ username }) {
         }
         await updateConfig(session.accessToken, user.login, updatedConfig)
       }
+
+      // 切换到新聊天室
+      setActiveChat(newRoom.id)
+      setShowCreateRoomModal(false)
     } catch (error) {
       console.error('Error creating room:', error)
       alert('创建聊天室失败，请重试')
