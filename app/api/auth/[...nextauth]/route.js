@@ -1,17 +1,17 @@
 import NextAuth from 'next-auth'
 import GithubProvider from 'next-auth/providers/github'
 
-const handler = NextAuth({
+export const authOptions = {
   providers: [
     GithubProvider({
       clientId: process.env.GITHUB_ID,
       clientSecret: process.env.GITHUB_SECRET,
       authorization: {
         params: {
-          scope: 'read:user user:email repo'
-        }
-      }
-    })
+          scope: 'read:user user:email repo',
+        },
+      },
+    }),
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
@@ -27,13 +27,16 @@ const handler = NextAuth({
       if (token.login) {
         session.user.login = token.login
       }
+      if (token.id) {
+        session.user.id = token.id
+      }
       return session
-    }
+    },
   },
   pages: {
     signIn: '/',
-    error: '/'
-  }
-})
+  },
+}
 
+const handler = NextAuth(authOptions)
 export { handler as GET, handler as POST } 
