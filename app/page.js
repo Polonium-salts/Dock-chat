@@ -122,85 +122,57 @@ export default function Home({ username }) {
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      if (!session?.user?.login || !session.accessToken) return
-
-      try {
-        setIsLoading(true)
-        console.log('Initializing data...')
-
-        const octokit = new Octokit({ auth: session.accessToken })
-        const { data: user } = await octokit.users.getAuthenticated()
-
-        // 加载用户配置
-        let config = null
+      if (session?.user?.login && session.accessToken) {
         try {
-          const { data: configFile } = await octokit.repos.getContent({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'config.json',
-            ref: 'main'
-          })
-          const content = Buffer.from(configFile.content, 'base64').toString()
-          config = JSON.parse(content)
-          setUserConfig(config)
-        } catch (error) {
-          if (error.status !== 404) {
-            console.error('Error loading config:', error)
-          }
-        }
-
-        // 加载聊天室列表
-        try {
-          const { data: roomsFile } = await octokit.repos.getContent({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'rooms.json',
-            ref: 'main'
-          })
-          const content = Buffer.from(roomsFile.content, 'base64').toString()
-          const { rooms: roomsList } = JSON.parse(content)
+          setIsLoading(true)
           
-          // 确保基本聊天室存在
-          const defaultRooms = [
-            { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
-            { id: 'system', name: '系统通知', type: 'system', unread: 0 }
-          ]
-
-          const updatedRooms = [...defaultRooms]
-          if (Array.isArray(roomsList)) {
-            roomsList.forEach(room => {
-              if (!updatedRooms.some(r => r.id === room.id)) {
-                updatedRooms.push({
-                  ...room,
-                  unread: room.unread || 0,
-                  message_count: room.message_count || 0,
-                  last_message: room.last_message || null
-                })
-              }
-            })
+          // 优先从缓存加载数据
+          const cachedContacts = getCache(session.user.login, 'contacts')
+          const cachedConfig = getCache(session.user.login, 'config')
+          
+          if (cachedContacts) {
+            setContacts(cachedContacts)
+            // 如果有缓存的活动聊天室,直接设置
+            if (cachedConfig?.settings?.activeChat) {
+              setActiveChat(cachedConfig.settings.activeChat)
+            }
           }
 
-          setRooms(updatedRooms)
-          setContacts(updatedRooms)
-
-          // 设置活动聊天室
-          const targetChat = config?.settings?.activeChat || 'public'
-          setActiveChat(targetChat)
-
-          // 加载当前聊天室的消息
-          const messages = await loadChatHistory(session.accessToken, user.login, targetChat)
-          if (Array.isArray(messages)) {
-            setMessages(messages)
+          // 异步加载 GitHub 数据
+          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+          if (!hasRepo) {
+            console.log('Creating new repository...')
+            await createDataRepository(session.accessToken, session.user.login)
           }
+
+          // 预加载所有数据
+          await preloadCache(session.user.login, session.accessToken)
+
+          // 从 GitHub 加载最新配置
+          const config = await getConfig(session.accessToken, session.user.login)
+          if (config) {
+            setUserConfig(config)
+            if (config.kimi_settings?.api_key) {
+              setKimiApiKey(config.kimi_settings.api_key)
+            }
+            
+            // 更新联系人列表
+            if (config.contacts?.length > 0) {
+              setContacts(config.contacts)
+              setCache(session.user.login, 'contacts', config.contacts)
+            }
+
+            // 设置活动聊天室
+            if (config.settings?.activeChat) {
+              setActiveChat(config.settings.activeChat)
+            }
+          }
+
         } catch (error) {
-          if (error.status !== 404) {
-            console.error('Error loading rooms:', error)
-          }
+          console.error('Error initializing data:', error)
+        } finally {
+          setIsLoading(false)
         }
-      } catch (error) {
-        console.error('Error initializing data:', error)
-      } finally {
-        setIsLoading(false)
       }
     }
 
@@ -469,15 +441,15 @@ export default function Home({ username }) {
 
     try {
       setIsSending(true)
-    const message = {
-      content: newMessage,
-      user: {
-        name: session.user.name,
-        image: session.user.image,
-        id: session.user.id
-      },
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
         createdAt: new Date().toISOString()
-    }
+      }
 
       // 添加消息到本地状态
       setMessages(prev => [...prev, message])
@@ -528,39 +500,55 @@ export default function Home({ username }) {
 
   const handleJoin = async (e) => {
     e.preventDefault()
-    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) {
-      alert('请输入有效的聊天室 ID')
-      return
-    }
+    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) return
 
     try {
-      setIsLoading(true)
-      const octokit = new Octokit({ auth: session.accessToken })
+      // 初始化聊天室
+      await initializeChatRoom(
+        session.accessToken,
+        session.user.login,
+        joinInput,
+        `聊天室 ${joinInput}`,
+        'room',
+        {
+          creator: session.user.login,
+          created_at: new Date().toISOString()
+        }
+      )
 
-      // 创建新的聊天室对象
-      const newRoom = {
-        id: joinInput,
-        name: `聊天室 ${joinInput}`,
-        type: 'basic',
-        created_at: new Date().toISOString(),
-        created_by: session.user.login,
+      // 更新联系人列表
+    const newContact = {
+      id: joinInput,
+      name: `聊天室 ${joinInput}`,
+      type: 'room',
         unread: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         message_count: 0,
         last_message: null
       }
 
-      // 更新本地状态
-      setRooms(prev => [...prev, newRoom])
-      setContacts(prev => [...prev, newRoom])
+    setContacts(prev => [...prev, newContact])
+    setJoinInput('')
+    setShowJoinModal(false)
       setActiveChat(joinInput)
-      setJoinInput('')
-      setShowJoinModal(false)
 
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: [...contacts, newContact],
+          settings: {
+            ...userConfig.settings,
+            activeChat: joinInput
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
     } catch (error) {
       console.error('Error joining chat room:', error)
-      alert('加入聊天室失败，请重试')
-    } finally {
-      setIsLoading(false)
+      alert('加入聊天室失败')
     }
   }
 
@@ -874,121 +862,63 @@ export default function Home({ username }) {
 
   // 修改创建聊天室的逻辑
   const handleCreateRoom = async (roomData) => {
-    if (!session?.accessToken || !session?.user?.login) {
-      alert('请先登录')
-      return
-    }
+    if (!session?.accessToken) return
 
     try {
-      setIsLoading(true)
       const octokit = new Octokit({ auth: session.accessToken })
-      
-      // 生成唯一的聊天室 ID
-      const roomId = `room-${Date.now()}`
-      
-      // 创建新聊天室对象
+      const { data: user } = await octokit.users.getAuthenticated()
+
       const newRoom = {
-        id: roomId,
-        name: roomData.name,
-        description: roomData.description || '',
-        type: roomData.type || 'basic',
-        isPrivate: roomData.isPrivate || false,
+        id: `room-${Date.now()}`,
+        ...roomData,
         created_at: new Date().toISOString(),
-        created_by: session.user.login,
-        repository: 'dock-chat-data',
-        unread: 0,
-        message_count: 0,
-        last_message: null
+        created_by: user.login
       }
+
+      // 更新聊天室列表
+      const updatedRooms = [...rooms, newRoom]
+      const content = Buffer.from(
+        JSON.stringify({ rooms: updatedRooms }, null, 2)
+      ).toString('base64')
 
       try {
-        // 获取现有的聊天室列表
-        let roomsData = { rooms: [] }
-        try {
-          const { data: roomsFile } = await octokit.repos.getContent({
-            owner: session.user.login,
-            repo: 'dock-chat-data',
-            path: 'rooms.json',
-            ref: 'main'
-          })
-          const content = Buffer.from(roomsFile.content, 'base64').toString()
-          roomsData = JSON.parse(content)
-        } catch (error) {
-          if (error.status !== 404) {
-            throw error
-          }
-        }
-
-        // 添加新聊天室
-        roomsData.rooms = [...(roomsData.rooms || []), newRoom]
-
-        // 保存更新后的聊天室列表
-        const content = Buffer.from(JSON.stringify(roomsData, null, 2)).toString('base64')
-        await octokit.repos.createOrUpdateFileContents({
-          owner: session.user.login,
+        const currentFile = await octokit.repos.getContent({
+          owner: user.login,
           repo: 'dock-chat-data',
           path: 'rooms.json',
-          message: '创建新聊天室',
-          content,
-          branch: 'main'
+          ref: 'main'
         })
 
-        // 创建聊天室消息文件
-        const chatRoom = {
-          id: roomId,
-          name: roomData.name,
-          type: roomData.type || 'basic',
-          messages: [],
-          created_at: new Date().toISOString(),
-          created_by: session.user.login
-        }
-
-        // 确保 chats 目录存在
-        try {
-          await octokit.repos.getContent({
-            owner: session.user.login,
-            repo: 'dock-chat-data',
-            path: 'chats',
-            ref: 'main'
-          })
-        } catch (error) {
-          if (error.status === 404) {
-            await octokit.repos.createOrUpdateFileContents({
-              owner: session.user.login,
-              repo: 'dock-chat-data',
-              path: 'chats/.gitkeep',
-              message: '创建 chats 目录',
-              content: '',
-              branch: 'main'
-            })
-          }
-        }
-
-        const chatRoomContent = Buffer.from(JSON.stringify(chatRoom, null, 2)).toString('base64')
         await octokit.repos.createOrUpdateFileContents({
-          owner: session.user.login,
+          owner: user.login,
           repo: 'dock-chat-data',
-          path: `chats/${roomId}.json`,
-          message: '创建聊天室消息文件',
-          content: chatRoomContent,
+          path: 'rooms.json',
+          message: '更新聊天室列表',
+          content,
+          sha: currentFile.data.sha,
           branch: 'main'
         })
-
-        // 更新本地状态
-        setRooms(prev => [...prev, newRoom])
-        setContacts(prev => [...prev, newRoom])
-        setActiveChat(roomId)
-        setShowCreateRoomModal(false)
-
       } catch (error) {
-        console.error('Error creating room:', error)
-        throw error
+        if (error.status === 404) {
+          await octokit.repos.createOrUpdateFileContents({
+            owner: user.login,
+            repo: 'dock-chat-data',
+            path: 'rooms.json',
+            message: '创建聊天室列表',
+            content,
+            branch: 'main'
+          })
+        } else {
+          throw error
+        }
       }
+
+      setRooms(updatedRooms)
+      setCurrentRoom(newRoom)
+      setShowCreateRoomModal(false)
     } catch (error) {
-      console.error('Error in handleCreateRoom:', error)
+      console.error('Error creating room:', error)
       alert('创建聊天室失败，请重试')
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -1214,6 +1144,11 @@ export default function Home({ username }) {
       loadPrivateChatRooms()
     }
   }, [session])
+
+  // 处理表情包选择
+  const handleEmojiSelect = (url) => {
+    setNewMessage(prev => prev + `![emoji](${url})`)
+  }
 
   if (status === 'loading') {
     return (
@@ -1517,33 +1452,31 @@ export default function Home({ username }) {
 
                   {/* 输入框区域 - 固定在底部 */}
                   <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
-                <div className="flex items-center gap-4">
-                      <EmojiPicker
-                        session={session}
-                        onSelect={(emoji) => {
-                          setNewMessage(prev => prev + ` ![${emoji.title}](${emoji.url}) `)
-                        }}
-                      />
+                <div className="flex items-center gap-2">
+                  <EmojiPicker
+                    session={session}
+                    onSelect={handleEmojiSelect}
+                  />
                   <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
                     placeholder="输入消息..."
-                        disabled={isSending}
+                    disabled={isSending}
                   />
                   <button
                     type="submit"
-                        className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
-                          isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
-                        }`}
-                        disabled={!newMessage.trim() || !session || isSending}
-                      >
-                        {isSending ? (
-                          <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                    <PaperAirplaneIcon className="h-6 w-6" />
-                        )}
+                    className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
+                      isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
+                    }`}
+                    disabled={!newMessage.trim() || !session || isSending}
+                  >
+                    {isSending ? (
+                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <PaperAirplaneIcon className="h-6 w-6" />
+                    )}
                   </button>
                 </div>
               </form>

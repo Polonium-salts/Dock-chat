@@ -1,112 +1,93 @@
-'use client'
-
-import { useState, useRef, useEffect } from 'react'
-import { FaceSmileIcon, ArrowUpTrayIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
-import { Octokit } from '@octokit/rest'
+import { useState, useEffect, useRef } from 'react'
+import { FaceSmileIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline'
+import Image from 'next/image'
 
 export default function EmojiPicker({ session, onSelect }) {
   const [isOpen, setIsOpen] = useState(false)
   const [emojis, setEmojis] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [source, setSource] = useState('all')
-  const [page, setPage] = useState(1)
-  const [showUploadForm, setShowUploadForm] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [source, setSource] = useState('all') // 'all', 'fabiaoqing', 或 'user'
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef(null)
   const containerRef = useRef(null)
-  const scrollRef = useRef(null)
 
   // 加载表情包
-  const loadEmojis = async (reset = false) => {
-    if (loading) return
-    setLoading(true)
+  const loadEmojis = async (page = 1, selectedSource = source) => {
+    if (!session?.accessToken) return
 
     try {
-      let newEmojis = []
-      const currentPage = reset ? 1 : page
-
-      if (source === 'fabiaoqing' || source === 'all') {
-        // 从表情包网站加载
-        const response = await fetch(`/api/emojis/search?q=${searchQuery}&page=${currentPage}`)
-        const data = await response.json()
-        newEmojis = [...newEmojis, ...data.emojis]
-      }
-
-      if (source === 'user' || source === 'all') {
-        // 从用户的 GitHub 仓库加载
-        const octokit = new Octokit({ auth: session.accessToken })
-        try {
-          const { data } = await octokit.repos.getContent({
-            owner: session.user.login,
-            repo: 'dock-chat-data',
-            path: 'emojis',
-            ref: 'main'
-          })
-
-          if (Array.isArray(data)) {
-            const userEmojis = data
-              .filter(file => file.type === 'file' && /\.(gif|png|jpg|jpeg)$/i.test(file.name))
-              .map(file => ({
-                id: file.sha,
-                title: file.name.replace(/\.[^/.]+$/, ''),
-                url: file.download_url,
-                source: 'user'
-              }))
-            newEmojis = [...newEmojis, ...userEmojis]
-          }
-        } catch (error) {
-          if (error.status !== 404) {
-            console.error('Error loading user emojis:', error)
+      setIsLoading(true)
+      const response = await fetch(
+        `/api/emojis?page=${page}&source=${selectedSource}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`
           }
         }
+      )
+      const data = await response.json()
+      
+      if (page === 1) {
+        setEmojis(data.emojis)
+      } else {
+        setEmojis(prev => [...prev, ...data.emojis])
       }
-
-      // 过滤搜索结果
-      if (searchQuery) {
-        newEmojis = newEmojis.filter(emoji => 
-          emoji.title.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      }
-
-      setEmojis(reset ? newEmojis : [...emojis, ...newEmojis])
-      if (!reset) {
-        setPage(currentPage + 1)
-      }
+      
+      setCurrentPage(page)
     } catch (error) {
       console.error('Error loading emojis:', error)
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
-  // 上传表情包
-  const handleUpload = async (file) => {
+  // 处理表情包上传
+  const handleFileSelect = async (event) => {
+    const file = event.target.files?.[0]
     if (!file || !session?.accessToken) return
 
     try {
-      const octokit = new Octokit({ auth: session.accessToken })
-      const content = await file.arrayBuffer()
-      const base64Content = Buffer.from(content).toString('base64')
+      setIsUploading(true)
+      const formData = new FormData()
+      formData.append('file', file)
 
-      await octokit.repos.createOrUpdateFileContents({
-        owner: session.user.login,
-        repo: 'dock-chat-data',
-        path: `emojis/${file.name}`,
-        message: '上传表情包',
-        content: base64Content,
-        branch: 'main'
+      const response = await fetch('/api/emojis', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`
+        },
+        body: formData
       })
 
-      // 重新加载表情包
-      setSource('user')
-      loadEmojis(true)
-      setShowUploadForm(false)
+      if (response.ok) {
+        const data = await response.json()
+        setEmojis(prev => [{
+          url: data.url,
+          name: data.name,
+          source: 'user'
+        }, ...prev])
+      }
     } catch (error) {
       console.error('Error uploading emoji:', error)
-      alert('上传失败，请重试')
+      alert('上传表情包失败')
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 
-  // 监听点击外部关闭选择器
+  // 处理滚动加载
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && !isLoading) {
+      loadEmojis(currentPage + 1)
+    }
+  }
+
+  // 处理点击外部关闭
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (containerRef.current && !containerRef.current.contains(event.target)) {
@@ -118,27 +99,12 @@ export default function EmojiPicker({ session, onSelect }) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // 加载表情包
+  // 初始加载
   useEffect(() => {
     if (isOpen) {
-      loadEmojis(true)
+      loadEmojis(1)
     }
-  }, [isOpen, source, searchQuery])
-
-  // 滚动加载更多
-  useEffect(() => {
-    if (!scrollRef.current) return
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
-      if (scrollHeight - scrollTop <= clientHeight * 1.5) {
-        loadEmojis()
-      }
-    }
-
-    scrollRef.current.addEventListener('scroll', handleScroll)
-    return () => scrollRef.current?.removeEventListener('scroll', handleScroll)
-  }, [emojis])
+  }, [isOpen, session])
 
   return (
     <div className="relative" ref={containerRef}>
@@ -150,70 +116,96 @@ export default function EmojiPicker({ session, onSelect }) {
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-12 left-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+        <div className="absolute bottom-full mb-2 right-0 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+          <div className="p-2 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-2">
-              <select
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-              >
-                <option value="all">全部表情</option>
-                <option value="fabiaoqing">表情包库</option>
-                <option value="user">我的表情</option>
-              </select>
-              <button
-                onClick={() => setShowUploadForm(!showUploadForm)}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1"
-              >
-                <ArrowUpTrayIcon className="w-4 h-4" />
-                上传表情
-              </button>
-            </div>
-
-            <div className="relative">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索表情..."
-                className="w-full px-3 py-1.5 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-              <MagnifyingGlassIcon className="absolute left-2.5 top-2 w-4 h-4 text-gray-400" />
-            </div>
-
-            {showUploadForm && (
-              <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setSource('all')
+                    loadEmojis(1, 'all')
+                  }}
+                  className={`px-2 py-1 text-sm rounded-md ${
+                    source === 'all'
+                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  全部
+                </button>
+                <button
+                  onClick={() => {
+                    setSource('fabiaoqing')
+                    loadEmojis(1, 'fabiaoqing')
+                  }}
+                  className={`px-2 py-1 text-sm rounded-md ${
+                    source === 'fabiaoqing'
+                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  表情包
+                </button>
+                <button
+                  onClick={() => {
+                    setSource('user')
+                    loadEmojis(1, 'user')
+                  }}
+                  className={`px-2 py-1 text-sm rounded-md ${
+                    source === 'user'
+                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  我的
+                </button>
+              </div>
+              <div>
                 <input
                   type="file"
-                  accept="image/gif,image/png,image/jpeg"
-                  onChange={(e) => handleUpload(e.target.files[0])}
-                  className="text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-1 file:px-3 file:text-xs file:font-medium file:border-0 file:rounded-md file:bg-blue-50 file:text-blue-600 dark:file:bg-blue-900/50 dark:file:text-blue-400"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  accept=".gif,.png,.jpg,.jpeg"
+                  className="hidden"
                 />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-md transition-colors"
+                >
+                  <ArrowUpTrayIcon className="w-5 h-5" />
+                </button>
               </div>
-            )}
+            </div>
           </div>
 
-          <div ref={scrollRef} className="max-h-60 overflow-y-auto p-2">
+          <div
+            className="p-2 max-h-60 overflow-y-auto"
+            onScroll={handleScroll}
+          >
             <div className="grid grid-cols-4 gap-2">
-              {emojis.map((emoji) => (
+              {emojis.map((emoji, index) => (
                 <button
-                  key={emoji.id}
-                  onClick={() => onSelect(emoji)}
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                  key={`${emoji.url}-${index}`}
+                  onClick={() => {
+                    onSelect(emoji.url)
+                    setIsOpen(false)
+                  }}
+                  className="aspect-square flex items-center justify-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                 >
-                  <img
+                  <Image
                     src={emoji.url}
-                    alt={emoji.title}
-                    className="w-full h-auto object-contain"
-                    loading="lazy"
+                    alt={emoji.name || '表情包'}
+                    width={40}
+                    height={40}
+                    className="max-w-full max-h-full object-contain"
                   />
                 </button>
               ))}
             </div>
-            {loading && (
-              <div className="text-center py-2">
-                <div className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-blue-600"></div>
+            {isLoading && (
+              <div className="flex justify-center py-2">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-500 border-t-transparent"></div>
               </div>
             )}
           </div>
