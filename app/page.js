@@ -867,10 +867,14 @@ export default function Home({ username }) {
     }
   }, [session, socket?.connected])
 
-  // 修改页面标题部分
+  // 修改页面标题和地址显示
   const pageTitle = currentView === 'chat' 
     ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
     : '个人主页'
+
+  const pageUrl = currentView === 'chat' && activeChat
+    ? `${window.location.origin}/${session.user.login}/${activeChat}`
+    : `${window.location.origin}/${session.user.login}`
 
   // 检查用户访问权限
   useEffect(() => {
@@ -884,8 +888,11 @@ export default function Home({ username }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      // 生成唯一的聊天室ID
-      const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      // 生成聊天室ID（使用英文名称或时间戳）
+      const roomId = roomData.name.toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')  // 将非字母数字字符替换为连字符
+        .replace(/^-+|-+$/g, '')      // 移除首尾连字符
+        || `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       
       // 创建新的聊天室对象
       const newRoom = {
@@ -901,7 +908,7 @@ export default function Home({ username }) {
         message_count: 0,
         unread: 0,
         config: {
-          ...roomData.config,  // 从创建表单获取配置
+          ...roomData.config,
           model: roomData.config?.model || 'gpt-3.5-turbo',
           temperature: roomData.config?.temperature || 0.7,
           max_tokens: roomData.config?.max_tokens || 2000,
@@ -910,7 +917,7 @@ export default function Home({ username }) {
           system_prompt: roomData.config?.system_prompt || '',
           auto_title: roomData.config?.auto_title || false,
           auto_summary: roomData.config?.auto_summary || false,
-          save_interval: roomData.config?.save_interval || 300000, // 默认5分钟
+          save_interval: roomData.config?.save_interval || 300000,
           history_count: roomData.config?.history_count || 20,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -965,15 +972,16 @@ export default function Home({ username }) {
         })
       } catch (error) {
         console.error('Error saving room config:', error)
-        // 继续执行，因为配置保存失败不应影响聊天室的创建
       }
 
       // 切换到新创建的聊天室
       setActiveChat(roomId)
+      // 更新 URL
+      router.push(`/${session.user.login}/${roomId}`)
 
       // 创建欢迎消息
       const welcomeMessage = {
-        content: `欢迎来到 ${roomData.name} 聊天室！\n\n聊天室配置已保存到 GitHub 私有库中。`,
+        content: `欢迎来到 ${roomData.name} 聊天室！\n\n聊天室配置已保存到 GitHub 私有库中。\n访问地址：${window.location.origin}/${session.user.login}/${roomId}`,
         user: {
           name: 'System',
           image: '/system-avatar.png',
@@ -994,6 +1002,26 @@ export default function Home({ username }) {
       alert('创建聊天室失败，请重试')
     }
   }
+
+  // 修改聊天室切换逻辑
+  const handleRoomChange = async (roomId) => {
+    setActiveChat(roomId)
+    // 更新 URL
+    router.push(`/${session.user.login}/${roomId}`)
+  }
+
+  // 监听 URL 变化
+  useEffect(() => {
+    if (session?.user?.login) {
+      const pathParts = window.location.pathname.split('/')
+      if (pathParts.length >= 3) {
+        const roomId = pathParts[2]
+        if (roomId && roomId !== activeChat) {
+          setActiveChat(roomId)
+        }
+      }
+    }
+  }, [session, router.asPath])
 
   // 添加加入聊天室的逻辑
   const handleJoinRoom = async (roomId) => {
@@ -1148,121 +1176,65 @@ export default function Home({ username }) {
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* 左侧导航栏 - 添加固定宽度 */}
-      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-        {/* 用户信息区域 */}
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            {session.user.image && (
-              <Image
-                src={session.user.image}
-                alt={session.user.name || '用户头像'}
-                width={40}
-                height={40}
-                className="rounded-full"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {session.user.name || '用户'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                @{session.user.login}
-              </p>
+      {/* 左侧聊天室列表 */}
+      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">聊天室</h2>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setShowCreateRoomModal(true)}
+                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title="创建聊天室"
+              >
+                <PlusCircleIcon className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setShowJoinModal(true)}
+                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title="加入聊天室"
+              >
+                <UserGroupIcon className="w-5 h-5" />
+              </button>
             </div>
           </div>
-        </div>
-
-        {/* 聊天室列表 - 添加固定高度和滚动 */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {contacts.map(contact => (
-            <button
-              key={contact.id}
-              onClick={() => handleChatChange(contact.id)}
-              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                activeChat === contact.id
-                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
-              }`}
-            >
-              {contact.type === 'ai' ? (
-                <SparklesIcon className="w-5 h-5 flex-shrink-0" />
-              ) : (
-                <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
-              )}
-              <span className="flex-1 text-left text-sm font-medium truncate">
-                {contact.name}
-              </span>
-              {contact.unread > 0 && (
-                <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
-                  {contact.unread}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* 底部按钮区域 */}
-        <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
-          <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-          >
-            <PlusCircleIcon className="w-5 h-5" />
-            创建聊天室
-          </button>
-          <button
-            onClick={addKimiAIChat}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
-          >
-            <SparklesIcon className="w-5 h-5" />
-            添加 AI 助手
-          </button>
-          <button
-            onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
-            className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
-              currentView === 'profile'
-                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-            } rounded-lg transition-colors`}
-          >
-            {currentView === 'chat' ? (
-              <UserCircleIcon className="w-5 h-5" />
-            ) : (
-              <UserGroupIcon className="w-5 h-5" />
-            )}
-            {currentView === 'chat' ? '个人主页' : '返回聊天'}
-          </button>
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-          >
-            <PlusCircleIcon className="w-5 h-5" />
-            加入聊天室
-          </button>
-          <button
-            onClick={() => setShowSettingsModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <Cog6ToothIcon className="w-5 h-5" />
-            设置
-          </button>
+          
+          {/* 聊天室列表 */}
+          <div className="space-y-1">
+            {contacts.map((contact) => (
+              <button
+                key={contact.id}
+                onClick={() => handleRoomChange(contact.id)}
+                className={`w-full text-left px-3 py-2 rounded-lg flex items-center space-x-2 ${
+                  activeChat === contact.id
+                    ? 'bg-blue-50 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                <span className="truncate">{contact.name}</span>
+                {contact.unread > 0 && (
+                  <span className="flex-shrink-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
+                    {contact.unread}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* 主聊天区 - 优化滚动行为 */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* 主聊天区域 */}
+      <div className="flex-1 flex flex-col">
+        {/* 聊天头部 */}
         <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3 flex items-center justify-between relative">
             <div className="flex flex-col">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {pageTitle}
-            </h1>
-              {currentView === 'chat' && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {window.location.origin}/{session.user.login}
-                </p>
-              )}
+              </h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {pageUrl}
+              </p>
             </div>
             {currentView === 'chat' && (
               <>
@@ -1276,7 +1248,8 @@ export default function Home({ username }) {
                   <ChatRoomSettings
                     room={{
                       id: activeChat,
-                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
+                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室',
+                      url: pageUrl
                     }}
                     onDelete={handleDeleteChatRoom}
                     onClose={() => setShowChatSettings(false)}
