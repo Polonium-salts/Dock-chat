@@ -232,7 +232,11 @@ export default function Home({ username }) {
       const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
       if (cachedMessages) {
         console.log('Using cached messages for', activeChat)
-        setMessages(cachedMessages)
+        const formattedCachedMessages = cachedMessages.map(msg => ({
+          ...msg,
+          isOwnMessage: msg.user?.id === session.user.id  // 添加标记表示是否是用户自己的消息
+        }))
+        setMessages(formattedCachedMessages)
         setIsLoading(false)
         return
       }
@@ -252,7 +256,8 @@ export default function Home({ username }) {
             id: msg.user?.id || 'unknown'
           },
           createdAt: msg.createdAt || new Date().toISOString(),
-          type: msg.type || 'message'
+          type: msg.type || 'message',
+          isOwnMessage: msg.user?.id === session.user.id  // 添加标记表示是否是用户自己的消息
         }))
 
         setMessages(formattedMessages)
@@ -453,15 +458,16 @@ export default function Home({ username }) {
 
     try {
       setIsSending(true)
-    const message = {
-      content: newMessage,
-      user: {
-        name: session.user.name,
-        image: session.user.image,
-        id: session.user.id
-      },
-        createdAt: new Date().toISOString()
-    }
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
+        createdAt: new Date().toISOString(),
+        isOwnMessage: true  // 添加标记表示这是用户自己的消息
+      }
 
       // 添加消息到本地状态
       setMessages(prev => [...prev, message])
@@ -1192,69 +1198,50 @@ export default function Home({ username }) {
                   </div>
                 ) : (
                   <>
-                {messages.map((message, index) => (
-                  <div
-                        key={`${message.createdAt}-${message.user.id}-${index}`}
-                    className={`flex ${
-                          message.type === 'system' 
-                            ? 'justify-center'
-                            : message.user.id === session?.user?.id 
-                              ? 'justify-end' 
-                              : 'justify-start'
-                        }`}
-                      >
-                        <div className={`flex items-start gap-3 ${
-                          message.type === 'system'
-                            ? 'max-w-[80%]'
-                            : 'max-w-[70%]'
-                        } ${
-                          message.type === 'system'
-                            ? ''
-                            : message.user.id === session?.user?.id
-                              ? 'flex-row-reverse'
-                              : ''
-                        }`}>
-                          {message.user.image && message.type !== 'system' && (
+                {messages.map((message, index) => {
+                  const isOwnMessage = message.user.id === session?.user?.id;
+                  return (
+                    <div
+                      key={index}
+                      className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} items-start space-x-2`}
+                    >
+                      {!isOwnMessage && (
                         <Image
-                          src={message.user.image}
-                          alt={message.user.name || '用户头像'}
+                          src={message.user.image || '/default-avatar.png'}
+                          alt={message.user.name}
                           width={40}
                           height={40}
-                              className="rounded-full flex-shrink-0"
+                          className="rounded-full"
                         />
                       )}
-                      <div className={`flex flex-col ${
-                            message.type === 'system'
-                              ? 'items-center'
-                              : message.user.id === session?.user?.id
-                                ? 'items-end'
-                                : 'items-start'
-                          }`}>
-                            <div className={`rounded-2xl p-4 break-words ${
-                              message.type === 'system'
-                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm'
-                                : message.isTyping
-                                  ? 'bg-gray-100 dark:bg-gray-700 animate-pulse'
-                                  : message.isError
-                                    ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
-                                    : message.user.id === session?.user?.id
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                        }`}>
-                              {message.type !== 'system' && (
-                          <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                              )}
-                              <p className={`${
-                                message.type === 'system' ? 'text-center' : ''
-                              } whitespace-pre-wrap`}>{message.content}</p>
-                        </div>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {new Date(message.createdAt).toLocaleString()}
+                      <div
+                        className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
+                      >
+                        <span className="text-xs text-gray-500">
+                          {message.user.name} · {new Date(message.createdAt).toLocaleTimeString()}
                         </span>
+                        <div
+                          className={`mt-1 px-4 py-2 rounded-lg max-w-xs sm:max-w-md break-words ${
+                            isOwnMessage
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-200 text-gray-800'
+                          }`}
+                        >
+                          {message.content}
+                        </div>
                       </div>
+                      {isOwnMessage && (
+                        <Image
+                          src={message.user.image || '/default-avatar.png'}
+                          alt={message.user.name}
+                          width={40}
+                          height={40}
+                          className="rounded-full"
+                        />
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div ref={messagesEndRef} />
                   </>
                 )}
