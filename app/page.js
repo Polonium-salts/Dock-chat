@@ -9,7 +9,8 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   PlusCircleIcon,
-  SparklesIcon
+  SparklesIcon,
+  XMarkIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -883,60 +884,166 @@ export default function Home({ username }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      // 生成唯一的房间ID
-      const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      // 生成唯一的聊天室ID
+      const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       
-      // 初始化聊天室
-      await initializeChatRoom(
-        session.accessToken,
-        session.user.login,
-        roomId,
-        roomData.name,
-        'room',
-        {
-          description: roomData.description,
-          isPrivate: roomData.isPrivate,
-          creator: session.user.login,
-          created_at: new Date().toISOString()
-        }
-      )
-
-      // 更新联系人列表
-      const newContact = {
+      // 创建新的聊天室对象
+      const newRoom = {
         id: roomId,
         name: roomData.name,
-        type: 'room',
-        unread: 0,
         description: roomData.description,
-        isPrivate: roomData.isPrivate,
+        type: 'room',
+        created_by: session.user.login,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        is_private: roomData.isPrivate,
+        members: [session.user.login],
         message_count: 0,
-        last_message: null
+        unread: 0,
+        config: {
+          ...roomData.config,  // 从创建表单获取配置
+          model: roomData.config?.model || 'gpt-3.5-turbo',
+          temperature: roomData.config?.temperature || 0.7,
+          max_tokens: roomData.config?.max_tokens || 2000,
+          presence_penalty: roomData.config?.presence_penalty || 0,
+          frequency_penalty: roomData.config?.frequency_penalty || 0,
+          system_prompt: roomData.config?.system_prompt || '',
+          auto_title: roomData.config?.auto_title || false,
+          auto_summary: roomData.config?.auto_summary || false,
+          save_interval: roomData.config?.save_interval || 300000, // 默认5分钟
+          history_count: roomData.config?.history_count || 20,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
       }
 
-      const updatedContacts = [...contacts, newContact]
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newRoom]
       setContacts(updatedContacts)
-      setActiveChat(roomId)
+      updateChatRoomsCache(session.user.login, updatedContacts)
 
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
           ...userConfig,
           contacts: updatedContacts,
-          settings: {
-            ...userConfig.settings,
-            activeChat: roomId
-          },
           last_updated: new Date().toISOString()
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
       }
+
+      // 保存聊天室配置文件到 GitHub
+      try {
+        const configContent = JSON.stringify({
+          room_id: roomId,
+          name: roomData.name,
+          description: roomData.description,
+          type: 'room',
+          created_by: session.user.login,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_private: roomData.isPrivate,
+          members: [session.user.login],
+          config: newRoom.config
+        }, null, 2)
+
+        // 使用 base64 编码配置内容
+        const encodedContent = btoa(unescape(encodeURIComponent(configContent)))
+        
+        // 保存配置文件到 GitHub
+        await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/config.json`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: `Create config for room ${roomData.name}`,
+            content: encodedContent
+          })
+        })
+      } catch (error) {
+        console.error('Error saving room config:', error)
+        // 继续执行，因为配置保存失败不应影响聊天室的创建
+      }
+
+      // 切换到新创建的聊天室
+      setActiveChat(roomId)
+
+      // 创建欢迎消息
+      const welcomeMessage = {
+        content: `欢迎来到 ${roomData.name} 聊天室！\n\n聊天室配置已保存到 GitHub 私有库中。`,
+        user: {
+          name: 'System',
+          image: '/system-avatar.png',
+          id: 'system'
+        },
+        type: 'system',
+        createdAt: new Date().toISOString()
+      }
+
+      // 保存欢迎消息
+      await saveChatHistory(session.accessToken, session.user.login, roomId, [welcomeMessage])
+      setMessages([welcomeMessage])
+      updateChatMessagesCache(session.user.login, roomId, [welcomeMessage])
 
       setShowCreateRoomModal(false)
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败')
+      alert('创建聊天室失败，请重试')
+    }
+  }
+
+  // 添加加入聊天室的逻辑
+  const handleJoinRoom = async (roomId) => {
+    if (!session?.user?.login || !session.accessToken || !roomId) return
+
+    try {
+      // 检查聊天室是否已存在于联系人列表中
+      const existingRoom = contacts.find(c => c.id === roomId)
+      if (existingRoom) {
+        setActiveChat(roomId)
+        setShowJoinModal(false)
+        return
+      }
+
+      // 创建新的聊天室对象
+      const newRoom = {
+        id: roomId,
+        name: `聊天室 ${roomId}`,
+        type: 'room',
+        joined_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        unread: 0
+      }
+
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newRoom]
+      setContacts(updatedContacts)
+      updateChatRoomsCache(session.user.login, updatedContacts)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+
+      // 切换到新加入的聊天室
+      setActiveChat(roomId)
+      setShowJoinModal(false)
+
+      // 加载聊天记录
+      await loadChatMessages()
+    } catch (error) {
+      console.error('Error joining room:', error)
+      alert('加入聊天室失败，请重试')
     }
   }
 
@@ -1283,32 +1390,48 @@ export default function Home({ username }) {
       {/* 加入聊天室模态框 */}
       {showJoinModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">加入聊天室</h2>
-            <form onSubmit={handleJoin} className="space-y-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">加入聊天室</h2>
+              <button
+                onClick={() => setShowJoinModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault()
+              handleJoinRoom(joinInput.trim())
+            }} className="p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  加入聊天室 ID 或 IP 地址
+                <label htmlFor="roomId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  聊天室 ID
                 </label>
                 <input
                   type="text"
+                  id="roomId"
                   value={joinInput}
                   onChange={(e) => setJoinInput(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="例如：room-123 或 192.168.1.1"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  placeholder="输入聊天室 ID"
+                  required
                 />
               </div>
-              <div className="flex justify-end gap-3">
+
+              <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowJoinModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg"
+                  disabled={!joinInput.trim()}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   加入
                 </button>
