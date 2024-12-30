@@ -872,12 +872,12 @@ export default function Home({ username }) {
     ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
     : '个人主页'
 
-  // 修改 URL 相关的逻辑，使用条件判断
+  // 修改 URL 相关的逻辑
   const getPageUrl = () => {
     if (typeof window !== 'undefined') {
       return currentView === 'chat' && activeChat
-        ? `${window.location.origin}/${session.user.login}/${activeChat}`
-        : `${window.location.origin}/${session.user.login}`
+        ? `${session.user.login}/${activeChat}`
+        : session.user.login
     }
     return ''
   }
@@ -1009,6 +1009,15 @@ export default function Home({ username }) {
     }
   }
 
+  // 修改聊天室切换逻辑
+  const handleRoomChange = async (roomId) => {
+    setActiveChat(roomId)
+    // 更新 URL
+    if (typeof window !== 'undefined') {
+      router.push(`/${session.user.login}/${roomId}`)
+    }
+  }
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -1048,50 +1057,105 @@ export default function Home({ username }) {
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* 左侧聊天室列表 */}
-      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">聊天室</h2>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setShowCreateRoomModal(true)}
-                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title="创建聊天室"
-              >
-                <PlusCircleIcon className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setShowJoinModal(true)}
-                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title="加入聊天室"
-              >
-                <UserGroupIcon className="w-5 h-5" />
-              </button>
+      {/* 左侧导航栏 - 添加固定宽度 */}
+      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        {/* 用户信息区域 */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            {session.user.image && (
+              <Image
+                src={session.user.image}
+                alt={session.user.name || '用户头像'}
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                {session.user.name || '用户'}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                @{session.user.login}
+              </p>
             </div>
           </div>
-          
-          {/* 聊天室列表 */}
-          <div className="space-y-1">
-            {contacts.map((contact) => (
-              <button
-                key={contact.id}
-                onClick={() => handleRoomChange(contact.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg flex items-center space-x-2 ${
-                  activeChat === contact.id
-                    ? 'bg-blue-50 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                <span className="truncate">{contact.name}</span>
-                {contact.unread > 0 && (
-                  <span className="flex-shrink-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-                    {contact.unread}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+        </div>
+
+        {/* 聊天室列表 - 添加固定高度和滚动 */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {contacts.map(contact => (
+            <button
+              key={contact.id}
+              onClick={() => handleRoomChange(contact.id)}
+              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                activeChat === contact.id
+                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
+              }`}
+            >
+              {contact.type === 'ai' ? (
+                <SparklesIcon className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="flex-1 text-left text-sm font-medium truncate">
+                {contact.name}
+              </span>
+              {contact.unread > 0 && (
+                <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  {contact.unread}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* 底部按钮区域 */}
+        <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+          <button
+            onClick={() => setShowCreateRoomModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+          >
+            <PlusCircleIcon className="w-5 h-5" />
+            创建聊天室
+          </button>
+          <button
+            onClick={addKimiAIChat}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
+          >
+            <SparklesIcon className="w-5 h-5" />
+            添加 AI 助手
+          </button>
+          <button
+            onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
+            className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
+              currentView === 'profile'
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            } rounded-lg transition-colors`}
+          >
+            {currentView === 'chat' ? (
+              <UserCircleIcon className="w-5 h-5" />
+            ) : (
+              <UserGroupIcon className="w-5 h-5" />
+            )}
+            {currentView === 'chat' ? '个人主页' : '返回聊天'}
+          </button>
+          <button
+            onClick={() => setShowJoinModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+          >
+            <PlusCircleIcon className="w-5 h-5" />
+            加入聊天室
+          </button>
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <Cog6ToothIcon className="w-5 h-5" />
+            设置
+          </button>
         </div>
       </div>
 
