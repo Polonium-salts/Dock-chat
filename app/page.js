@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useSession, signIn } from 'next-auth/react'
+import { useSession, signIn, signOut } from 'next-auth/react'
 import { io } from 'socket.io-client'
 import { 
   PaperAirplaneIcon,
@@ -9,15 +9,7 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   PlusCircleIcon,
-  SparklesIcon,
-  DocumentIcon,
-  CodeBracketIcon,
-  PencilSquareIcon,
-  VideoCameraIcon,
-  PuzzlePieceIcon,
-  CubeIcon,
-  UserPlusIcon,
-  PlusIcon
+  SparklesIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -31,9 +23,15 @@ import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, formatSystemNotification } from '@/lib/systemNotifications'
 import { useTheme } from 'next-themes'
 import CreateRoomModal from './components/CreateRoomModal'
-import FriendList from './components/FriendList'
-import { Octokit } from '@octokit/core'
-import EmojiPicker from './components/EmojiPicker'
+import {
+  getChatMessagesCache,
+  updateChatMessagesCache,
+  getChatRoomsCache,
+  updateChatRoomsCache,
+  getUserConfigCache,
+  updateUserConfigCache,
+  clearUserCache
+} from '@/lib/cache'
 
 export default function Home({ username }) {
   const { data: session, status } = useSession()
@@ -62,9 +60,6 @@ export default function Home({ username }) {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
-  const [showFriendList, setShowFriendList] = useState(false)
-  const [privateChatRooms, setPrivateChatRooms] = useState([])
-  const [rooms, setRooms] = useState([])
 
   // 动滚动到底部
   useEffect(() => {
@@ -114,8 +109,8 @@ export default function Home({ username }) {
         if (socket.connected) {
           socket.emit('leave', { room: activeChat })
         socket.disconnect()
+        }
       }
-    }
     }
   }, [session, activeChat])
 
@@ -125,49 +120,95 @@ export default function Home({ username }) {
       if (session?.user?.login && session.accessToken) {
         try {
           setIsLoading(true)
-          
-          // 优先从缓存加载数据
-          const cachedContacts = getCache(session.user.login, 'contacts')
-          const cachedConfig = getCache(session.user.login, 'config')
-          
-          if (cachedContacts) {
-            setContacts(cachedContacts)
-            // 如果有缓存的活动聊天室,直接设置
+          console.log('Initializing data...')
+
+          // 尝试从缓存加载数据
+          const cachedConfig = getUserConfigCache(session.user.login)
+          const cachedRooms = getChatRoomsCache(session.user.login)
+
+          if (cachedConfig && cachedRooms) {
+            console.log('Using cached data')
+            setUserConfig(cachedConfig)
+            setContacts(cachedRooms)
+            
+            // 设置活动聊天室
+            let targetChat = 'public'
             if (cachedConfig?.settings?.activeChat) {
-              setActiveChat(cachedConfig.settings.activeChat)
+              const chatExists = cachedRooms.some(room => room.id === cachedConfig.settings.activeChat)
+              if (chatExists) {
+                targetChat = cachedConfig.settings.activeChat
+              }
+            }
+            setActiveChat(targetChat)
+
+            // 从缓存加载消息
+            const cachedMessages = getChatMessagesCache(session.user.login, targetChat)
+            if (cachedMessages) {
+              setMessages(cachedMessages)
+              setIsLoading(false)
             }
           }
 
-          // 异步加载 GitHub 数据
+          // 确保仓库和基本结构存在
           const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
           if (!hasRepo) {
             console.log('Creating new repository...')
             await createDataRepository(session.accessToken, session.user.login)
           }
 
-          // 预加载所有数据
-          await preloadCache(session.user.login, session.accessToken)
-
-          // 从 GitHub 加载最新配置
+          // 加载用户配置
           const config = await getConfig(session.accessToken, session.user.login)
+          console.log('Loaded config:', config)
+          
           if (config) {
             setUserConfig(config)
+            updateUserConfigCache(session.user.login, config)
+            
+            // 恢复用户配置
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
-            
-            // 更新联系人列表
-            if (config.contacts?.length > 0) {
-              setContacts(config.contacts)
-              setCache(session.user.login, 'contacts', config.contacts)
-            }
-
-            // 设置活动聊天室
-            if (config.settings?.activeChat) {
-              setActiveChat(config.settings.activeChat)
-            }
           }
 
+          // 加载聊天室列表
+          const rooms = await getChatRooms(session.accessToken, session.user.login)
+          console.log('Loaded chat rooms:', rooms)
+          
+          if (rooms.length > 0) {
+            setContacts(rooms)
+            updateChatRoomsCache(session.user.login, rooms)
+
+            // 设置活动聊天室
+            let targetChat = 'public'
+            if (config?.settings?.activeChat) {
+              const chatExists = rooms.some(room => room.id === config.settings.activeChat)
+              if (chatExists) {
+                targetChat = config.settings.activeChat
+              }
+            }
+            setActiveChat(targetChat)
+
+            // 加载消息
+            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+            console.log('Loaded messages for', targetChat, ':', messages)
+            
+            if (messages && messages.length > 0) {
+              const formattedMessages = messages.map(msg => ({
+                content: msg.content || '',
+                user: {
+                  name: msg.user?.name || 'Unknown User',
+                  image: msg.user?.image || '/default-avatar.png',
+                  id: msg.user?.id || 'unknown'
+                },
+                createdAt: msg.createdAt || new Date().toISOString(),
+                type: msg.type || 'message'
+              }))
+              setMessages(formattedMessages)
+              updateChatMessagesCache(session.user.login, targetChat, formattedMessages)
+            } else {
+              setMessages([])
+            }
+          }
         } catch (error) {
           console.error('Error initializing data:', error)
         } finally {
@@ -186,14 +227,23 @@ export default function Home({ username }) {
     try {
       setIsLoading(true)
       setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
+
+      // 尝试从缓存加载消息
+      const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
+      if (cachedMessages) {
+        console.log('Using cached messages for', activeChat)
+        setMessages(cachedMessages)
+        setIsLoading(false)
+        return
+      }
+
       console.log('Loading messages for chat:', activeChat)
 
-      // 从 GitHub 加载消息（现在会优先使用缓存）
+      // 从 GitHub 加载消息
       const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
       console.log('Loaded messages:', messages)
 
       if (Array.isArray(messages) && messages.length > 0) {
-        // 使用批量更新来优化性能
         const formattedMessages = messages.map(msg => ({
           content: msg.content || '',
           user: {
@@ -205,11 +255,8 @@ export default function Home({ username }) {
           type: msg.type || 'message'
         }))
 
-        // 使用 requestAnimationFrame 来优化渲染性能
-        requestAnimationFrame(() => {
-          setMessages(formattedMessages)
-        })
-        console.log('Set formatted messages:', formattedMessages)
+        setMessages(formattedMessages)
+        updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
       }
 
       // 更新配置中的活动聊天室
@@ -223,6 +270,7 @@ export default function Home({ username }) {
           last_updated: new Date().toISOString()
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        updateUserConfigCache(session.user.login, updatedConfig)
       }
 
       // 更新联系人列表中的未读消息状态
@@ -238,6 +286,7 @@ export default function Home({ username }) {
         return contact
       })
       setContacts(updatedContacts)
+      updateChatRoomsCache(session.user.login, updatedContacts)
 
     } catch (error) {
       console.error('Error loading messages:', error)
@@ -248,72 +297,35 @@ export default function Home({ username }) {
   }
 
   // 修改聊天室切换的逻辑
-  const handleChatChange = async (chatId) => {
+  const handleChatChange = (chatId) => {
     if (chatId === activeChat) return
     setActiveChat(chatId)
     setMessages([]) // 立即清空消息
     setIsLoading(true) // 显示加载状态
 
-    try {
-      // 从缓存加载消息
-      const cachedMessages = getCache(session.user.login, 'messages', chatId)
-      if (cachedMessages?.length > 0) {
-        const formattedMessages = cachedMessages.map(msg => ({
-          content: msg.content || '',
-          user: {
-            name: msg.user?.name || 'Unknown User',
-            image: msg.user?.image || '/default-avatar.png',
-            id: msg.user?.id || 'unknown'
-          },
-          createdAt: msg.createdAt || new Date().toISOString(),
-          type: msg.type || 'message'
-        }))
-        setMessages(formattedMessages)
-      } else {
-        // 如果缓存中没有消息，从服务器加载
-        const messages = await loadChatHistory(session.accessToken, session.user.login, chatId)
-        if (messages?.length > 0) {
-          const formattedMessages = messages.map(msg => ({
-            content: msg.content || '',
-            user: {
-              name: msg.user?.name || 'Unknown User',
-              image: msg.user?.image || '/default-avatar.png',
-              id: msg.user?.id || 'unknown'
-            },
-            createdAt: msg.createdAt || new Date().toISOString(),
-            type: msg.type || 'message'
-          }))
-          setMessages(formattedMessages)
-        }
-      }
-
-      // 如果切换到系统通知，清除未读消息数
-      if (chatId === 'system') {
-        const updatedContacts = contacts.map(contact => {
-          if (contact.id === 'system') {
-            return {
-              ...contact,
-              unread: 0
-            }
+    // 如果切换到系统通知，清除未读消息数
+    if (chatId === 'system') {
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === 'system') {
+          return {
+            ...contact,
+            unread: 0
           }
-          return contact
-        })
-        setContacts(updatedContacts)
-
-        // 更新用户配置
-        if (session?.accessToken && session.user.login && userConfig) {
-          const updatedConfig = {
-            ...userConfig,
-            contacts: updatedContacts,
-            last_updated: new Date().toISOString()
-          }
-          await updateConfig(session.accessToken, session.user.login, updatedConfig)
         }
+        return contact
+      })
+      setContacts(updatedContacts)
+
+      // 更新用户配置
+      if (session?.accessToken && session.user.login && userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          last_updated: new Date().toISOString()
+        }
+        updateConfig(session.accessToken, session.user.login, updatedConfig)
+          .catch(error => console.error('Error updating config:', error))
       }
-    } catch (error) {
-      console.error('Error loading messages:', error)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -441,15 +453,15 @@ export default function Home({ username }) {
 
     try {
       setIsSending(true)
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name,
-          image: session.user.image,
-          id: session.user.id
-        },
+    const message = {
+      content: newMessage,
+      user: {
+        name: session.user.name,
+        image: session.user.image,
+        id: session.user.id
+      },
         createdAt: new Date().toISOString()
-      }
+    }
 
       // 添加消息到本地状态
       setMessages(prev => [...prev, message])
@@ -528,9 +540,9 @@ export default function Home({ username }) {
         last_message: null
       }
 
-    setContacts(prev => [...prev, newContact])
-    setJoinInput('')
-    setShowJoinModal(false)
+      setContacts(prev => [...prev, newContact])
+      setJoinInput('')
+      setShowJoinModal(false)
       setActiveChat(joinInput)
 
       // 更新用户配置
@@ -862,63 +874,63 @@ export default function Home({ username }) {
 
   // 修改创建聊天室的逻辑
   const handleCreateRoom = async (roomData) => {
-    if (!session?.accessToken) return
+    if (!session?.user?.login || !session.accessToken) return
 
     try {
-      const octokit = new Octokit({ auth: session.accessToken })
-      const { data: user } = await octokit.users.getAuthenticated()
-
-      const newRoom = {
-        id: `room-${Date.now()}`,
-        ...roomData,
-        created_at: new Date().toISOString(),
-        created_by: user.login
-      }
-
-      // 更新聊天室列表
-      const updatedRooms = [...rooms, newRoom]
-      const content = Buffer.from(
-        JSON.stringify({ rooms: updatedRooms }, null, 2)
-      ).toString('base64')
-
-      try {
-        const currentFile = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          ref: 'main'
-        })
-
-        await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'rooms.json',
-          message: '更新聊天室列表',
-          content,
-          sha: currentFile.data.sha,
-          branch: 'main'
-        })
-      } catch (error) {
-        if (error.status === 404) {
-          await octokit.repos.createOrUpdateFileContents({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'rooms.json',
-            message: '创建聊天室列表',
-            content,
-            branch: 'main'
-          })
-        } else {
-          throw error
+      // 生成唯一的房间ID
+      const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      
+      // 初始化聊天室
+      await initializeChatRoom(
+        session.accessToken,
+        session.user.login,
+        roomId,
+        roomData.name,
+        'room',
+        {
+          description: roomData.description,
+          isPrivate: roomData.isPrivate,
+          creator: session.user.login,
+          created_at: new Date().toISOString()
         }
+      )
+
+      // 更新联系人列表
+      const newContact = {
+        id: roomId,
+        name: roomData.name,
+        type: 'room',
+        unread: 0,
+        description: roomData.description,
+        isPrivate: roomData.isPrivate,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        last_message: null
       }
 
-      setRooms(updatedRooms)
-      setCurrentRoom(newRoom)
+      const updatedContacts = [...contacts, newContact]
+      setContacts(updatedContacts)
+      setActiveChat(roomId)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: roomId
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
+
       setShowCreateRoomModal(false)
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
+      alert('创建聊天室失败')
     }
   }
 
@@ -971,183 +983,17 @@ export default function Home({ username }) {
     return () => clearTimeout(timeoutId)
   }, [messages, activeChat, session])
 
-  // 加载私聊聊天室
-  const loadPrivateChatRooms = async () => {
-    if (!session?.accessToken) return
-
+  // 修改退出登录的处理
+  const handleSignOut = async () => {
     try {
-      const octokit = new Octokit({ auth: session.accessToken })
-      const { data: user } = await octokit.users.getAuthenticated()
-      
-      const response = await octokit.repos.getContent({
-        owner: user.login,
-        repo: 'dock-chat-data',
-        path: 'private-chats.json',
-        ref: 'main'
-      })
-
-      const content = Buffer.from(response.data.content, 'base64').toString()
-      const { rooms } = JSON.parse(content)
-      setPrivateChatRooms(rooms || [])
+      // 清除用户缓存
+      if (session?.user?.login) {
+        clearUserCache(session.user.login)
+      }
+      await signOut({ callbackUrl: '/' })
     } catch (error) {
-      if (error.status !== 404) {
-        console.error('Error loading private chat rooms:', error)
-      }
+      console.error('Error signing out:', error)
     }
-  }
-
-  // 创建或更新私聊聊天室
-  const createOrUpdatePrivateChat = async (friend) => {
-    if (!session?.accessToken) return
-
-    try {
-      const octokit = new Octokit({ auth: session.accessToken })
-      const { data: user } = await octokit.users.getAuthenticated()
-
-      // 检查是否已存在与该好友的私聊
-      const existingRoom = privateChatRooms.find(
-        room => room.participants.includes(friend.id)
-      )
-
-      if (existingRoom) {
-        // 如果已存在，切换到该聊天室
-        setCurrentRoom(existingRoom)
-        setShowFriendList(false)
-        return
-      }
-
-      // 创建新的私聊聊天室
-      const newRoom = {
-        id: `private-${Date.now()}`,
-        name: `与 ${friend.name} 的私聊`,
-        type: 'private',
-        participants: [user.id, friend.id],
-        created_at: new Date().toISOString()
-      }
-
-      // 更新私聊列表
-      const updatedRooms = [...privateChatRooms, newRoom]
-      const content = Buffer.from(
-        JSON.stringify({ rooms: updatedRooms }, null, 2)
-      ).toString('base64')
-
-      try {
-        const currentFile = await octokit.repos.getContent({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'private-chats.json',
-          ref: 'main'
-        })
-
-        await octokit.repos.createOrUpdateFileContents({
-          owner: user.login,
-          repo: 'dock-chat-data',
-          path: 'private-chats.json',
-          message: '更新私聊列表',
-          content,
-          sha: currentFile.data.sha,
-          branch: 'main'
-        })
-      } catch (error) {
-        if (error.status === 404) {
-          await octokit.repos.createOrUpdateFileContents({
-            owner: user.login,
-            repo: 'dock-chat-data',
-            path: 'private-chats.json',
-            message: '创建私聊列表',
-            content,
-            branch: 'main'
-          })
-        } else {
-          throw error
-        }
-      }
-
-      setPrivateChatRooms(updatedRooms)
-      setCurrentRoom(newRoom)
-      setShowFriendList(false)
-    } catch (error) {
-      console.error('Error creating private chat:', error)
-      alert('创建私聊失败，请重试')
-    }
-  }
-
-  // 在组件加载时加载私聊聊天室
-  useEffect(() => {
-    if (session?.accessToken) {
-      loadPrivateChatRooms()
-    }
-  }, [session])
-
-  // 修改聊天室列表渲染
-  const renderRoomList = () => {
-    const allRooms = [...rooms, ...privateChatRooms]
-    return allRooms.length > 0 ? (
-      <ul className="space-y-2">
-        {allRooms.map(room => (
-          <li
-            key={room.id}
-            className={`flex items-center justify-between p-2 rounded-md cursor-pointer ${
-              currentRoom?.id === room.id
-                ? 'bg-blue-100 dark:bg-blue-900'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-            onClick={() => setCurrentRoom(room)}
-          >
-            <div className="flex items-center space-x-2">
-              <span className={`w-2 h-2 rounded-full ${
-                room.type === 'private' ? 'bg-purple-500' : 'bg-green-500'
-              }`} />
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                {room.name}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <div className="text-sm text-gray-500 dark:text-gray-400">
-        暂无聊天室
-      </div>
-    )
-  }
-
-  // 加载聊天室列表
-  const loadRooms = async () => {
-    if (!session?.accessToken) return
-
-    try {
-      const octokit = new Octokit({ auth: session.accessToken })
-      const { data: user } = await octokit.users.getAuthenticated()
-      
-      const response = await octokit.repos.getContent({
-        owner: user.login,
-        repo: 'dock-chat-data',
-        path: 'rooms.json',
-        ref: 'main'
-      })
-
-      const content = Buffer.from(response.data.content, 'base64').toString()
-      const { rooms: roomsList } = JSON.parse(content)
-      setRooms(roomsList || [])
-    } catch (error) {
-      if (error.status !== 404) {
-        console.error('Error loading rooms:', error)
-      }
-    }
-  }
-
-  // 在组件加载时加载聊天室和私聊列表
-  useEffect(() => {
-    if (session?.accessToken) {
-      loadRooms()
-      loadPrivateChatRooms()
-    }
-  }, [session])
-
-  // 处理表情包选择
-  const handleEmojiSelect = (url) => {
-    setNewMessage(prev => prev + `![emoji](${url})`)
   }
 
   if (status === 'loading') {
@@ -1228,39 +1074,12 @@ export default function Home({ username }) {
             >
               {contact.type === 'ai' ? (
                 <SparklesIcon className="w-5 h-5 flex-shrink-0" />
-              ) : contact.type === 'extended' ? (
-                contact.extension?.type === 'file_sharing' ? (
-                  <DocumentIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'code_collaboration' ? (
-                  <CodeBracketIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'whiteboard' ? (
-                  <PencilSquareIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'video_chat' ? (
-                  <VideoCameraIcon className="w-5 h-5 flex-shrink-0" />
-                ) : contact.extension?.type === 'game_room' ? (
-                  <PuzzlePieceIcon className="w-5 h-5 flex-shrink-0" />
-                ) : (
-                  <CubeIcon className="w-5 h-5 flex-shrink-0" />
-                )
-              ) : contact.type === 'private' ? (
-                <UserPlusIcon className="w-5 h-5 flex-shrink-0" />
               ) : (
                 <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
               )}
-              <div className="flex-1 text-left">
-                <span className="text-sm font-medium truncate block">
+              <span className="flex-1 text-left text-sm font-medium truncate">
                 {contact.name}
               </span>
-                {contact.type === 'extended' && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">
-                    {contact.extension?.type === 'file_sharing' ? '文件共享' :
-                     contact.extension?.type === 'code_collaboration' ? '代码协作' :
-                     contact.extension?.type === 'whiteboard' ? '在线白板' :
-                     contact.extension?.type === 'video_chat' ? '视频聊天' :
-                     contact.extension?.type === 'game_room' ? '游戏房间' : '扩展聊天室'}
-                  </span>
-                )}
-              </div>
               {contact.unread > 0 && (
                 <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
                   {contact.unread}
@@ -1280,11 +1099,11 @@ export default function Home({ username }) {
             创建聊天室
           </button>
           <button
-            onClick={() => setShowFriendList(!showFriendList)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+            onClick={addKimiAIChat}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
           >
-            <UserPlusIcon className="w-5 h-5" />
-            {showFriendList ? '返回聊天' : '好友列表'}
+            <SparklesIcon className="w-5 h-5" />
+            添加 AI 助手
           </button>
           <button
             onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
@@ -1318,145 +1137,132 @@ export default function Home({ username }) {
         </div>
       </div>
 
-      {/* 主聊天区域 */}
-      <div className="flex-1">
-        {showFriendList ? (
-          <div className="bg-white dark:bg-gray-800 h-full">
-            <FriendList
-              session={session}
-              onStartPrivateChat={createOrUpdatePrivateChat}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col h-full">
-            <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-              <div className="px-4 py-3 flex items-center justify-between relative">
-                <div className="flex flex-col">
+      {/* 主聊天区 - 优化滚动行为 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-3 flex items-center justify-between relative">
+            <div className="flex flex-col">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {pageTitle}
+                {pageTitle}
             </h1>
-                  {currentView === 'chat' && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {window.location.origin}/{session.user.login}
-                    </p>
-                  )}
-                </div>
-                {currentView === 'chat' && (
-                  <>
-                    <button
-                      onClick={() => setShowChatSettings(!showChatSettings)}
-                      className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                      <Cog6ToothIcon className="w-5 h-5" />
-                    </button>
-                    {showChatSettings && (
-                      <ChatRoomSettings
-                        room={{
-                          id: activeChat,
-                          name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
-                        }}
-                        onDelete={handleDeleteChatRoom}
-                        onClose={() => setShowChatSettings(false)}
-                      />
-                    )}
-                  </>
+              {currentView === 'chat' && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {window.location.origin}/{session.user.login}
+                </p>
+              )}
+            </div>
+            {currentView === 'chat' && (
+              <>
+                <button
+                  onClick={() => setShowChatSettings(!showChatSettings)}
+                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <Cog6ToothIcon className="w-5 h-5" />
+                </button>
+                {showChatSettings && (
+                  <ChatRoomSettings
+                    room={{
+                      id: activeChat,
+                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室'
+                    }}
+                    onDelete={handleDeleteChatRoom}
+                    onClose={() => setShowChatSettings(false)}
+                  />
                 )}
+              </>
+            )}
           </div>
         </header>
 
         <main className="flex-1 p-4 overflow-hidden">
           {currentView === 'chat' ? (
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
-                  {/* 消息列表区 - 优化滚动容器 */}
+              {/* 消息列表区 - 优化滚动容器 */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    {isLoading ? (
-                      <div className="flex items-center justify-center h-full">
-                        <div className="flex flex-col items-center space-y-4">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">加载消息中...</p>
-                        </div>
-                      </div>
-                    ) : messages.length === 0 ? (
-                      <div className="flex items-center justify-center h-full">
-                        <p className="text-sm text-gray-500 dark:text-gray-400">暂无消息</p>
-                      </div>
-                    ) : (
-                      <>
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">加载消息中...</p>
+                    </div>
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">暂无消息</p>
+                  </div>
+                ) : (
+                  <>
                 {messages.map((message, index) => (
                   <div
-                            key={`${message.createdAt}-${message.user.id}-${index}`}
+                        key={`${message.createdAt}-${message.user.id}-${index}`}
                     className={`flex ${
-                              message.type === 'system' 
-                                ? 'justify-center'
-                                : message.user.id === session?.user?.id 
-                                  ? 'justify-end' 
-                                  : 'justify-start'
-                            }`}
-                          >
-                            <div className={`flex items-start gap-3 ${
-                              message.type === 'system'
-                                ? 'max-w-[80%]'
-                                : 'max-w-[70%]'
-                            } ${
-                              message.type === 'system'
-                                ? ''
-                                : message.user.id === session?.user?.id
-                                  ? 'flex-row-reverse'
-                                  : ''
-                            }`}>
-                              {message.user.image && message.type !== 'system' && (
+                          message.type === 'system' 
+                            ? 'justify-center'
+                            : message.user.id === session?.user?.id 
+                              ? 'justify-end' 
+                              : 'justify-start'
+                        }`}
+                      >
+                        <div className={`flex items-start gap-3 ${
+                          message.type === 'system'
+                            ? 'max-w-[80%]'
+                            : 'max-w-[70%]'
+                        } ${
+                          message.type === 'system'
+                            ? ''
+                            : message.user.id === session?.user?.id
+                              ? 'flex-row-reverse'
+                              : ''
+                        }`}>
+                          {message.user.image && message.type !== 'system' && (
                         <Image
                           src={message.user.image}
                           alt={message.user.name || '用户头像'}
                           width={40}
                           height={40}
-                                  className="rounded-full flex-shrink-0"
+                              className="rounded-full flex-shrink-0"
                         />
                       )}
                       <div className={`flex flex-col ${
-                                message.type === 'system'
-                                  ? 'items-center'
-                                  : message.user.id === session?.user?.id
-                                    ? 'items-end'
-                                    : 'items-start'
-                              }`}>
-                                <div className={`rounded-2xl p-4 break-words ${
-                                  message.type === 'system'
-                                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm'
-                                    : message.isTyping
-                                      ? 'bg-gray-100 dark:bg-gray-700 animate-pulse'
-                                      : message.isError
-                                        ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
-                                        : message.user.id === session?.user?.id
+                            message.type === 'system'
+                              ? 'items-center'
+                              : message.user.id === session?.user?.id
+                                ? 'items-end'
+                                : 'items-start'
+                          }`}>
+                            <div className={`rounded-2xl p-4 break-words ${
+                              message.type === 'system'
+                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm'
+                                : message.isTyping
+                                  ? 'bg-gray-100 dark:bg-gray-700 animate-pulse'
+                                  : message.isError
+                                    ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                                    : message.user.id === session?.user?.id
                             ? 'bg-blue-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                         }`}>
-                                  {message.type !== 'system' && (
+                              {message.type !== 'system' && (
                           <p className="text-sm font-medium mb-1">{message.user.name}</p>
-                                  )}
-                                  <p className={`${
-                                    message.type === 'system' ? 'text-center' : ''
-                                  } whitespace-pre-wrap`}>{message.content}</p>
+                              )}
+                              <p className={`${
+                                message.type === 'system' ? 'text-center' : ''
+                              } whitespace-pre-wrap`}>{message.content}</p>
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  {new Date(message.createdAt).toLocaleString()}
+                              {new Date(message.createdAt).toLocaleString()}
                         </span>
                       </div>
                     </div>
                   </div>
                 ))}
                 <div ref={messagesEndRef} />
-                      </>
-                    )}
+                  </>
+                )}
               </div>
 
-                  {/* 输入框区域 - 固定在底部 */}
-                  <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
-                <div className="flex items-center gap-2">
-                  <EmojiPicker
-                    session={session}
-                    onSelect={handleEmojiSelect}
-                  />
+              {/* 输入框区域 - 固定在底部 */}
+              <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
+                <div className="flex items-center gap-4">
                   <input
                     type="text"
                     value={newMessage}
@@ -1475,7 +1281,7 @@ export default function Home({ username }) {
                     {isSending ? (
                       <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <PaperAirplaneIcon className="h-6 w-6" />
+                    <PaperAirplaneIcon className="h-6 w-6" />
                     )}
                   </button>
                 </div>
@@ -1485,8 +1291,6 @@ export default function Home({ username }) {
             <ProfilePage session={session} />
           )}
         </main>
-          </div>
-        )}
       </div>
 
       {/* 加入聊天室模态框 */}
@@ -1592,7 +1396,6 @@ export default function Home({ username }) {
         <CreateRoomModal
           onClose={() => setShowCreateRoomModal(false)}
           onCreate={handleCreateRoom}
-          session={session}
         />
       )}
     </div>
