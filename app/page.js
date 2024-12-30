@@ -10,7 +10,8 @@ import {
   Cog6ToothIcon,
   PlusCircleIcon,
   SparklesIcon,
-  XMarkIcon
+  XMarkIcon,
+  UserPlusIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -33,8 +34,11 @@ import {
   updateUserConfigCache,
   clearUserCache
 } from '@/lib/cache'
+import AddFriendModal from './components/AddFriendModal'
+import FriendRequestsModal from './components/FriendRequestsModal'
+import UserProfileModal from './components/UserProfileModal'
 
-export default function Home({ username }) {
+export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [messages, setMessages] = useState([])
@@ -61,6 +65,13 @@ export default function Home({ username }) {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
+  const [showAddFriendModal, setShowAddFriendModal] = useState(false)
+  const [showFriendRequestsModal, setShowFriendRequestsModal] = useState(false)
+  const [showUserProfileModal, setShowUserProfileModal] = useState(false)
+  const [selectedUser, setSelectedUser] = useState(null)
+  const [friendRequests, setFriendRequests] = useState([])
+  const [friends, setFriends] = useState([])
+  const [following, setFollowing] = useState([])
 
   // 动滚动到底部
   useEffect(() => {
@@ -874,12 +885,10 @@ export default function Home({ username }) {
 
   // 修改 URL 相关的逻辑
   const getPageUrl = () => {
-    if (typeof window !== 'undefined') {
-      return currentView === 'chat' && activeChat
-        ? `${session.user.login}/${activeChat}`
-        : session.user.login
-    }
-    return ''
+    if (!session?.user?.login) return ''
+    return currentView === 'chat' && activeChat
+      ? `${session.user.login}/${activeChat}`
+      : session.user.login
   }
 
   // 监听 URL 变化
@@ -1012,11 +1021,259 @@ export default function Home({ username }) {
   // 修改聊天室切换逻辑
   const handleRoomChange = async (roomId) => {
     setActiveChat(roomId)
-    // 更新 URL
-    if (typeof window !== 'undefined') {
-      router.push(`/${session.user.login}/${roomId}`)
+    // 更新 URL，使用 replace 而不是 push 来避免创建新的历史记录
+    if (typeof window !== 'undefined' && session?.user?.login) {
+      router.replace(`/${session.user.login}/${roomId}`)
     }
   }
+
+  // 修改创建聊天室的逻辑
+  const handleCreateRoom = async (roomData) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      // ... 其他代码保持不变 ...
+
+      // 切换到新创建的聊天室，使用 replace
+      setActiveChat(roomId)
+      if (typeof window !== 'undefined') {
+        router.replace(`/${session.user.login}/${roomId}`)
+      }
+
+      // ... 其他代码保持不变 ...
+    } catch (error) {
+      console.error('Error creating room:', error)
+      alert('创建聊天室失败，请重试')
+    }
+  }
+
+  // 检查用户访问权限和初始化聊天室
+  useEffect(() => {
+    if (status === 'loading') return
+
+    if (!session) {
+      router.push('/') // 未登录用户重定向到首页
+      return
+    }
+
+    // 如果访问的是其他用户的页面，重定向到自己的页面
+    if (username && session.user.login && username !== session.user.login) {
+      router.push(`/${session.user.login}`)
+      return
+    }
+
+    // 如果指定了聊天室 ID，设置为当前聊天室
+    if (roomId && roomId !== activeChat) {
+      setActiveChat(roomId)
+    }
+  }, [status, session, username, roomId, router])
+
+  // 处理好友请求
+  const handleSendFriendRequest = async ({ friendId, note }) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      // 保存好友请求到 GitHub
+      const requestId = `fr-${Date.now()}`
+      const requestContent = JSON.stringify({
+        id: requestId,
+        from: session.user.login,
+        to: friendId,
+        note: note,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      }, null, 2)
+
+      const encodedContent = btoa(unescape(encodeURIComponent(requestContent)))
+      
+      await fetch(`https://api.github.com/repos/${friendId}/dock-chat-data/contents/friend_requests/${requestId}.json`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: `Friend request from ${session.user.login}`,
+          content: encodedContent
+        })
+      })
+
+      alert('好友请求已发送')
+    } catch (error) {
+      console.error('Error sending friend request:', error)
+      alert('发送好友请求失败，请重试')
+    }
+  }
+
+  // 处理接受好友请求
+  const handleAcceptFriendRequest = async (requestId) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      const request = friendRequests.find(r => r.id === requestId)
+      if (!request) return
+
+      // 更新好友请求状态
+      const updatedRequest = {
+        ...request,
+        status: 'accepted',
+        updated_at: new Date().toISOString()
+      }
+
+      const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(updatedRequest, null, 2))))
+      
+      await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests/${requestId}.json`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: `Accept friend request from ${request.from}`,
+          content: encodedContent
+        })
+      })
+
+      // 添加到好友列表
+      const newFriend = {
+        id: request.from,
+        name: request.user.name,
+        image: request.user.image,
+        added_at: new Date().toISOString()
+      }
+
+      const updatedFriends = [...friends, newFriend]
+      setFriends(updatedFriends)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          friends: updatedFriends,
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+
+      // 从请求列表中移除
+      setFriendRequests(prev => prev.filter(r => r.id !== requestId))
+    } catch (error) {
+      console.error('Error accepting friend request:', error)
+      alert('接受好友请求失败，请重试')
+    }
+  }
+
+  // 处理拒绝好友请求
+  const handleRejectFriendRequest = async (requestId) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      const request = friendRequests.find(r => r.id === requestId)
+      if (!request) return
+
+      // 更新好友请求状态
+      const updatedRequest = {
+        ...request,
+        status: 'rejected',
+        updated_at: new Date().toISOString()
+      }
+
+      const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(updatedRequest, null, 2))))
+      
+      await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests/${requestId}.json`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: `Reject friend request from ${request.from}`,
+          content: encodedContent
+        })
+      })
+
+      // 从请求列表中移除
+      setFriendRequests(prev => prev.filter(r => r.id !== requestId))
+    } catch (error) {
+      console.error('Error rejecting friend request:', error)
+      alert('拒绝好友请求失败，请重试')
+    }
+  }
+
+  // 处理关注用户
+  const handleFollowUser = async (userId) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      const isFollowing = following.some(f => f.id === userId)
+      let updatedFollowing
+
+      if (isFollowing) {
+        // 取消关注
+        updatedFollowing = following.filter(f => f.id !== userId)
+      } else {
+        // 添加关注
+        const newFollowing = {
+          id: userId,
+          followed_at: new Date().toISOString()
+        }
+        updatedFollowing = [...following, newFollowing]
+      }
+
+      setFollowing(updatedFollowing)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          following: updatedFollowing,
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+    } catch (error) {
+      console.error('Error following user:', error)
+      alert('操作失败，请重试')
+    }
+  }
+
+  // 加载好友请求
+  useEffect(() => {
+    const loadFriendRequests = async () => {
+      if (!session?.user?.login || !session.accessToken) return
+
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+            }
+          }
+        )
+
+        if (response.ok) {
+          const files = await response.json()
+          const requests = await Promise.all(
+            files
+              .filter(file => file.name.endsWith('.json'))
+              .map(async file => {
+                const content = await fetch(file.download_url).then(res => res.json())
+                return content.status === 'pending' ? content : null
+              })
+          )
+
+          setFriendRequests(requests.filter(Boolean))
+        }
+      } catch (error) {
+        console.error('Error loading friend requests:', error)
+      }
+    }
+
+    loadFriendRequests()
+  }, [session])
 
   if (status === 'loading') {
     return (
@@ -1155,6 +1412,13 @@ export default function Home({ username }) {
           >
             <Cog6ToothIcon className="w-5 h-5" />
             设置
+          </button>
+          <button
+            onClick={() => setShowAddFriendModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+          >
+            <UserPlusIcon className="w-5 h-5" />
+            添加好友
           </button>
         </div>
       </div>
@@ -1417,6 +1681,42 @@ export default function Home({ username }) {
         <CreateRoomModal
           onClose={() => setShowCreateRoomModal(false)}
           onCreate={handleCreateRoom}
+        />
+      )}
+
+      {/* 添加好友模态框 */}
+      {showAddFriendModal && (
+        <AddFriendModal
+          onClose={() => setShowAddFriendModal(false)}
+          onSubmit={handleSendFriendRequest}
+        />
+      )}
+
+      {/* 好友请求模态框 */}
+      {showFriendRequestsModal && (
+        <FriendRequestsModal
+          onClose={() => setShowFriendRequestsModal(false)}
+          requests={friendRequests}
+          onAccept={handleAcceptFriendRequest}
+          onReject={handleRejectFriendRequest}
+        />
+      )}
+
+      {/* 用户资料模态框 */}
+      {showUserProfileModal && selectedUser && (
+        <UserProfileModal
+          user={selectedUser}
+          onClose={() => {
+            setShowUserProfileModal(false)
+            setSelectedUser(null)
+          }}
+          onAddFriend={() => {
+            setShowAddFriendModal(true)
+            setShowUserProfileModal(false)
+          }}
+          onFollow={() => handleFollowUser(selectedUser.id)}
+          isFriend={friends.some(f => f.id === selectedUser.id)}
+          isFollowing={following.some(f => f.id === selectedUser.id)}
         />
       )}
     </div>
