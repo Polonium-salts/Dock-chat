@@ -246,7 +246,7 @@ export default function Home({ username, roomId }) {
         console.log('Using cached messages for', activeChat)
         const formattedCachedMessages = cachedMessages.map(msg => ({
           ...msg,
-          isOwnMessage: msg.user?.id === session.user.id  // 添加标记表示是否是用户自己的消息
+          isOwnMessage: msg.user?.id === session.user.id
         }))
         setMessages(formattedCachedMessages)
         setIsLoading(false)
@@ -269,47 +269,138 @@ export default function Home({ username, roomId }) {
           },
           createdAt: msg.createdAt || new Date().toISOString(),
           type: msg.type || 'message',
-          isOwnMessage: msg.user?.id === session.user.id  // 添加标记表示是否是用户自己的消息
+          isOwnMessage: msg.user?.id === session.user.id
         }))
 
         setMessages(formattedMessages)
         updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
-      }
 
-      // 更新配置中的活动聊天室
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          settings: {
-            ...userConfig.settings,
-            activeChat
-          },
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        updateUserConfigCache(session.user.login, updatedConfig)
-      }
-
-      // 更新联系人列表中的未读消息状态
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === activeChat) {
-          return {
-            ...contact,
-            unread: 0,
-            last_message: messages[messages.length - 1] || null,
-            message_count: messages.length
+        // 更新联系人列表中的未读消息状态
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === activeChat) {
+            return {
+              ...contact,
+              unread: 0,
+              last_message: formattedMessages[formattedMessages.length - 1] || null,
+              message_count: formattedMessages.length,
+              updated_at: new Date().toISOString()
+            }
           }
-        }
-        return contact
-      })
-      setContacts(updatedContacts)
-      updateChatRoomsCache(session.user.login, updatedContacts)
+          return contact
+        })
+        setContacts(updatedContacts)
+        updateChatRoomsCache(session.user.login, updatedContacts)
 
+        // 更新用户配置
+        if (userConfig) {
+          const updatedConfig = {
+            ...userConfig,
+            contacts: updatedContacts,
+            last_updated: new Date().toISOString()
+          }
+          await updateConfig(session.accessToken, session.user.login, updatedConfig)
+          setUserConfig(updatedConfig)
+        }
+      }
     } catch (error) {
       console.error('Error loading messages:', error)
       setMessages([])
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // 修改发送消息的逻辑
+  const sendMessage = async (e) => {
+    e.preventDefault()
+    if (!newMessage.trim() || !session || isSending) return
+
+    try {
+      setIsSending(true)
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
+        createdAt: new Date().toISOString(),
+        isOwnMessage: true
+      }
+
+      // 添加消息到本地状态
+      setMessages(prev => [...prev, message])
+      setNewMessage('')
+
+      // 发送消息到 Socket.IO
+      if (socket?.connected) {
+        socket.emit('message', {
+          ...message,
+          room: activeChat
+        })
+      }
+
+      // 根据聊天室类型保存消息
+      if (activeChat === 'kimi-ai') {
+        await handleKimiMessage(message.content)
+      } else {
+        // 获取当前所有消息，包括新消息
+        const updatedMessages = [...messages, message]
+        try {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          console.log('Successfully saved messages:', updatedMessages)
+
+          // 更新缓存
+          updateChatMessagesCache(session.user.login, activeChat, updatedMessages)
+
+          // 更新联系人列表
+          const updatedContacts = contacts.map(contact => {
+            if (contact.id === activeChat) {
+              return {
+                ...contact,
+                last_message: message,
+                message_count: updatedMessages.length,
+                updated_at: new Date().toISOString()
+              }
+            }
+            return contact
+          })
+          setContacts(updatedContacts)
+          updateChatRoomsCache(session.user.login, updatedContacts)
+
+          // 更新用户配置
+          if (userConfig) {
+            const updatedConfig = {
+              ...userConfig,
+              contacts: updatedContacts,
+              last_updated: new Date().toISOString()
+            }
+            await updateConfig(session.accessToken, session.user.login, updatedConfig)
+            setUserConfig(updatedConfig)
+          }
+        } catch (error) {
+          console.error('Failed to save messages:', error)
+          throw error
+        }
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      // 移除失败的消息并显示错误
+      setMessages(prev => {
+        const newMessages = prev.slice(0, -1)
+        return [...newMessages, {
+          content: '消息发送失败，请重试',
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          isError: true,
+          createdAt: new Date().toISOString()
+        }]
+      })
+    } finally {
+      setIsSending(false)
     }
   }
 
@@ -463,70 +554,6 @@ export default function Home({ username, roomId }) {
       setIsWaitingForKimi(false);
     }
   };
-
-  const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !session || isSending) return
-
-    try {
-      setIsSending(true)
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name,
-          image: session.user.image,
-          id: session.user.id
-        },
-        createdAt: new Date().toISOString(),
-        isOwnMessage: true  // 添加标记表示这是用户自己的消息
-      }
-
-      // 添加消息到本地状态
-      setMessages(prev => [...prev, message])
-      setNewMessage('')
-
-      // 发送消息到 Socket.IO
-      if (socket?.connected) {
-        socket.emit('message', {
-          ...message,
-          room: activeChat
-        })
-      }
-
-      // 根据聊天室类型保存消息
-      if (activeChat === 'kimi-ai') {
-        await handleKimiMessage(message.content)
-      } else {
-        // 获取当前所有消息，包括新消息
-        const updatedMessages = [...messages, message]
-        try {
-          await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-          console.log('Successfully saved messages:', updatedMessages)
-        } catch (error) {
-          console.error('Failed to save messages:', error)
-          throw error
-        }
-      }
-    } catch (error) {
-      console.error('Failed to send message:', error)
-      // 移除失败的消息并显示错误
-      setMessages(prev => {
-        const newMessages = prev.slice(0, -1)
-        return [...newMessages, {
-          content: '消息发送失败，请重试',
-          user: {
-            name: 'System',
-            image: '/system-avatar.png',
-            id: 'system'
-          },
-          isError: true,
-          createdAt: new Date().toISOString()
-        }]
-      })
-    } finally {
-      setIsSending(false)
-    }
-  }
 
   const handleJoin = async (e) => {
     e.preventDefault()
@@ -970,33 +997,8 @@ export default function Home({ username, roomId }) {
     const timeoutId = setTimeout(async () => {
       try {
         console.log('Saving messages for room:', activeChat)
-        const savedMessages = await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
-        
-        // 更新联系人列表中的消息状态
-        const updatedContacts = contacts.map(contact => {
-          if (contact.id === activeChat) {
-            return {
-              ...contact,
-              last_message: savedMessages[savedMessages.length - 1] || null,
-              message_count: savedMessages.length,
-              updated_at: new Date().toISOString()
-            }
-          }
-          return contact
-        })
-        setContacts(updatedContacts)
-
-        // 更新用户配置
-        if (userConfig) {
-          const updatedConfig = {
-            ...userConfig,
-            contacts: updatedContacts,
-            last_updated: new Date().toISOString()
-          }
-          await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        }
-
-        console.log('Successfully saved messages')
+        await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+        updateChatMessagesCache(session.user.login, activeChat, messages)
       } catch (error) {
         console.error('Error saving messages:', error)
       }
