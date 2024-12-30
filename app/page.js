@@ -872,147 +872,19 @@ export default function Home({ username }) {
     ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
     : '个人主页'
 
-  const pageUrl = currentView === 'chat' && activeChat
-    ? `${window.location.origin}/${session.user.login}/${activeChat}`
-    : `${window.location.origin}/${session.user.login}`
-
-  // 检查用户访问权限
-  useEffect(() => {
-    if (username && session?.user?.login && username !== session.user.login) {
-      router.push(`/${session.user.login}`)
+  // 修改 URL 相关的逻辑，使用条件判断
+  const getPageUrl = () => {
+    if (typeof window !== 'undefined') {
+      return currentView === 'chat' && activeChat
+        ? `${window.location.origin}/${session.user.login}/${activeChat}`
+        : `${window.location.origin}/${session.user.login}`
     }
-  }, [username, session?.user?.login, router])
-
-  // 修改创建聊天室的逻辑
-  const handleCreateRoom = async (roomData) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      // 生成聊天室ID（使用英文名称或时间戳）
-      const roomId = roomData.name.toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')  // 将非字母数字字符替换为连字符
-        .replace(/^-+|-+$/g, '')      // 移除首尾连字符
-        || `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      
-      // 创建新的聊天室对象
-      const newRoom = {
-        id: roomId,
-        name: roomData.name,
-        description: roomData.description,
-        type: 'room',
-        created_by: session.user.login,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_private: roomData.isPrivate,
-        members: [session.user.login],
-        message_count: 0,
-        unread: 0,
-        config: {
-          ...roomData.config,
-          model: roomData.config?.model || 'gpt-3.5-turbo',
-          temperature: roomData.config?.temperature || 0.7,
-          max_tokens: roomData.config?.max_tokens || 2000,
-          presence_penalty: roomData.config?.presence_penalty || 0,
-          frequency_penalty: roomData.config?.frequency_penalty || 0,
-          system_prompt: roomData.config?.system_prompt || '',
-          auto_title: roomData.config?.auto_title || false,
-          auto_summary: roomData.config?.auto_summary || false,
-          save_interval: roomData.config?.save_interval || 300000,
-          history_count: roomData.config?.history_count || 20,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      }
-
-      // 更新联系人列表
-      const updatedContacts = [...contacts, newRoom]
-      setContacts(updatedContacts)
-      updateChatRoomsCache(session.user.login, updatedContacts)
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        setUserConfig(updatedConfig)
-      }
-
-      // 保存聊天室配置文件到 GitHub
-      try {
-        const configContent = JSON.stringify({
-          room_id: roomId,
-          name: roomData.name,
-          description: roomData.description,
-          type: 'room',
-          created_by: session.user.login,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          is_private: roomData.isPrivate,
-          members: [session.user.login],
-          config: newRoom.config
-        }, null, 2)
-
-        // 使用 base64 编码配置内容
-        const encodedContent = btoa(unescape(encodeURIComponent(configContent)))
-        
-        // 保存配置文件到 GitHub
-        await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/config.json`, {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: `Create config for room ${roomData.name}`,
-            content: encodedContent
-          })
-        })
-      } catch (error) {
-        console.error('Error saving room config:', error)
-      }
-
-      // 切换到新创建的聊天室
-      setActiveChat(roomId)
-      // 更新 URL
-      router.push(`/${session.user.login}/${roomId}`)
-
-      // 创建欢迎消息
-      const welcomeMessage = {
-        content: `欢迎来到 ${roomData.name} 聊天室！\n\n聊天室配置已保存到 GitHub 私有库中。\n访问地址：${window.location.origin}/${session.user.login}/${roomId}`,
-        user: {
-          name: 'System',
-          image: '/system-avatar.png',
-          id: 'system'
-        },
-        type: 'system',
-        createdAt: new Date().toISOString()
-      }
-
-      // 保存欢迎消息
-      await saveChatHistory(session.accessToken, session.user.login, roomId, [welcomeMessage])
-      setMessages([welcomeMessage])
-      updateChatMessagesCache(session.user.login, roomId, [welcomeMessage])
-
-      setShowCreateRoomModal(false)
-    } catch (error) {
-      console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
-    }
-  }
-
-  // 修改聊天室切换逻辑
-  const handleRoomChange = async (roomId) => {
-    setActiveChat(roomId)
-    // 更新 URL
-    router.push(`/${session.user.login}/${roomId}`)
+    return ''
   }
 
   // 监听 URL 变化
   useEffect(() => {
-    if (session?.user?.login) {
+    if (session?.user?.login && typeof window !== 'undefined') {
       const pathParts = window.location.pathname.split('/')
       if (pathParts.length >= 3) {
         const roomId = pathParts[2]
@@ -1232,9 +1104,11 @@ export default function Home({ username }) {
               <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {pageTitle}
               </h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {pageUrl}
-              </p>
+              {getPageUrl() && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {getPageUrl()}
+                </p>
+              )}
             </div>
             {currentView === 'chat' && (
               <>
@@ -1249,7 +1123,7 @@ export default function Home({ username }) {
                     room={{
                       id: activeChat,
                       name: contacts.find(c => c.id === activeChat)?.name || '聊天室',
-                      url: pageUrl
+                      url: getPageUrl()
                     }}
                     onDelete={handleDeleteChatRoom}
                     onClose={() => setShowChatSettings(false)}
