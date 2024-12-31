@@ -18,6 +18,9 @@
     "@octokit/rest": "^21.0.2",
     "@prisma/client": "5.7.1",
     "@tailwindcss/typography": "^0.5.15",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
     "@upstash/redis": "^1.34.3",
     "axios": "^1.7.9",
     "buffer": "^6.0.3",
@@ -34,6 +37,7 @@
     "socket.io": "4.7.2",
     "socket.io-client": "4.7.2",
     "swr": "^2.3.0",
+    "typescript": "^5.7.2",
     "utf-8-validate": "^6.0.5"
   },
   "devDependencies": {
