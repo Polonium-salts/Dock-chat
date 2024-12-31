@@ -4,22 +4,22 @@ import { useState } from 'react'
 import { Dialog } from '@headlessui/react'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 
-export default function CreateRoomModal({ onClose, onCreate }) {
-  const [name, setName] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
+export default function JoinRoomModal({ onClose, onJoin }) {
+  const [roomId, setRoomId] = useState('')
+  const [isJoining, setIsJoining] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!name.trim() || isCreating) return
+    if (!roomId.trim() || isJoining) return
 
     try {
-      setIsCreating(true)
-      await onCreate({ name })
+      setIsJoining(true)
+      await onJoin(roomId)
       onClose()
     } catch (error) {
-      console.error('Error creating room:', error)
+      console.error('Error joining room:', error)
     } finally {
-      setIsCreating(false)
+      setIsJoining(false)
     }
   }
 
@@ -35,7 +35,7 @@ export default function CreateRoomModal({ onClose, onCreate }) {
         <div className="relative bg-white dark:bg-gray-800 rounded-lg max-w-md w-full mx-4 p-6">
           <div className="flex justify-between items-center mb-4">
             <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">
-              创建聊天室
+              加入聊天室
             </Dialog.Title>
             <button
               onClick={onClose}
@@ -48,18 +48,18 @@ export default function CreateRoomModal({ onClose, onCreate }) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label
-                htmlFor="roomName"
+                htmlFor="roomId"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                聊天室名称
+                聊天室 ID
               </label>
               <input
                 type="text"
-                id="roomName"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                id="roomId"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                placeholder="输入聊天室名称"
+                placeholder="输入聊天室 ID"
                 required
               />
             </div>
@@ -74,10 +74,10 @@ export default function CreateRoomModal({ onClose, onCreate }) {
               </button>
               <button
                 type="submit"
-                disabled={isCreating || !name.trim()}
+                disabled={isJoining || !roomId.trim()}
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
-                {isCreating ? '创建中...' : '创建'}
+                {isJoining ? '加入中...' : '加入'}
               </button>
             </div>
           </form>
@@ -85,4 +85,4 @@ export default function CreateRoomModal({ onClose, onCreate }) {
       </div>
     </Dialog>
   )
-} 
+}

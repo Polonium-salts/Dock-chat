@@ -18,11 +18,20 @@ import SettingsModal from './components/SettingsModal'
 import CreateRoomModal from './components/CreateRoomModal'
 import { 
   updateConfig, 
-  saveChatHistory, 
-  updateChatRoomsCache, 
-  updateUserConfigCache 
+  saveChatHistory 
 } from '@/lib/github'
+import {
+  updateChatRoomsCache,
+  updateUserConfigCache,
+  getChatRoomsCache,
+  getUserConfigCache,
+  clearUserCache
+} from '@/lib/cache'
 import Navigation from './components/Navigation'
+import JoinRoomModal from './components/JoinRoomModal'
+import MessageList from './components/MessageList'
+import ChatInput from './components/ChatInput'
+import PrivateMessage from './components/PrivateMessage'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -36,6 +45,8 @@ export default function Home({ username, roomId }) {
   const [joinInput, setJoinInput] = useState('')
   const [activeChat, setActiveChat] = useState('')
   const [contacts, setContacts] = useState([])
+  const [privateMessages, setPrivateMessages] = useState({})
+  const [activePrivateChat, setActivePrivateChat] = useState(null)
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showKimiModal, setShowKimiModal] = useState(false)
@@ -171,12 +182,57 @@ export default function Home({ username, roomId }) {
   // 处理加入聊天室
   const handleJoin = async (e) => {
     e.preventDefault()
-    if (!session?.user?.login || !session.accessToken) return
+    if (!session?.user?.name || !session.accessToken || !joinInput.trim()) return
 
     try {
-      // 加入聊天室的逻辑
+      // 检查聊天室是否已经在联系人列表中
+      if (contacts.some(contact => contact.id === joinInput)) {
+        setActiveChat(joinInput)
         setShowJoinModal(false)
+        setJoinInput('')
+        return
+      }
+
+      // 创建新的聊天室联系人
+      const newContact = {
+        id: joinInput,
+        name: `聊天室 ${joinInput}`,
+        type: 'room',
+        unread: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        last_message: null
+      }
+
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newContact]
+      setContacts(updatedContacts)
+      
+      // 更新缓存
+      updateChatRoomsCache(session.user.name, updatedContacts)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: joinInput
+          }
+        }
+        await updateConfig(session.accessToken, session.user.name, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+
+      // 切换到新加入的聊天室
+      setActiveChat(joinInput)
+      setShowJoinModal(false)
       setJoinInput('')
+
+      // 更新路由
+      router.push(`/${session.user.name}/${joinInput}`)
     } catch (error) {
       console.error('Error joining room:', error)
       alert('加入聊天室失败，请重试')
@@ -191,39 +247,48 @@ export default function Home({ username, roomId }) {
     const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || 'wss://dock-chat.vercel.app'}/ws?username=${session.user.name}`
     ws.current = new WebSocket(wsUrl)
 
-    ws.current.onopen = () => {
-      console.log('WebSocket connected')
-    }
+    const connectWebSocket = () => {
+      ws.current.onopen = () => {
+        console.log('WebSocket connected')
+        setIsConnected(true)
+      }
 
-    ws.current.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        
-        if (data.type === 'message' && data.roomId === activeChat) {
-          // 添加新消息到消息列表
-          setMessages(prev => [...prev, data.message])
+      ws.current.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
           
-          // 更新联系人列表
-          setContacts(prev => prev.map(contact => {
-            if (contact.id === data.roomId) {
-              return {
-                ...contact,
-                last_message: data.message,
-                message_count: (contact.message_count || 0) + 1,
-                updated_at: new Date().toISOString()
-              }
-            }
-            return contact
-          }))
+          switch (message.type) {
+            case 'private_message':
+              handleReceivedPrivateMessage(message.data)
+              break
+            case 'message_status':
+              updateMessageStatus(message.data)
+              break
+            case 'chat_message':
+              // ... existing chat message handling ...
+              break
+            default:
+              console.log('Unknown message type:', message.type)
+          }
+        } catch (error) {
+          console.error('Error handling WebSocket message:', error)
         }
-      } catch (error) {
-        console.error('Error processing WebSocket message:', error)
+      }
+
+      ws.current.onclose = () => {
+        console.log('WebSocket disconnected')
+        setIsConnected(false)
+        // 尝试重新连接
+        setTimeout(connectWebSocket, 3000)
+      }
+
+      ws.current.onerror = (error) => {
+        console.error('WebSocket error:', error)
+        setIsConnected(false)
       }
     }
 
-    ws.current.onclose = () => {
-      console.log('WebSocket disconnected')
-    }
+    connectWebSocket()
 
     // 清理函数
     return () => {
@@ -233,35 +298,75 @@ export default function Home({ username, roomId }) {
     }
   }, [session?.user?.name, activeChat])
 
-  // 发送消息
-  const sendMessage = async (message) => {
-    if (!message.trim() || !activeChat) return
+  // 加载聊天记录
+  const loadMessages = async (chatId) => {
+    if (!session?.user?.name || !session.accessToken) return
 
+    try {
+      setIsLoading(true)
+      const response = await fetch(`/api/messages/${chatId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setMessages(data.messages || [])
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 切换聊天室时加载消息
+  useEffect(() => {
+    if (activeChat) {
+      loadMessages(activeChat)
+    }
+  }, [activeChat])
+
+  // 发送消息
+  const handleSendMessage = async (message) => {
+    if (!message.trim() || !activeChat || !session?.user?.name) return
+
+    setIsSending(true)
     const newMessage = {
       id: Date.now().toString(),
       content: message,
-      sender: session?.user?.name || 'Anonymous',
+      sender: session.user.name,
       createdAt: new Date().toISOString(),
       type: 'text'
     }
 
-    // 更新本地消息列表
-    setMessages(prev => [...prev, newMessage])
-
-    // 通过WebSocket发送消息
-    if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({
-        type: 'message',
-        roomId: activeChat,
-        message: newMessage
-      }))
-    }
-
-    // 保存消息到GitHub
     try {
-      const updatedMessages = [...messages, newMessage]
-      await saveChatHistory(session.accessToken, session.user.name, activeChat, updatedMessages)
-      
+      // 更新本地消息列表
+      setMessages(prev => [...prev, newMessage])
+
+      // 通过WebSocket发送消息
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(JSON.stringify({
+          type: 'message',
+          roomId: activeChat,
+          message: newMessage
+        }))
+      } else {
+        throw new Error('WebSocket connection not open')
+      }
+
+      // 保存消息到服务器
+      const response = await fetch('/api/messages/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roomId: activeChat,
+          message: newMessage
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to send message')
+      }
+
       // 更新联系人列表中的最后一条消息
       const updatedContacts = contacts.map(contact => {
         if (contact.id === activeChat) {
@@ -275,103 +380,197 @@ export default function Home({ username, roomId }) {
         return contact
       })
       setContacts(updatedContacts)
-      
-      // 更新缓存
       updateChatRoomsCache(session.user.name, updatedContacts)
+
     } catch (error) {
-      console.error('Error saving message:', error)
-      toast.error('保存消息失败')
+      console.error('Error sending message:', error)
+      // 如果发送失败，添加一条错误消息
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        content: '消息发送失败，请重试',
+        sender: 'system',
+        createdAt: new Date().toISOString(),
+        type: 'error'
+      }])
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  // 处理私信发送
+  const handlePrivateMessage = async (message) => {
+    if (!activePrivateChat || !session?.user?.name) return
+
+    const newMessage = {
+      ...message,
+      fromSelf: true,
+      to: activePrivateChat,
+      from: session.user.name,
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString()
+    }
+
+    // 更新本地消息列表
+    setPrivateMessages(prev => ({
+      ...prev,
+      [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+    }))
+
+    // 通过 WebSocket 发送消息
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'private_message',
+        data: newMessage
+      }))
+    }
+
+    // 保存消息到本地存储
+    const savedMessages = JSON.parse(localStorage.getItem('privateMessages') || '{}')
+    savedMessages[activePrivateChat] = [
+      ...(savedMessages[activePrivateChat] || []),
+      newMessage
+    ]
+    localStorage.setItem('privateMessages', JSON.stringify(savedMessages))
+  }
+
+  // 处理收到的私信
+  const handleReceivedPrivateMessage = (message) => {
+    const { from, content, type, timestamp } = message
+    const newMessage = {
+      type,
+      content,
+      timestamp,
+      fromSelf: false,
+      status: 'received',
+      id: Date.now().toString()
+    }
+
+    setPrivateMessages(prev => ({
+      ...prev,
+      [from]: [...(prev[from] || []), newMessage]
+    }))
+
+    // 保存消息到本地存储
+    const savedMessages = JSON.parse(localStorage.getItem('privateMessages') || '{}')
+    savedMessages[from] = [...(savedMessages[from] || []), newMessage]
+    localStorage.setItem('privateMessages', JSON.stringify(savedMessages))
+
+    // 发送已读回执
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'message_status',
+        data: {
+          messageId: message.id,
+          status: 'read',
+          to: from
+        }
+      }))
+    }
+  }
+
+  // 更新消息状态
+  const updateMessageStatus = ({ messageId, status, from }) => {
+    setPrivateMessages(prev => {
+      const messages = prev[from] || []
+      const updatedMessages = messages.map(msg =>
+        msg.id === messageId ? { ...msg, status } : msg
+      )
+      return {
+        ...prev,
+        [from]: updatedMessages
+      }
+    })
+
+    // 更新本地存储
+    const savedMessages = JSON.parse(localStorage.getItem('privateMessages') || '{}')
+    if (savedMessages[from]) {
+      savedMessages[from] = savedMessages[from].map(msg =>
+        msg.id === messageId ? { ...msg, status } : msg
+      )
+      localStorage.setItem('privateMessages', JSON.stringify(savedMessages))
     }
   }
 
   return (
-    <div className="flex h-screen bg-white dark:bg-gray-900">
+    <main className="flex min-h-screen">
       {/* 导航栏 */}
       <Navigation
         contacts={contacts}
         activeChat={activeChat}
-        onChatSelect={handleChatChange}
-        onCreateRoom={() => setShowCreateRoomModal(true)}
+        activePrivateChat={activePrivateChat}
+        onChatChange={handleChatChange}
+        onPrivateChatChange={setActivePrivateChat}
+        onShowJoinModal={() => setShowJoinModal(true)}
+        onShowCreateRoomModal={() => setShowCreateRoomModal(true)}
+        onShowSettings={() => setShowSettingsModal(true)}
       />
-
-      {/* 主聊天区域 */}
-      <main className="flex-1 flex flex-col">
-        {/* 聊天头部 */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center">
-            <h2 className="text-lg font-medium">
-              {contacts.find((c) => c.id === activeChat)?.name || '聊天室'}
-            </h2>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowChatSettings(true)}
-              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-            >
-              <Cog6ToothIcon className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex items-start space-x-3 ${
-                message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
-              }`}
-            >
-              <Image
-                src={message.user.image || '/default-avatar.png'}
-                alt={message.user.name}
-                width={40}
-                height={40}
-                className="rounded-full"
-              />
-              <div
-                className={`flex flex-col ${
-                  message.user.id === session?.user?.id ? 'items-end' : 'items-start'
-                }`}
+      
+      {/* 主内容区 */}
+      <div className="flex-1">
+        {activePrivateChat ? (
+          <PrivateMessage
+            friend={contacts.find(c => c.id === activePrivateChat)}
+            messages={privateMessages[activePrivateChat] || []}
+            onSendMessage={handlePrivateMessage}
+            config={userConfig?.settings}
+          />
+        ) : activeChat ? (
+          <div className="flex flex-col h-full">
+            {/* 聊天室头部 */}
+            <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                {contacts.find(c => c.id === activeChat)?.name || '聊天室'}
+              </h2>
+              <button
+                onClick={() => setShowChatSettings(true)}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
               >
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {message.user.name}
-                </span>
-                <div
-                  className={`mt-1 px-4 py-2 rounded-lg ${
-                    message.user.id === session?.user?.id
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-800'
-                  }`}
+                <Cog6ToothIcon className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* 消息列表 */}
+            <MessageList
+              messages={messages}
+              messagesEndRef={messagesEndRef}
+              config={userConfig?.settings}
+            />
+
+            {/* 输入框 */}
+            <ChatInput
+              newMessage={newMessage}
+              setNewMessage={setNewMessage}
+              handleSendMessage={handleSendMessage}
+              isSending={isSending}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
+                欢迎使用 Dock Chat
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-8">
+                选择一个聊天室开始聊天，或者创建/加入新的聊天室
+              </p>
+              <div className="space-x-4">
+                <button
+                  onClick={() => setShowCreateRoomModal(true)}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                 >
-                  {message.content}
-                </div>
+                  创建聊天室
+                </button>
+                <button
+                  onClick={() => setShowJoinModal(true)}
+                  className="px-4 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                >
+                  加入聊天室
+                </button>
               </div>
             </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* 输入框 */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <form onSubmit={sendMessage} className="flex space-x-2">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="输入消息..."
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
-            />
-            <button
-              type="submit"
-              disabled={!isConnected || isSending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              <PaperAirplaneIcon className="h-5 w-5" />
-            </button>
-          </form>
-        </div>
-      </main>
+          </div>
+        )}
+      </div>
 
       {/* 模态框 */}
       {showSettingsModal && (
@@ -380,68 +579,27 @@ export default function Home({ username, roomId }) {
           onClose={() => setShowSettingsModal(false)}
           config={userConfig}
           onSave={saveConfig}
-          theme={theme}
-          setTheme={setTheme}
         />
       )}
 
       {showCreateRoomModal && (
         <CreateRoomModal
+          isOpen={showCreateRoomModal}
           onClose={() => setShowCreateRoomModal(false)}
           onCreate={handleCreateRoom}
         />
       )}
 
       {showJoinModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">加入聊天室</h2>
-              <button
-                onClick={() => setShowJoinModal(false)}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <XMarkIcon className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleJoin} className="p-4 space-y-4">
-              <div>
-                <label htmlFor="roomId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  聊天室 ID
-                </label>
-                <input
-                  type="text"
-                  id="roomId"
-                  value={joinInput}
-                  onChange={(e) => setJoinInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="输入聊天室 ID"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowJoinModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={!joinInput.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  加入
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <JoinRoomModal
+          isOpen={showJoinModal}
+          onClose={() => setShowJoinModal(false)}
+          onJoin={handleJoin}
+          joinInput={joinInput}
+          setJoinInput={setJoinInput}
+        />
       )}
-    </div>
+    </main>
   )
 }
 
