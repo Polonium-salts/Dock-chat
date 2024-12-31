@@ -121,9 +121,9 @@ export default function Home({ username, roomId }) {
         console.log('Cleaning up socket connection...')
         if (socket.connected) {
           socket.emit('leave', { room: activeChat })
-        socket.disconnect()
+          socket.disconnect()
+        }
       }
-    }
     }
   }, [session, activeChat])
 
@@ -291,16 +291,16 @@ export default function Home({ username, roomId }) {
 
     try {
       setIsSending(true)
-    const message = {
-      content: newMessage,
-      user: {
-        name: session.user.name,
-        image: session.user.image,
-        id: session.user.id
-      },
-      createdAt: new Date().toISOString(),
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
+        createdAt: new Date().toISOString(),
         isOwnMessage: true
-    }
+      }
 
       // 添加消息到本地状态
       setMessages(prev => [...prev, message])
@@ -548,10 +548,10 @@ export default function Home({ username, roomId }) {
       )
 
       // 更新联系人列表
-    const newContact = {
-      id: joinInput,
-      name: `聊天室 ${joinInput}`,
-      type: 'room',
+      const newContact = {
+        id: joinInput,
+        name: `聊天室 ${joinInput}`,
+        type: 'room',
         unread: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -559,9 +559,9 @@ export default function Home({ username, roomId }) {
         last_message: null
       }
 
-    setContacts(prev => [...prev, newContact])
-    setJoinInput('')
-    setShowJoinModal(false)
+      setContacts(prev => [...prev, newContact])
+      setJoinInput('')
+      setShowJoinModal(false)
       setActiveChat(joinInput)
 
       // 更新用户配置
@@ -1321,112 +1321,123 @@ export default function Home({ username, roomId }) {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* 左侧导航栏 - 添加固定宽度 */}
-      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-        {/* 用户信息区域 */}
+    <div className="flex h-screen bg-white dark:bg-gray-900">
+      {/* 侧边栏 */}
+      <div className="w-64 flex flex-col border-r border-gray-200 dark:border-gray-700">
+        {/* 用户信息 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            {session.user.image && (
+          {session?.user ? (
+            <div className="flex items-center space-x-3">
               <Image
-                src={session.user.image}
-                alt={session.user.name || '用户头像'}
+                src={session.user.image || '/default-avatar.png'}
+                alt={session.user.name}
                 width={40}
                 height={40}
                 className="rounded-full"
               />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {session.user.name || '用户'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                @{session.user.login}
-              </p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {session.user.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  @{session.user.login}
+                </p>
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* 聊天室列表 - 添加固定高度和滚动 */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {contacts.map(contact => (
+          ) : (
             <button
-              key={contact.id}
-              onClick={() => handleRoomChange(contact.id)}
-              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                activeChat === contact.id
-                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
-              }`}
+              onClick={() => signIn('github')}
+              className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
             >
-              {contact.type === 'ai' ? (
-                <SparklesIcon className="w-5 h-5 flex-shrink-0" />
-              ) : (
-                <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
-              )}
-              <span className="flex-1 text-left text-sm font-medium truncate">
-                {contact.name}
-              </span>
-              {contact.unread > 0 && (
-                <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
-                  {contact.unread}
-                </span>
-              )}
+              登录 GitHub
             </button>
-          ))}
+          )}
         </div>
 
-        {/* 底部按钮区域 */}
-        <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        {/* 导航按钮 */}
+        <div className="flex p-2 space-x-2 border-b border-gray-200 dark:border-gray-700">
           <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+            onClick={() => setCurrentView('chat')}
+            className={`flex-1 p-2 rounded-md ${
+              currentView === 'chat'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
           >
-            <PlusCircleIcon className="w-5 h-5" />
-            创建聊天室
+            <UserGroupIcon className="h-5 w-5 mx-auto" />
           </button>
           <button
-            onClick={addKimiAIChat}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
+            onClick={() => setCurrentView('friends')}
+            className={`flex-1 p-2 rounded-md ${
+              currentView === 'friends'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
           >
-            <SparklesIcon className="w-5 h-5" />
-            添加 AI 助手
-          </button>
-          <button
-            onClick={() => setCurrentView(currentView === 'chat' ? 'profile' : 'chat')}
-            className={`w-full flex items-center justify-center gap-2 p-2 text-sm font-medium ${
-              currentView === 'profile'
-                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-            } rounded-lg transition-colors`}
-          >
-            {currentView === 'chat' ? (
-              <UserCircleIcon className="w-5 h-5" />
-            ) : (
-              <UserGroupIcon className="w-5 h-5" />
-            )}
-            {currentView === 'chat' ? '个人主页' : '返回聊天'}
-          </button>
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-          >
-            <PlusCircleIcon className="w-5 h-5" />
-            加入聊天室
+            <UserCircleIcon className="h-5 w-5 mx-auto" />
           </button>
           <button
             onClick={() => setShowSettingsModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="flex-1 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
           >
-            <Cog6ToothIcon className="w-5 h-5" />
-            设置
+            <Cog6ToothIcon className="h-5 w-5 mx-auto" />
           </button>
+        </div>
+
+        {/* 聊天列表 */}
+        <div className="flex-1 overflow-y-auto">
+          {currentView === 'chat' ? (
+            <div className="space-y-1 p-2">
+              {contacts.map((contact) => (
+                <button
+                  key={contact.id}
+                  onClick={() => handleChatChange(contact.id)}
+                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
+                    activeChat === contact.id
+                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {contact.name}
+                    </p>
+                    {contact.lastMessage && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {contact.lastMessage}
+                      </p>
+                    )}
+                  </div>
+                  {contact.unread > 0 && (
+                    <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
+                      {contact.unread}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <FriendsPage
+              friends={friends}
+              following={following}
+              onAddFriend={() => setShowAddFriendModal(true)}
+              onShowRequests={() => setShowFriendRequestsModal(true)}
+              onSelectUser={(user) => {
+                setSelectedUser(user)
+                setShowUserProfileModal(true)
+              }}
+            />
+          )}
+        </div>
+
+        {/* 底部操作按钮 */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           <button
-            onClick={() => setShowAddFriendModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+            onClick={() => setShowCreateRoomModal(true)}
+            className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
           >
-            <UserPlusIcon className="w-5 h-5" />
-            添加好友
+            <PlusCircleIcon className="h-5 w-5 mr-2" />
+            新建聊天
           </button>
         </div>
       </div>
@@ -1434,311 +1445,131 @@ export default function Home({ username, roomId }) {
       {/* 主聊天区域 */}
       <div className="flex-1 flex flex-col">
         {/* 聊天头部 */}
-        <header className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-3 flex items-center justify-between relative">
-            <div className="flex flex-col">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {pageTitle}
-            </h1>
-              {getPageUrl() && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {getPageUrl()}
-                </p>
-              )}
-            </div>
-            {currentView === 'chat' && (
-              <>
-                <button
-                  onClick={() => setShowChatSettings(!showChatSettings)}
-                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  <Cog6ToothIcon className="w-5 h-5" />
-                </button>
-                {showChatSettings && (
-                  <ChatRoomSettings
-                    room={{
-                      id: activeChat,
-                      name: contacts.find(c => c.id === activeChat)?.name || '聊天室',
-                      url: getPageUrl()
-                    }}
-                    onDelete={handleDeleteChatRoom}
-                    onClose={() => setShowChatSettings(false)}
-                  />
-                )}
-              </>
+        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center">
+            <h2 className="text-lg font-medium">
+              {contacts.find((c) => c.id === activeChat)?.name || '聊天室'}
+            </h2>
+            {activeChat === 'kimi' && (
+              <SparklesIcon className="h-5 w-5 ml-2 text-yellow-500" />
             )}
           </div>
-        </header>
-
-        <main className="flex-1 p-4 overflow-hidden">
-          {currentView === 'chat' ? (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm h-full flex flex-col">
-              {/* 消息列表区 - 优化滚动容器 */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {isLoading ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="flex flex-col items-center space-y-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">加载消息中...</p>
-                    </div>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">暂无消息</p>
-                  </div>
-                ) : (
-                  <>
-                {messages.map((message, index) => {
-                  const isOwnMessage = message.user.id === session?.user?.id;
-                  return (
-                  <div
-                    key={index}
-                      className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} items-start space-x-2`}
-                  >
-                      {!isOwnMessage && (
-                        <Image
-                          src={message.user.image || '/default-avatar.png'}
-                          alt={message.user.name}
-                          width={40}
-                          height={40}
-                          className="rounded-full"
-                        />
-                      )}
-                      <div
-                        className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
-                      >
-                        <span className="text-xs text-gray-500">
-                          {message.user.name} · {new Date(message.createdAt).toLocaleTimeString()}
-                        </span>
-                        <div
-                          className={`mt-1 px-4 py-2 rounded-lg max-w-xs sm:max-w-md break-words ${
-                            isOwnMessage
-                            ? 'bg-blue-500 text-white'
-                              : 'bg-gray-200 text-gray-800'
-                          }`}
-                        >
-                          {message.content}
-                        </div>
-                      </div>
-                      {isOwnMessage && (
-                        <Image
-                          src={message.user.image || '/default-avatar.png'}
-                          alt={message.user.name}
-                          width={40}
-                          height={40}
-                          className="rounded-full"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-                  </>
-                )}
-              </div>
-
-              {/* 输入框区域 - 固定在底部 */}
-              <form onSubmit={sendMessage} className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700">
-                <div className="flex items-center gap-4">
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    className="flex-1 px-4 py-3 text-gray-700 dark:text-white bg-gray-50 dark:bg-gray-700 rounded-xl border-0 focus:ring-2 focus:ring-blue-500"
-                    placeholder="输入消息..."
-                    disabled={isSending}
-                  />
-                  <button
-                    type="submit"
-                    className={`flex-shrink-0 p-3 bg-blue-500 text-white rounded-xl transition-colors duration-200 ${
-                      isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
-                    }`}
-                    disabled={!newMessage.trim() || !session || isSending}
-                  >
-                    {isSending ? (
-                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                    <PaperAirplaneIcon className="h-6 w-6" />
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          ) : currentView === 'profile' ? (
-            <ProfilePage session={session} />
-          ) : (
-            <FriendsPage
-              session={session}
-              friends={friends}
-              following={following}
-              friendRequests={friendRequests}
-              onAddFriend={() => setShowAddFriendModal(true)}
-              onAcceptRequest={handleAcceptFriendRequest}
-              onRejectRequest={handleRejectFriendRequest}
-              onShowUserProfile={(user) => {
-                setSelectedUser(user)
-                setShowUserProfileModal(true)
-              }}
-            />
-          )}
-        </main>
-      </div>
-
-      {/* 加入聊天室模态框 */}
-      {showJoinModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">加入聊天室</h2>
+          <div className="flex items-center space-x-2">
+            {activeChat !== 'public' && (
               <button
-                onClick={() => setShowJoinModal(false)}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                onClick={() => setShowChatSettings(true)}
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
               >
-                <XMarkIcon className="w-5 h-5" />
+                <Cog6ToothIcon className="h-5 w-5" />
               </button>
-            </div>
-
-            <form onSubmit={(e) => {
-              e.preventDefault()
-              handleJoinRoom(joinInput.trim())
-            }} className="p-4 space-y-4">
-              <div>
-                <label htmlFor="roomId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  聊天室 ID
-                </label>
-                <input
-                  type="text"
-                  id="roomId"
-                  value={joinInput}
-                  onChange={(e) => setJoinInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="输入聊天室 ID"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowJoinModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={!joinInput.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  加入
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
-      )}
 
+        {/* 消息列表 */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.map((message, index) => (
+            <div
+              key={index}
+              className={`flex items-start space-x-3 ${
+                message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
+              }`}
+            >
+              <Image
+                src={message.user.image || '/default-avatar.png'}
+                alt={message.user.name}
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+              <div
+                className={`flex flex-col ${
+                  message.user.id === session?.user?.id ? 'items-end' : 'items-start'
+                }`}
+              >
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {message.user.name}
+                </span>
+                <div
+                  className={`mt-1 px-4 py-2 rounded-lg ${
+                    message.user.id === session?.user?.id
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 dark:bg-gray-800'
+                  }`}
+                >
+                  {message.content}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* 输入框 */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          <form onSubmit={sendMessage} className="flex space-x-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="输入消息..."
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
+            />
+            <button
+              type="submit"
+              disabled={!isConnected || isSending}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <PaperAirplaneIcon className="h-5 w-5" />
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* 模态框 */}
       {showSettingsModal && (
         <SettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
-          session={session}
+          config={userConfig}
+          onSave={saveConfig}
+          theme={theme}
+          setTheme={setTheme}
         />
       )}
-
-      {/* Kimi API Key 设置模态框 */}
-      {showKimiModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">设置 Kimi AI API Key</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  API Key
-                </label>
-                <input
-                  type="password"
-                  value={kimiApiKey}
-                  onChange={(e) => setKimiApiKey(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  placeholder="输入您的 Kimi AI API Key"
-                />
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowKimiModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (kimiApiKey) {
-                      setShowKimiModal(false)
-                      addKimiAIChat()
-                    }
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-lg"
-                >
-                  确认
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showOnboarding && (
-        <OnboardingModal
-          isOpen={showOnboarding}
-          onClose={() => setShowOnboarding(false)}
-          session={session}
-        />
-      )}
-
-      {/* 添加创建聊天室模态框 */}
       {showCreateRoomModal && (
         <CreateRoomModal
+          isOpen={showCreateRoomModal}
           onClose={() => setShowCreateRoomModal(false)}
           onCreate={handleCreateRoom}
         />
       )}
-
-      {/* 添加好友模态框 */}
       {showAddFriendModal && (
         <AddFriendModal
+          isOpen={showAddFriendModal}
           onClose={() => setShowAddFriendModal(false)}
-          onSubmit={handleSendFriendRequest}
+          onSendRequest={handleSendFriendRequest}
         />
       )}
-
-      {/* 好友请求模态框 */}
       {showFriendRequestsModal && (
         <FriendRequestsModal
+          isOpen={showFriendRequestsModal}
           onClose={() => setShowFriendRequestsModal(false)}
           requests={friendRequests}
           onAccept={handleAcceptFriendRequest}
           onReject={handleRejectFriendRequest}
         />
       )}
-
-      {/* 用户资料模态框 */}
       {showUserProfileModal && selectedUser && (
         <UserProfileModal
-          user={selectedUser}
+          isOpen={showUserProfileModal}
           onClose={() => {
             setShowUserProfileModal(false)
             setSelectedUser(null)
           }}
-          onAddFriend={() => {
-            setShowAddFriendModal(true)
-            setShowUserProfileModal(false)
-          }}
-          onFollow={() => handleFollowUser(selectedUser.id)}
-          isFriend={friends.some(f => f.id === selectedUser.id)}
-          isFollowing={following.some(f => f.id === selectedUser.id)}
+          user={selectedUser}
+          onFollow={handleFollowUser}
+          isFollowing={following.includes(selectedUser.id)}
         />
       )}
     </div>
