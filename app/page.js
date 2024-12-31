@@ -426,12 +426,34 @@ export default function Home({ username, roomId }) {
     }
   }
 
+  // 监听路由变化
+  useEffect(() => {
+    if (!session?.user?.login) return
+
+    const handleRouteChange = () => {
+      const pathParts = window.location.pathname.split('/')
+      if (pathParts.length >= 3) {
+        const newRoomId = pathParts[2]
+        if (newRoomId && newRoomId !== activeChat) {
+          handleChatChange(newRoomId)
+        }
+      }
+    }
+
+    // 初始化时检查路由
+    handleRouteChange()
+
+    // 监听路由变化
+    window.addEventListener('popstate', handleRouteChange)
+    return () => window.removeEventListener('popstate', handleRouteChange)
+  }, [session, activeChat])
+
   // 修改聊天室切换的逻辑
   const handleChatChange = async (chatId) => {
     if (!session?.user?.login || chatId === activeChat) return
     
     try {
-      // 更新状态
+      // 立即更新状态
       setActiveChat(chatId)
       setMessages([])
       setIsLoading(true)
@@ -467,6 +489,7 @@ export default function Home({ username, roomId }) {
         unread: contact.id === chatId ? 0 : contact.unread
       }))
       setContacts(updatedContacts)
+      updateChatRoomsCache(session.user.login, updatedContacts)
       
     } catch (error) {
       console.error('Error switching chat:', error)
@@ -474,28 +497,6 @@ export default function Home({ username, roomId }) {
       setIsLoading(false)
     }
   }
-
-  // 监听路由变化
-  useEffect(() => {
-    if (!session?.user?.login) return
-
-    const handleRouteChange = () => {
-      const pathParts = window.location.pathname.split('/')
-      if (pathParts.length >= 3) {
-        const newRoomId = pathParts[2]
-        if (newRoomId && newRoomId !== activeChat) {
-          handleChatChange(newRoomId)
-        }
-      }
-    }
-
-    // 初始化时检查路由
-    handleRouteChange()
-
-    // 监听路由变化
-    window.addEventListener('popstate', handleRouteChange)
-    return () => window.removeEventListener('popstate', handleRouteChange)
-  }, [session])
 
   // 初始化聊天室
   useEffect(() => {
