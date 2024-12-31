@@ -49,7 +49,7 @@ export default function Home({ username, roomId }) {
   const [isLoading, setIsLoading] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinInput, setJoinInput] = useState('')
-  const [activeChat, setActiveChat] = useState('')
+  const [activeChat, setActiveChat] = useState('public')
   const [contacts, setContacts] = useState([])
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -1038,15 +1038,46 @@ export default function Home({ username, roomId }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      // ... 其他代码保持不变 ...
-
-      // 切换到新创建的聊天室，使用 replace
-      setActiveChat(roomId)
-      if (typeof window !== 'undefined') {
-        router.replace(`/${session.user.login}/${roomId}`)
+      const roomId = `room-${Date.now()}`
+      const newRoom = {
+        id: roomId,
+        name: roomData.name,
+        type: 'room',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        creator: session.user.login,
+        unread: 0,
+        lastMessage: null
       }
 
-      // ... 其他代码保持不变 ...
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newRoom]
+      setContacts(updatedContacts)
+      updateChatRoomsCache(session.user.login, updatedContacts)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: roomId
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+
+      // 切换到新创建的聊天室
+      setActiveChat(roomId)
+      setShowCreateRoomModal(false)
+
+      // 更新路由
+      if (typeof window !== 'undefined') {
+        router.push(`/${session.user.login}/${roomId}`)
+      }
     } catch (error) {
       console.error('Error creating room:', error)
       alert('创建聊天室失败，请重试')
