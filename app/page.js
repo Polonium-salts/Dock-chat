@@ -629,36 +629,44 @@ export default function Home({ username, roomId }) {
   }, [session])
 
   // 保存配置到 GitHub
-  const saveConfig = async () => {
-    if (session?.user?.login && session.accessToken && userConfig) {
-      try {
-        const updatedConfig = {
-          ...userConfig,
-          settings: {
-            ...userConfig.settings,
-            activeChat
-          },
-          contacts,
-          kimi_settings: {
-            ...userConfig.kimi_settings,
-            api_key: kimiApiKey,
-            isEnabled: contacts.some(c => c.id === 'kimi-ai')
-          },
-          last_updated: new Date().toISOString()
-        }
+  const saveConfig = async (updatedConfig) => {
+    if (!session?.user?.login || !session.accessToken) {
+      alert('请先登录')
+      return
+    }
 
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        setUserConfig(updatedConfig)
-      } catch (error) {
-        console.error('Error saving config:', error)
+    try {
+      // 更新配置
+      await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      setUserConfig(updatedConfig)
+      
+      // 应用新的设置
+      if (updatedConfig.settings?.autoSave) {
+        setupAutoSave(updatedConfig.settings.saveInterval || 5)
+      } else if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+        setAutoSaveInterval(null)
       }
+
+      // 更新主题
+      if (updatedConfig.settings?.theme) {
+        setTheme(updatedConfig.settings.theme)
+      }
+
+      // 更新缓存
+      updateUserConfigCache(session.user.login, updatedConfig)
+
+      alert('设置已保存')
+    } catch (error) {
+      console.error('Error saving config:', error)
+      alert('保存设置失败，请重试')
     }
   }
 
   // 在相关状态变化时保存配置
   useEffect(() => {
     if (userConfig) {
-      saveConfig()
+      saveConfig(userConfig)
     }
   }, [kimiApiKey, contacts, activeChat])
 
