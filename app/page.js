@@ -1431,7 +1431,7 @@ export default function Home({ username, roomId }) {
         </div>
 
         {/* 底部操作按钮 */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
           <button
             onClick={() => setShowCreateRoomModal(true)}
             className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
@@ -1439,6 +1439,14 @@ export default function Home({ username, roomId }) {
             <PlusCircleIcon className="h-5 w-5 mr-2" />
             新建聊天
           </button>
+          <button
+            onClick={() => setShowJoinModal(true)}
+            className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
+          >
+            <UserGroupIcon className="h-5 w-5 mr-2" />
+            加入聊天室
+          </button>
+        </div>
         </div>
       </div>
 

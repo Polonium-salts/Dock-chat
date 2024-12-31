@@ -1,7 +1,44 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { UserPlusIcon, UserGroupIcon, BellIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
+
+export default function FriendsPage({ friends, following, onAddFriend, onShowRequests, onSelectUser }) {
+  return (
+    <div className="h-full flex flex-col">
+      {/* 顶部操作栏 */}
+      <div className="p-3 space-y-2">
+        <button
+          onClick={onAddFriend}
+          className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-900/50 dark:hover:bg-blue-900 rounded-lg transition-colors"
+        >
+          <UserPlusIcon className="w-5 h-5" />
+          添加好友
+        </button>
+        <button
+          onClick={onShowRequests}
+          className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 dark:text-purple-400 dark:bg-purple-900/50 dark:hover:bg-purple-900 rounded-lg transition-colors"
+        >
+          <BellIcon className="w-5 h-5" />
+          好友请求
+        </button>
+      </div>
+
+      {/* 好友列表 */}
+      <div className="flex-1 overflow-y-auto">
+        {/* 我的好友 */}
+        <div className="px-3 py-2">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+            我的好友 ({friends.length})
+          </h3>
+          <div className="space-y-1">
+            {friends.map((friend) => (
+              <button
+                key={friend.id}
+                onClick={() => onSelectUser(friend)}
+                className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <Image
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   UserPlusIcon,
