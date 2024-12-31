@@ -3,60 +3,50 @@
 import { useState, useEffect } from 'react'
 import { Dialog } from '@headlessui/react'
 import { 
-  XMarkIcon,
-  LockClosedIcon,
-  LockOpenIcon,
-  MagnifyingGlassIcon,
-  ChatBubbleLeftEllipsisIcon,
+  XMarkIcon, 
+  ChatBubbleLeftRightIcon,
   SparklesIcon,
-  FolderIcon
+  LockClosedIcon,
+  FolderIcon,
+  KeyIcon
 } from '@heroicons/react/24/outline'
-import { useSession } from 'next-auth/react'
-import { useDebounce } from 'use-debounce'
 
-export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
-  const { data: session } = useSession()
+export default function CreateRoomModal({ isOpen, onClose, onCreate, session }) {
+  const [type, setType] = useState('chat') // 'chat' or 'ai'
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
-  const [enableAI, setEnableAI] = useState(false)
-  const [repoSearch, setRepoSearch] = useState('')
-  const [debouncedRepoSearch] = useDebounce(repoSearch, 500)
-  const [repositories, setRepositories] = useState([])
-  const [selectedRepo, setSelectedRepo] = useState(null)
+  const [aiModel, setAiModel] = useState('gpt-3.5-turbo')
+  const [apiKey, setApiKey] = useState('')
+  const [selectedRepo, setSelectedRepo] = useState('')
+  const [repos, setRepos] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // 搜索用户的仓库
   useEffect(() => {
-    if (!debouncedRepoSearch || !session?.accessToken) return
-
-    const searchRepositories = async () => {
-      setIsLoading(true)
-      setError('')
-      try {
-        const response = await fetch(
-          `https://api.github.com/search/repositories?q=user:${session.user.login}+${debouncedRepoSearch}`,
-          {
-            headers: {
-              Authorization: `Bearer ${session.accessToken}`,
-              Accept: 'application/vnd.github.v3+json',
-            },
-          }
-        )
-        if (!response.ok) throw new Error('Failed to fetch repositories')
-        const data = await response.json()
-        setRepositories(data.items || [])
-      } catch (err) {
-        setError('获取仓库列表失败')
-        console.error(err)
-      } finally {
-        setIsLoading(false)
-      }
+    if (isOpen && session) {
+      loadUserRepos()
     }
+  }, [isOpen, session])
 
-    searchRepositories()
-  }, [debouncedRepoSearch, session])
+  const loadUserRepos = async () => {
+    try {
+      setIsLoading(true)
+      const response = await fetch(`https://api.github.com/user/repos?type=private`, {
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          Accept: 'application/vnd.github.v3+json'
+        }
+      })
+      const data = await response.json()
+      setRepos(data.filter(repo => repo.permissions?.push))
+    } catch (err) {
+      console.error('Failed to load repos:', err)
+      setError('加载仓库列表失败')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -64,32 +54,47 @@ export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
       setError('请输入聊天室名称')
       return
     }
+    if (!selectedRepo) {
+      setError('请选择配置文件存储仓库')
+      return
+    }
+    if (type === 'ai' && !apiKey) {
+      setError('请输入 API Key')
+      return
+    }
+
+    const roomData = {
+      type,
+      name: name.trim(),
+      description: description.trim(),
+      isPrivate,
+      configRepo: selectedRepo,
+      ...(type === 'ai' && {
+        aiSettings: {
+          model: aiModel,
+          apiKey
+        }
+      })
+    }
 
     try {
-      await onCreate({
-        name: name.trim(),
-        description: description.trim(),
-        isPrivate,
-        enableAI,
-        configRepo: selectedRepo ? {
-          id: selectedRepo.id,
-          name: selectedRepo.name,
-          full_name: selectedRepo.full_name,
-          private: selectedRepo.private
-        } : null
-      })
+      await onCreate(roomData)
       onClose()
-      // 重置表单
-      setName('')
-      setDescription('')
-      setIsPrivate(false)
-      setEnableAI(false)
-      setSelectedRepo(null)
-      setError('')
+      resetForm()
     } catch (err) {
       setError('创建聊天室失败')
-      console.error(err)
     }
+  }
+
+  const resetForm = () => {
+    setType('chat')
+    setName('')
+    setDescription('')
+    setIsPrivate(false)
+    setAiModel('gpt-3.5-turbo')
+    setApiKey('')
+    setSelectedRepo('')
+    setError('')
   }
 
   return (
@@ -101,26 +106,65 @@ export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
       <div className="flex min-h-screen items-center justify-center p-4">
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
 
-        <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 shadow-xl">
+        <div className="relative w-full max-w-2xl bg-white dark:bg-gray-800 rounded-2xl shadow-xl">
           {/* 标题栏 */}
-          <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-            <Dialog.Title className="text-lg font-semibold text-gray-900 dark:text-white">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+            <Dialog.Title className="text-xl font-semibold text-gray-900 dark:text-white">
               创建聊天室
             </Dialog.Title>
             <button
               onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             >
-              <XMarkIcon className="h-5 w-5" />
+              <XMarkIcon className="w-6 h-6" />
             </button>
           </div>
 
-          {/* 表单内容 */}
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* 类型选择 */}
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setType('chat')}
+                className={`flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-colors ${
+                  type === 'chat'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800'
+                }`}
+              >
+                <ChatBubbleLeftRightIcon className={`w-8 h-8 ${
+                  type === 'chat' ? 'text-blue-500' : 'text-gray-400'
+                }`} />
+                <span className={`font-medium ${
+                  type === 'chat' ? 'text-blue-700 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}>
+                  普通聊天室
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setType('ai')}
+                className={`flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-colors ${
+                  type === 'ai'
+                    ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-purple-200 dark:hover:border-purple-800'
+                }`}
+              >
+                <SparklesIcon className={`w-8 h-8 ${
+                  type === 'ai' ? 'text-purple-500' : 'text-gray-400'
+                }`} />
+                <span className={`font-medium ${
+                  type === 'ai' ? 'text-purple-700 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'
+                }`}>
+                  AI 助手
+                </span>
+              </button>
+            </div>
+
             {/* 基本信息 */}
             <div className="space-y-4">
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   聊天室名称
                 </label>
                 <input
@@ -128,13 +172,12 @@ export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
                   placeholder="输入聊天室名称"
                 />
               </div>
-
               <div>
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   描述
                 </label>
                 <textarea
@@ -142,144 +185,98 @@ export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="描述这个聊天室的用途"
+                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                  placeholder="输入聊天室描述（可选）"
                 />
               </div>
             </div>
 
-            {/* 设置选项 */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  {isPrivate ? (
-                    <LockClosedIcon className="h-5 w-5 text-yellow-500" />
-                  ) : (
-                    <LockOpenIcon className="h-5 w-5 text-green-500" />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">
-                      {isPrivate ? '私密聊天室' : '公开聊天室'}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {isPrivate ? '仅邀请的成员可以加入' : '任何人都可以加入'}
-                    </p>
+            {/* AI 设置 */}
+            {type === 'ai' && (
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="model" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    AI 模型
+                  </label>
+                  <select
+                    id="model"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                  >
+                    <option value="gpt-3.5-turbo">GPT-3.5-Turbo</option>
+                    <option value="gpt-4">GPT-4</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    API Key
+                  </label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <KeyIcon className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="password"
+                      id="apiKey"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="block w-full pl-10 rounded-md border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                      placeholder="输入 OpenAI API Key"
+                    />
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsPrivate(!isPrivate)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    isPrivate ? 'bg-yellow-500' : 'bg-green-500'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      isPrivate ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
               </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <SparklesIcon className="h-5 w-5 text-purple-500" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">
-                      AI 助手
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      启用 AI 助手来协助对话
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEnableAI(!enableAI)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    enableAI ? 'bg-purple-500' : 'bg-gray-200 dark:bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      enableAI ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
+            )}
 
             {/* 仓库选择 */}
-            <div className="space-y-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div>
+              <label htmlFor="repo" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 配置文件存储仓库
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={repoSearch}
-                  onChange={(e) => setRepoSearch(e.target.value)}
-                  className="w-full px-4 py-2 pl-10 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="搜索你的仓库..."
-                />
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              </div>
-
-              {isLoading ? (
-                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
-                  加载中...
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FolderIcon className="h-5 w-5 text-gray-400" />
                 </div>
-              ) : repositories.length > 0 ? (
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {repositories.map((repo) => (
-                    <button
-                      key={repo.id}
-                      type="button"
-                      onClick={() => setSelectedRepo(repo)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                        selectedRepo?.id === repo.id
-                          ? 'bg-blue-50 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                      }`}
-                    >
-                      <FolderIcon className="h-5 w-5" />
-                      <div className="flex-1 text-left">
-                        <p className="text-sm font-medium">{repo.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {repo.private ? '私有' : '公开'} · 更新于 {new Date(repo.updated_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </button>
+                <select
+                  id="repo"
+                  value={selectedRepo}
+                  onChange={(e) => setSelectedRepo(e.target.value)}
+                  className="block w-full pl-10 rounded-md border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                  disabled={isLoading}
+                >
+                  <option value="">选择仓库</option>
+                  {repos.map(repo => (
+                    <option key={repo.id} value={repo.full_name}>
+                      {repo.full_name}
+                    </option>
                   ))}
-                </div>
-              ) : repoSearch && !isLoading ? (
-                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
-                  未找到相关仓库
-                </div>
-              ) : null}
-
-              {selectedRepo && (
-                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/50 rounded-lg">
-                  <FolderIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                      已选择: {selectedRepo.name}
-                    </p>
-                    <p className="text-xs text-blue-500 dark:text-blue-300">
-                      {selectedRepo.full_name}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRepo(null)}
-                    className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                  >
-                    <XMarkIcon className="h-5 w-5" />
-                  </button>
-                </div>
-              )}
+                </select>
+              </div>
             </div>
 
+            {/* 隐私设置 */}
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => setIsPrivate(!isPrivate)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  isPrivate ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isPrivate ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <span className="ml-3 flex items-center gap-2">
+                <LockClosedIcon className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">私密聊天室</span>
+              </span>
+            </div>
+
+            {/* 错误提示 */}
             {error && (
               <div className="text-sm text-red-600 dark:text-red-400">
                 {error}
@@ -287,17 +284,17 @@ export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
             )}
 
             {/* 操作按钮 */}
-            <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex justify-end gap-4">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
               >
                 取消
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
               >
                 创建
               </button>
