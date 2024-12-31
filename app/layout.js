@@ -1,19 +1,21 @@
-import './globals.css'
 import { Inter } from 'next/font/google'
-import Providers from './providers'
+import { Providers } from './providers'
+import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
   title: 'Dock Chat',
-  description: 'A chat application built with Next.js and GitHub',
+  description: '实时聊天，随时交流',
 }
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className={inter.className}>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   )

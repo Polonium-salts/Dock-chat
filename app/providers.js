@@ -1,12 +1,14 @@
 'use client'
 
 import { SessionProvider } from 'next-auth/react'
-import { NotificationProvider } from './contexts/NotificationContext'
+import { ThemeProvider } from 'next-themes'
 
-export default function Providers({ children }) {
+export function Providers({ children }) {
   return (
     <SessionProvider>
-      <NotificationProvider>{children}</NotificationProvider>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        {children}
+      </ThemeProvider>
     </SessionProvider>
   )
 } 
