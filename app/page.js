@@ -37,6 +37,7 @@ import {
 import AddFriendModal from './components/AddFriendModal'
 import FriendRequestsModal from './components/FriendRequestsModal'
 import UserProfileModal from './components/UserProfileModal'
+import FriendsPage from './components/FriendsPage'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -54,7 +55,7 @@ export default function Home({ username, roomId }) {
   ])
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [currentView, setCurrentView] = useState('chat') // 'chat' 或 'profile'
+  const [currentView, setCurrentView] = useState('chat') // 'chat', 'profile', 'friends'
   const [showKimiModal, setShowKimiModal] = useState(false)
   const [kimiApiKey, setKimiApiKey] = useState('')
   const [isWaitingForKimi, setIsWaitingForKimi] = useState(false)
@@ -274,33 +275,6 @@ export default function Home({ username, roomId }) {
 
         setMessages(formattedMessages)
         updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
-
-        // 更新联系人列表中的未读消息状态
-        const updatedContacts = contacts.map(contact => {
-          if (contact.id === activeChat) {
-            return {
-              ...contact,
-              unread: 0,
-              last_message: formattedMessages[formattedMessages.length - 1] || null,
-              message_count: formattedMessages.length,
-              updated_at: new Date().toISOString()
-            }
-          }
-          return contact
-        })
-        setContacts(updatedContacts)
-        updateChatRoomsCache(session.user.login, updatedContacts)
-
-        // 更新用户配置
-        if (userConfig) {
-          const updatedConfig = {
-            ...userConfig,
-            contacts: updatedContacts,
-            last_updated: new Date().toISOString()
-          }
-          await updateConfig(session.accessToken, session.user.login, updatedConfig)
-          setUserConfig(updatedConfig)
-        }
       }
     } catch (error) {
       console.error('Error loading messages:', error)
@@ -905,17 +879,27 @@ export default function Home({ username, roomId }) {
     }
   }, [session, socket?.connected])
 
-  // 修改页面标题和地址显示
-  const pageTitle = currentView === 'chat' 
-    ? (contacts.find(c => c.id === activeChat)?.name || '聊天室')
-    : '个人主页'
+  // 修改页面标题的逻辑
+  const pageTitle = {
+    chat: contacts.find(c => c.id === activeChat)?.name || '聊天室',
+    profile: '个人主页',
+    friends: '好友列表'
+  }[currentView]
 
-  // 修改 URL 相关的逻辑
+  // 修改页面 URL 的逻辑
   const getPageUrl = () => {
     if (!session?.user?.login) return ''
-    return currentView === 'chat' && activeChat
-      ? `${session.user.login}/${activeChat}`
-      : session.user.login
+    
+    switch (currentView) {
+      case 'chat':
+        return activeChat ? `${session.user.login}/${activeChat}` : session.user.login
+      case 'profile':
+        return session.user.login
+      case 'friends':
+        return `${session.user.login}/friends`
+      default:
+        return session.user.login
+    }
   }
 
   // 监听 URL 变化
@@ -1022,11 +1006,33 @@ export default function Home({ username, roomId }) {
 
   // 修改聊天室切换逻辑
   const handleRoomChange = async (roomId) => {
+    if (roomId === activeChat) return
+    
     setActiveChat(roomId)
-    // 更新 URL，使用 replace 而不是 push 来避免创建新的历史记录
-    if (typeof window !== 'undefined' && session?.user?.login) {
+    setMessages([]) // 立即清空消息
+    setIsLoading(true)
+
+    // 更新 URL
+    if (typeof window !== 'undefined') {
       router.replace(`/${session.user.login}/${roomId}`)
     }
+
+    // 更新用户配置
+    if (session?.accessToken && session.user.login && userConfig) {
+      const updatedConfig = {
+        ...userConfig,
+        settings: {
+          ...userConfig.settings,
+          activeChat: roomId
+        },
+        last_updated: new Date().toISOString()
+      }
+      await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        .catch(error => console.error('Error updating config:', error))
+    }
+
+    // 加载新聊天室的消息
+    await loadChatMessages()
   }
 
   // 修改创建聊天室的逻辑
@@ -1558,8 +1564,22 @@ export default function Home({ username, roomId }) {
                 </div>
               </form>
             </div>
-          ) : (
+          ) : currentView === 'profile' ? (
             <ProfilePage session={session} />
+          ) : (
+            <FriendsPage
+              session={session}
+              friends={friends}
+              following={following}
+              friendRequests={friendRequests}
+              onAddFriend={() => setShowAddFriendModal(true)}
+              onAcceptRequest={handleAcceptFriendRequest}
+              onRejectRequest={handleRejectFriendRequest}
+              onShowUserProfile={(user) => {
+                setSelectedUser(user)
+                setShowUserProfileModal(true)
+              }}
+            />
           )}
         </main>
       </div>
