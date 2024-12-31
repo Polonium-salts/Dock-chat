@@ -6,7 +6,8 @@ import {
   Cog6ToothIcon,
   PlusCircleIcon,
   UserGroupIcon,
-  ChatBubbleLeftIcon
+  ChatBubbleLeftIcon,
+  UserPlusIcon
 } from '@heroicons/react/24/outline'
 
 export default function Navigation({
@@ -17,7 +18,8 @@ export default function Navigation({
   onPrivateChatChange,
   onShowJoinModal,
   onShowCreateRoomModal,
-  onShowSettings
+  onShowSettings,
+  onShowFriendManage
 }) {
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -65,6 +67,13 @@ export default function Navigation({
           title="设置"
         >
           <Cog6ToothIcon className="w-6 h-6" />
+        </button>
+        <button
+          onClick={onShowFriendManage}
+          className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          title="好友管理"
+        >
+          <UserPlusIcon className="w-6 h-6" />
         </button>
       </div>
 

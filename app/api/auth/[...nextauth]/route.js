@@ -6,12 +6,8 @@ const handler = NextAuth({
     GithubProvider({
       clientId: process.env.GITHUB_ID,
       clientSecret: process.env.GITHUB_SECRET,
-      authorization: {
-        params: {
-          scope: 'read:user user:email repo'
-        }
-      }
-    })
+      scope: 'read:user user:email repo',
+    }),
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
@@ -24,16 +20,15 @@ const handler = NextAuth({
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken
-      if (token.login) {
-        session.user.login = token.login
-      }
+      session.user.id = token.id
+      session.user.login = token.login
       return session
-    }
+    },
   },
   pages: {
-    signIn: '/',
-    error: '/'
-  }
+    signIn: '/login',
+    error: '/login',
+  },
 })
 
-export { handler as GET, handler as POST } 
+export { handler as GET, handler as POST }

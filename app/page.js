@@ -5,7 +5,6 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useTheme } from 'next-themes'
-import { io } from 'socket.io-client'
 import { 
   Cog6ToothIcon,
   PlusCircleIcon,
@@ -32,6 +31,7 @@ import JoinRoomModal from './components/JoinRoomModal'
 import MessageList from './components/MessageList'
 import ChatInput from './components/ChatInput'
 import PrivateMessage from './components/PrivateMessage'
+import FriendManageModal from './components/FriendManageModal'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -47,6 +47,8 @@ export default function Home({ username, roomId }) {
   const [contacts, setContacts] = useState([])
   const [privateMessages, setPrivateMessages] = useState({})
   const [activePrivateChat, setActivePrivateChat] = useState(null)
+  const [friendRequests, setFriendRequests] = useState([])
+  const [showFriendManageModal, setShowFriendManageModal] = useState(false)
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showKimiModal, setShowKimiModal] = useState(false)
