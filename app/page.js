@@ -50,7 +50,7 @@ export default function Home({ username, roomId }) {
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinInput, setJoinInput] = useState('')
   const messagesEndRef = useRef(null)
@@ -69,6 +69,181 @@ export default function Home({ username, roomId }) {
   const [friendRequests, setFriendRequests] = useState([])
   const [friends, setFriends] = useState([])
   const [following, setFollowing] = useState([])
+
+  // 修改错误处理
+  const handleError = (error, message) => {
+    console.error(message, error)
+    alert(message)
+  }
+
+  // 修改加载消息的逻辑
+  const loadChatMessages = async () => {
+    if (!session?.user?.login || !session.accessToken || !activeChat) return
+
+    try {
+      setIsLoading(true)
+      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
+
+      // 尝试从缓存加载消息
+      const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
+      if (cachedMessages) {
+        console.log('Using cached messages for', activeChat)
+        setMessages(cachedMessages)
+        setIsLoading(false)
+        return
+      }
+
+      console.log('Loading messages for chat:', activeChat)
+
+      // 从 GitHub 加载消息
+      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
+      console.log('Loaded messages:', messages)
+
+      if (Array.isArray(messages) && messages.length > 0) {
+        const formattedMessages = messages.map(msg => ({
+          content: msg.content || '',
+          user: {
+            name: msg.user?.name || 'Unknown User',
+            image: msg.user?.image || '/default-avatar.png',
+            id: msg.user?.id || 'unknown'
+          },
+          createdAt: msg.createdAt || new Date().toISOString(),
+          type: msg.type || 'message'
+        }))
+
+        setMessages(formattedMessages)
+        updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
+      }
+    } catch (error) {
+      handleError(error, '加载消息失败')
+      setMessages([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 修改保存消息的逻辑
+  const saveMessages = async (roomId, messages) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      console.log('Saving messages for room:', roomId)
+      await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+      updateChatMessagesCache(session.user.login, roomId, messages)
+
+      // 更新联系人列表中的消息状态
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === roomId) {
+          return {
+            ...contact,
+            last_message: messages[messages.length - 1] || null,
+            message_count: messages.length,
+            updated_at: new Date().toISOString()
+          }
+        }
+        return contact
+      })
+      setContacts(updatedContacts)
+      updateChatRoomsCache(session.user.login, updatedContacts)
+
+      console.log('Successfully saved messages')
+    } catch (error) {
+      handleError(error, '保存消息失败')
+    }
+  }
+
+  // 修改发送消息的逻辑
+  const handleSendMessage = async (e) => {
+    e.preventDefault()
+    if (!newMessage.trim() || !session?.user?.login || !session.accessToken || isSending) return
+
+    try {
+      setIsSending(true)
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name || session.user.login,
+          image: session.user.image || '/default-avatar.png',
+          id: session.user.id
+        },
+        createdAt: new Date().toISOString()
+      }
+
+      // 添加消息到本地状态
+      setMessages(prev => [...prev, message])
+      setNewMessage('')
+
+      // 保存消息
+      const updatedMessages = [...messages, message]
+      await saveMessages(activeChat, updatedMessages)
+
+      // 如果是公共聊天室，发送到 WebSocket
+      if (activeChat === 'public' && socket?.connected) {
+        socket.emit('message', {
+          ...message,
+          room: 'public'
+        })
+      }
+
+      // 如果是 Kimi AI 聊天室，发送到 AI
+      if (activeChat === 'kimi-ai') {
+        await handleKimiMessage(newMessage)
+      }
+    } catch (error) {
+      handleError(error, '发送消息失败')
+      // 移除失败的消息
+      setMessages(prev => prev.slice(0, -1))
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  // 修改聊天室切换的逻辑
+  const handleChatChange = async (chatId) => {
+    if (chatId === activeChat) return
+    
+    try {
+      setActiveChat(chatId)
+      setMessages([])
+      setIsLoading(true)
+
+      // 更新未读消息数
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === chatId) {
+          return {
+            ...contact,
+            unread: 0
+          }
+        }
+        return contact
+      })
+      setContacts(updatedContacts)
+
+      // 更新用户配置
+      if (userConfig && session?.user?.login && session.accessToken) {
+        const updatedConfig = {
+          ...userConfig,
+          settings: {
+            ...userConfig.settings,
+            activeChat: chatId
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+          .catch(error => console.error('Error updating config:', error))
+      }
+
+      // 加载消息
+      await loadChatMessages()
+
+      // 更新路由
+      if (session?.user?.login) {
+        router.push(`/${session.user.login}/${chatId}`)
+      }
+    } catch (error) {
+      handleError(error, '切换聊天室失败')
+    }
+  }
 
   // 动滚动到底部
   useEffect(() => {
@@ -976,61 +1151,6 @@ export default function Home({ username, roomId }) {
 
     loadFriendRequests()
   }, [session])
-
-  // 修改消息发送逻辑
-  const handleSendMessage = async (content) => {
-    if (!content.trim() || !session?.user?.login || !session.accessToken) return
-
-    const newMessage = {
-      content,
-      user: {
-        name: session.user.name || session.user.login,
-        image: session.user.image || '/default-avatar.png',
-        id: session.user.id
-      },
-      createdAt: new Date().toISOString()
-    }
-
-    // 更新本地消息列表
-    setMessages(prev => [...prev, newMessage])
-
-    try {
-      // 保存消息到 GitHub
-      const updatedMessages = [...messages, newMessage]
-      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-      updateChatMessagesCache(session.user.login, activeChat, updatedMessages)
-
-      // 更新联系人列表中的最后一条消息
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === activeChat) {
-          return {
-            ...contact,
-            last_message: newMessage,
-            message_count: (contact.message_count || 0) + 1,
-            updated_at: new Date().toISOString()
-          }
-        }
-        return contact
-      })
-      setContacts(updatedContacts)
-      updateChatRoomsCache(session.user.login, updatedContacts)
-
-      // 如果是公共聊天室，发送到 WebSocket
-      if (activeChat === 'public' && socket?.connected) {
-        socket.emit('message', {
-          ...newMessage,
-          room: 'public'
-        })
-      }
-
-      // 如果是 Kimi AI 聊天室，发送到 AI
-      if (activeChat === 'kimi-ai') {
-        handleKimiMessage(content)
-      }
-    } catch (error) {
-      console.error('Error sending message:', error)
-    }
-  }
 
   // 修改 Kimi AI 消息处理逻辑
   const handleKimiMessage = async (content) => {
