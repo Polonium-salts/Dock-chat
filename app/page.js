@@ -78,187 +78,187 @@ export default function Home({ username, roomId }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // WebSocket 连接
+  // WebSocket 连接和消息处理
   useEffect(() => {
-    if (session) {
-      console.log('Initializing socket connection...')
-      const socket = io(window.location.origin, {
-        path: '/api/socket',
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      })
+    if (!session?.user?.login) return
 
-      socket.on('connect', () => {
-        console.log('Socket connected')
-        setIsConnected(true)
+    console.log('Initializing socket connection...')
+    const socket = io(window.location.origin, {
+      path: '/api/socket',
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    })
+
+    socket.on('connect', () => {
+      console.log('Socket connected')
+      setIsConnected(true)
+      if (activeChat) {
         socket.emit('join', { 
           room: activeChat,
           userId: session.user.id
         })
-      })
+      }
+    })
 
-      socket.on('connect_error', (error) => {
-        console.error('Connection error:', error)
-        setIsConnected(false)
-      })
+    socket.on('connect_error', (error) => {
+      console.error('Connection error:', error)
+      setIsConnected(false)
+    })
 
-      socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason)
-        setIsConnected(false)
-      })
+    socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason)
+      setIsConnected(false)
+    })
 
-      socket.on('message', (message) => {
-        console.log('Received message:', message)
-        setMessages(prev => [...prev, message])
-      })
+    socket.on('message', (message) => {
+      console.log('Received message:', message)
+      
+      // 添加消息到本地状态
+      setMessages(prev => [...prev, {
+        ...message,
+        isOwnMessage: message.user.id === session.user.id
+      }])
 
-      setSocket(socket)
-
-      return () => {
-        console.log('Cleaning up socket connection...')
-        if (socket.connected) {
-          socket.emit('leave', { room: activeChat })
-          socket.disconnect()
+      // 更新联系人列表中的最后一条消息和未读数
+      setContacts(prev => prev.map(contact => {
+        if (contact.id === message.room) {
+          return {
+            ...contact,
+            lastMessage: message,
+            unread: message.user.id !== session.user.id ? (contact.unread || 0) + 1 : contact.unread,
+            updated_at: new Date().toISOString()
+          }
         }
+        return contact
+      }))
+    })
+
+    setSocket(socket)
+
+    // 清理函数
+    return () => {
+      console.log('Cleaning up socket connection...')
+      if (socket.connected) {
+        if (activeChat) {
+          socket.emit('leave', { room: activeChat })
+        }
+        socket.disconnect()
       }
     }
   }, [session, activeChat])
 
+  // 监听聊天室变化，加入/离开房间
+  useEffect(() => {
+    if (!socket?.connected || !activeChat) return
+
+    // 加入新房间
+    socket.emit('join', { 
+      room: activeChat,
+      userId: session?.user?.id
+    })
+
+    return () => {
+      // 离开旧房间
+      socket.emit('leave', { room: activeChat })
+    }
+  }, [socket?.connected, activeChat])
+
   // 修改初始化加载逻辑
   useEffect(() => {
     const initializeData = async () => {
-      if (session?.user?.login && session.accessToken) {
-        try {
-          setIsLoading(true)
-          console.log('Initializing data...')
+      if (!session?.user?.login || !session.accessToken) return
 
-          // 尝试从缓存加载数据
-          const cachedConfig = getUserConfigCache(session.user.login)
-          const cachedRooms = getChatRoomsCache(session.user.login)
+      try {
+        setIsLoading(true)
+        console.log('Initializing data...')
 
-          if (cachedConfig && cachedRooms) {
-            console.log('Using cached data')
-            setUserConfig(cachedConfig)
-            setContacts(cachedRooms)
-            
-            // 设置活动聊天室
-            let targetChat = ''
-            if (cachedConfig?.settings?.activeChat) {
-              const chatExists = cachedRooms.some(room => room.id === cachedConfig.settings.activeChat)
-              if (chatExists) {
-                targetChat = cachedConfig.settings.activeChat
-              }
-            }
-            setActiveChat(targetChat)
+        // 确保仓库存在
+        const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
+        if (!hasRepo) {
+          setShowOnboarding(true)
+          return
+        }
 
-            // 从缓存加载消息
-            const cachedMessages = getChatMessagesCache(session.user.login, targetChat)
-            if (cachedMessages) {
-              setMessages(cachedMessages)
-              setIsLoading(false)
-            }
-          }
-
-          // 确保仓库和基本结构存在
-          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
-          if (!hasRepo) {
-            console.log('Creating new repository...')
-            await createDataRepository(session.accessToken, session.user.login)
-          }
-
-          // 加载用户配置
-          const config = await getConfig(session.accessToken, session.user.login)
-          console.log('Loaded config:', config)
-          
-          if (config) {
-            setUserConfig(config)
-            updateUserConfigCache(session.user.login, config)
-            
-            // 恢复用户配置
-            if (config.kimi_settings?.api_key) {
-              setKimiApiKey(config.kimi_settings.api_key)
-            }
-          }
+        // 加载用户配置
+        const config = await getConfig(session.accessToken, session.user.login)
+        if (config) {
+          setUserConfig(config)
+          updateUserConfigCache(session.user.login, config)
 
           // 加载聊天室列表
-          const rooms = await getChatRooms(session.accessToken, session.user.login)
-          console.log('Loaded chat rooms:', rooms)
-          
-          if (rooms.length > 0) {
-            setContacts(rooms)
-            updateChatRoomsCache(session.user.login, rooms)
+          const rooms = config.contacts || []
+          setContacts(rooms)
+          updateChatRoomsCache(session.user.login, rooms)
 
-            // 设置活动聊天室
-            let targetChat = ''
-            if (config?.settings?.activeChat) {
-              const chatExists = rooms.some(room => room.id === config.settings.activeChat)
-              if (chatExists) {
-                targetChat = config.settings.activeChat
+          // 设置活动聊天室
+          let targetChat = roomId || config.settings?.activeChat || ''
+          if (targetChat) {
+            const chatExists = rooms.some(room => room.id === targetChat)
+            if (chatExists) {
+              setActiveChat(targetChat)
+              // 加载消息
+              const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+              if (messages && messages.length > 0) {
+                const formattedMessages = messages.map(msg => ({
+                  content: msg.content || '',
+                  user: {
+                    name: msg.user?.name || 'Unknown User',
+                    image: msg.user?.image || '/default-avatar.png',
+                    id: msg.user?.id || 'unknown'
+                  },
+                  createdAt: msg.createdAt || new Date().toISOString(),
+                  type: msg.type || 'message',
+                  isOwnMessage: msg.user?.id === session.user.id
+                }))
+                setMessages(formattedMessages)
+                updateChatMessagesCache(session.user.login, targetChat, formattedMessages)
+
+                // 更新联系人列表中的最后一条消息
+                const updatedContacts = rooms.map(contact => {
+                  if (contact.id === targetChat) {
+                    return {
+                      ...contact,
+                      lastMessage: formattedMessages[formattedMessages.length - 1],
+                      unread: 0
+                    }
+                  }
+                  return contact
+                })
+                setContacts(updatedContacts)
+                updateChatRoomsCache(session.user.login, updatedContacts)
               }
             }
-            setActiveChat(targetChat)
-
-            // 加载消息
-            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-            console.log('Loaded messages for', targetChat, ':', messages)
-            
-            if (messages && messages.length > 0) {
-              const formattedMessages = messages.map(msg => ({
-                content: msg.content || '',
-                user: {
-                  name: msg.user?.name || 'Unknown User',
-                  image: msg.user?.image || '/default-avatar.png',
-                  id: msg.user?.id || 'unknown'
-                },
-                createdAt: msg.createdAt || new Date().toISOString(),
-                type: msg.type || 'message'
-              }))
-              setMessages(formattedMessages)
-              updateChatMessagesCache(session.user.login, targetChat, formattedMessages)
-            } else {
-              setMessages([])
-            }
           }
-        } catch (error) {
-          console.error('Error initializing data:', error)
-        } finally {
-          setIsLoading(false)
         }
+      } catch (error) {
+        console.error('Error initializing data:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
 
     initializeData()
-  }, [session])
+  }, [session, roomId])
 
-  // 修改加载消息的逻辑
+  // 修改消息加载逻辑
   const loadChatMessages = async () => {
     if (!session?.user?.login || !session.accessToken || !activeChat) return
 
     try {
       setIsLoading(true)
-      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
-
+      
       // 尝试从缓存加载消息
       const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
       if (cachedMessages) {
         console.log('Using cached messages for', activeChat)
-        const formattedCachedMessages = cachedMessages.map(msg => ({
-          ...msg,
-          isOwnMessage: msg.user?.id === session.user.id
-        }))
-        setMessages(formattedCachedMessages)
-        setIsLoading(false)
+        setMessages(cachedMessages)
         return
       }
 
-      console.log('Loading messages for chat:', activeChat)
-
       // 从 GitHub 加载消息
       const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
-      console.log('Loaded messages:', messages)
-
       if (Array.isArray(messages) && messages.length > 0) {
         const formattedMessages = messages.map(msg => ({
           content: msg.content || '',
@@ -274,6 +274,20 @@ export default function Home({ username, roomId }) {
 
         setMessages(formattedMessages)
         updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
+
+        // 更新联系人列表中的最后一条消息
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === activeChat) {
+            return {
+              ...contact,
+              lastMessage: formattedMessages[formattedMessages.length - 1],
+              unread: 0
+            }
+          }
+          return contact
+        })
+        setContacts(updatedContacts)
+        updateChatRoomsCache(session.user.login, updatedContacts)
       }
     } catch (error) {
       console.error('Error loading messages:', error)
@@ -282,6 +296,41 @@ export default function Home({ username, roomId }) {
       setIsLoading(false)
     }
   }
+
+  // 监听消息变化
+  useEffect(() => {
+    if (!activeChat || !messages.length || !session?.user?.login) return
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        // 更新缓存
+        updateChatMessagesCache(session.user.login, activeChat, messages)
+
+        // 更新联系人列表中的最后一条消息
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === activeChat) {
+            return {
+              ...contact,
+              lastMessage: messages[messages.length - 1],
+              unread: 0
+            }
+          }
+          return contact
+        })
+        setContacts(updatedContacts)
+        updateChatRoomsCache(session.user.login, updatedContacts)
+
+        // 保存到 GitHub
+        if (session.accessToken) {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+        }
+      } catch (error) {
+        console.error('Error saving messages:', error)
+      }
+    }, 1000) // 1秒延迟保存
+
+    return () => clearTimeout(timeoutId)
+  }, [messages, activeChat, session])
 
   // 修改发送消息的逻辑
   const sendMessage = async (e) => {
@@ -378,36 +427,121 @@ export default function Home({ username, roomId }) {
   }
 
   // 修改聊天室切换的逻辑
-  const handleChatChange = (chatId) => {
-    if (chatId === activeChat) return
-    setActiveChat(chatId)
-    setMessages([]) // 立即清空消息
-    setIsLoading(true) // 显示加载状态
-
-    // 如果切换到系统通知，清除未读消息数
-    if (chatId === 'system') {
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === 'system') {
-          return {
-            ...contact,
-            unread: 0
-          }
-        }
-        return contact
-      })
-      setContacts(updatedContacts)
-
+  const handleChatChange = async (chatId) => {
+    if (!session?.user?.login || chatId === activeChat) return
+    
+    try {
+      // 更新状态
+      setActiveChat(chatId)
+      setMessages([])
+      setIsLoading(true)
+      
+      // 更新路由
+      router.push(`/${session.user.login}/${chatId}`, undefined, { shallow: true })
+      
+      // 加载消息
+      const messages = await loadChatHistory(session.accessToken, session.user.login, chatId)
+      if (messages && messages.length > 0) {
+        setMessages(messages)
+        updateChatMessagesCache(session.user.login, chatId, messages)
+      }
+      
       // 更新用户配置
-      if (session?.accessToken && session.user.login && userConfig) {
+      if (userConfig) {
         const updatedConfig = {
           ...userConfig,
-          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: chatId
+          },
           last_updated: new Date().toISOString()
         }
-        updateConfig(session.accessToken, session.user.login, updatedConfig)
-          .catch(error => console.error('Error updating config:', error))
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+      
+      // 更新联系人列表
+      const updatedContacts = contacts.map(contact => ({
+        ...contact,
+        isActive: contact.id === chatId,
+        unread: contact.id === chatId ? 0 : contact.unread
+      }))
+      setContacts(updatedContacts)
+      
+    } catch (error) {
+      console.error('Error switching chat:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 监听路由变化
+  useEffect(() => {
+    if (!session?.user?.login) return
+
+    const handleRouteChange = () => {
+      const pathParts = window.location.pathname.split('/')
+      if (pathParts.length >= 3) {
+        const newRoomId = pathParts[2]
+        if (newRoomId && newRoomId !== activeChat) {
+          handleChatChange(newRoomId)
+        }
       }
     }
+
+    // 初始化时检查路由
+    handleRouteChange()
+
+    // 监听路由变化
+    window.addEventListener('popstate', handleRouteChange)
+    return () => window.removeEventListener('popstate', handleRouteChange)
+  }, [session])
+
+  // 初始化聊天室
+  useEffect(() => {
+    if (!session?.user?.login || !roomId) return
+    
+    if (roomId !== activeChat) {
+      handleChatChange(roomId)
+    }
+  }, [session, roomId])
+
+  // 渲染聊天室列表
+  const renderChatList = () => {
+    return contacts.map((contact) => {
+      const isActive = activeChat === contact.id
+      return (
+        <button
+          key={contact.id}
+          onClick={() => handleChatChange(contact.id)}
+          className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+            isActive
+              ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+              : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+        >
+          <div className="flex-1 min-w-0">
+            <p className={`text-sm font-medium truncate ${
+              isActive
+                ? 'text-blue-600 dark:text-blue-300'
+                : 'text-gray-900 dark:text-white'
+            }`}>
+              {contact.name}
+            </p>
+            {contact.lastMessage && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {contact.lastMessage.content}
+              </p>
+            )}
+          </div>
+          {contact.unread > 0 && (
+            <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
+              {contact.unread}
+            </span>
+          )}
+        </button>
+      )
+    })
   }
 
   // 修改保存消息的逻辑
@@ -1415,34 +1549,10 @@ export default function Home({ username, roomId }) {
         </div>
 
         {/* 聊天列表 */}
-        <div className="space-y-1 p-2">
-          {contacts.map((contact) => (
-            <button
-              key={contact.id}
-              onClick={() => handleChatChange(contact.id)}
-              className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                activeChat === contact.id
-                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-              }`}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {contact.name}
-                </p>
-                {contact.lastMessage && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {contact.lastMessage}
-                  </p>
-                )}
-              </div>
-              {contact.unread > 0 && (
-                <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
-                  {contact.unread}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="flex-1 overflow-y-auto">
+          <div className="space-y-1 p-2">
+            {renderChatList()}
+          </div>
         </div>
 
         {/* 底部操作按钮 */}
