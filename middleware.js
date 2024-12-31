@@ -29,10 +29,14 @@ export async function middleware(request) {
   if (path === '/') {
     const token = await getToken({ req: request })
     if (token?.login) {
-      // 如果已登录且不在自己的路径，重定向到用户的个人路径
+      // 只在用户已登录且明确需要重定向时才进行重定向
       const userPath = `/${token.login}`
-      if (path !== userPath) {
-        return NextResponse.redirect(new URL(userPath, request.url))
+      if (path !== userPath && !request.cookies.get('no_redirect')) {
+        const redirectUrl = new URL(userPath, request.url)
+        const redirectResponse = NextResponse.redirect(redirectUrl)
+        // 设置一个 cookie 来防止循环重定向
+        redirectResponse.cookies.set('no_redirect', 'true', { maxAge: 60 })
+        return redirectResponse
       }
     }
   }
