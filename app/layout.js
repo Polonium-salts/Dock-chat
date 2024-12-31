@@ -1,6 +1,7 @@
+'use client'
+
 import { Inter } from 'next/font/google'
-import { SessionProvider } from 'next-auth/react'
-import { NotificationProvider } from './contexts/NotificationContext'
+import { Providers } from './providers'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -14,11 +15,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={inter.className}>
-        <SessionProvider>
-          <NotificationProvider>
-            {children}
-          </NotificationProvider>
-        </SessionProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   )
