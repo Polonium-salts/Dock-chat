@@ -1,10 +1,11 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { Fragment, useState, useEffect } from 'react'
 import { Dialog, Transition } from '@headlessui/react'
 import { XMarkIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
 import { useDebounce } from '@/lib/hooks'
+import { useNotification } from '../contexts/NotificationContext'
 
 export default function AddFriendModal({ isOpen, onClose, session }) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -12,6 +13,16 @@ export default function AddFriendModal({ isOpen, onClose, session }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const debouncedSearch = useDebounce(searchQuery, 300)
+  const { showNotification } = useNotification()
+
+  // 监听搜索查询的变化
+  useEffect(() => {
+    if (debouncedSearch) {
+      searchUsers(debouncedSearch)
+    } else {
+      setSearchResults([])
+    }
+  }, [debouncedSearch])
 
   // 搜索用户
   const searchUsers = async (query) => {
@@ -34,6 +45,7 @@ export default function AddFriendModal({ isOpen, onClose, session }) {
     } catch (err) {
       console.error('Failed to search users:', err)
       setError(err.message)
+      showNotification('error', '搜索失败', err.message)
     } finally {
       setIsLoading(false)
     }
@@ -57,11 +69,12 @@ export default function AddFriendModal({ isOpen, onClose, session }) {
         throw new Error('发送好友请求失败')
       }
 
-      // 成功发送请求后关闭模态框
+      showNotification('success', '发送成功', '好友请求已发送')
       onClose()
     } catch (err) {
       console.error('Failed to send friend request:', err)
       setError(err.message)
+      showNotification('error', '发送失败', err.message)
     } finally {
       setIsLoading(false)
     }
@@ -137,7 +150,7 @@ export default function AddFriendModal({ isOpen, onClose, session }) {
                         >
                           <div className="flex items-center space-x-3">
                             <Image
-                              src={user.image || '/default-avatar.png'}
+                              src={user.image}
                               alt={user.name}
                               width={40}
                               height={40}
@@ -153,10 +166,15 @@ export default function AddFriendModal({ isOpen, onClose, session }) {
                             </div>
                           </div>
                           <button
-                            onClick={() => sendFriendRequest(user.id)}
-                            className="px-3 py-1 text-sm text-white bg-blue-500 hover:bg-blue-600 rounded"
+                            onClick={() => sendFriendRequest(user.login)}
+                            disabled={isLoading}
+                            className={`px-3 py-1 text-sm text-white rounded ${
+                              isLoading
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-blue-500 hover:bg-blue-600'
+                            }`}
                           >
-                            添加
+                            {isLoading ? '发送中...' : '添加'}
                           </button>
                         </div>
                       ))}

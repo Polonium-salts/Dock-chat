@@ -1,35 +1,29 @@
 'use client'
 
-import React, { createContext, useContext, useState } from 'react'
-import { Notification } from '../components/Notification'
+import { createContext, useContext, useState } from 'react'
+import Notification from '../components/Notification'
 
 const NotificationContext = createContext()
 
 export function NotificationProvider({ children }) {
   const [notification, setNotification] = useState(null)
 
-  const showNotification = (type, title, message, duration = 3000) => {
+  const showNotification = (type, title, message) => {
     setNotification({ type, title, message })
-    if (duration > 0) {
-      setTimeout(() => {
-        setNotification(null)
-      }, duration)
-    }
-  }
-
-  const hideNotification = () => {
-    setNotification(null)
+    setTimeout(() => {
+      setNotification(null)
+    }, 3000)
   }
 
   return (
-    <NotificationContext.Provider value={{ showNotification, hideNotification }}>
+    <NotificationContext.Provider value={{ showNotification }}>
       {children}
       {notification && (
         <Notification
           type={notification.type}
           title={notification.title}
           message={notification.message}
-          onClose={hideNotification}
+          onClose={() => setNotification(null)}
         />
       )}
     </NotificationContext.Provider>
