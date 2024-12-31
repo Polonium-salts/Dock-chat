@@ -11,7 +11,8 @@ import {
   PlusCircleIcon,
   SparklesIcon,
   XMarkIcon,
-  UserPlusIcon
+  UserPlusIcon,
+  BellIcon
 } from '@heroicons/react/24/solid'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -42,24 +43,26 @@ import FriendsPage from './components/FriendsPage'
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const [currentView, setCurrentView] = useState('chat')
-  const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [activeChat, setActiveChat] = useState('')
-  const [contacts, setContacts] = useState([])
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinInput, setJoinInput] = useState('')
+  const [activeChat, setActiveChat] = useState('public')
+  const [contacts, setContacts] = useState([])
   const messagesEndRef = useRef(null)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [currentView, setCurrentView] = useState('chat') // 'chat', 'profile', 'friends'
   const [showKimiModal, setShowKimiModal] = useState(false)
   const [kimiApiKey, setKimiApiKey] = useState('')
   const [isWaitingForKimi, setIsWaitingForKimi] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [userConfig, setUserConfig] = useState(null)
   const [isSending, setIsSending] = useState(false)
+  const [autoSaveInterval, setAutoSaveInterval] = useState(null)
+  const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
@@ -69,181 +72,6 @@ export default function Home({ username, roomId }) {
   const [friendRequests, setFriendRequests] = useState([])
   const [friends, setFriends] = useState([])
   const [following, setFollowing] = useState([])
-
-  // 修改错误处理
-  const handleError = (error, message) => {
-    console.error(message, error)
-    alert(message)
-  }
-
-  // 修改加载消息的逻辑
-  const loadChatMessages = async () => {
-    if (!session?.user?.login || !session.accessToken || !activeChat) return
-
-    try {
-      setIsLoading(true)
-      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
-
-      // 尝试从缓存加载消息
-      const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
-      if (cachedMessages) {
-        console.log('Using cached messages for', activeChat)
-        setMessages(cachedMessages)
-        setIsLoading(false)
-        return
-      }
-
-      console.log('Loading messages for chat:', activeChat)
-
-      // 从 GitHub 加载消息
-      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
-      console.log('Loaded messages:', messages)
-
-      if (Array.isArray(messages) && messages.length > 0) {
-        const formattedMessages = messages.map(msg => ({
-          content: msg.content || '',
-          user: {
-            name: msg.user?.name || 'Unknown User',
-            image: msg.user?.image || '/default-avatar.png',
-            id: msg.user?.id || 'unknown'
-          },
-          createdAt: msg.createdAt || new Date().toISOString(),
-          type: msg.type || 'message'
-        }))
-
-        setMessages(formattedMessages)
-        updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
-      }
-    } catch (error) {
-      handleError(error, '加载消息失败')
-      setMessages([])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // 修改保存消息的逻辑
-  const saveMessages = async (roomId, messages) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      console.log('Saving messages for room:', roomId)
-      await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
-      updateChatMessagesCache(session.user.login, roomId, messages)
-
-      // 更新联系人列表中的消息状态
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === roomId) {
-          return {
-            ...contact,
-            last_message: messages[messages.length - 1] || null,
-            message_count: messages.length,
-            updated_at: new Date().toISOString()
-          }
-        }
-        return contact
-      })
-      setContacts(updatedContacts)
-      updateChatRoomsCache(session.user.login, updatedContacts)
-
-      console.log('Successfully saved messages')
-    } catch (error) {
-      handleError(error, '保存消息失败')
-    }
-  }
-
-  // 修改发送消息的逻辑
-  const handleSendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !session?.user?.login || !session.accessToken || isSending) return
-
-    try {
-      setIsSending(true)
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name || session.user.login,
-          image: session.user.image || '/default-avatar.png',
-          id: session.user.id
-        },
-        createdAt: new Date().toISOString()
-      }
-
-      // 添加消息到本地状态
-      setMessages(prev => [...prev, message])
-      setNewMessage('')
-
-      // 保存消息
-      const updatedMessages = [...messages, message]
-      await saveMessages(activeChat, updatedMessages)
-
-      // 如果是公共聊天室，发送到 WebSocket
-      if (activeChat === 'public' && socket?.connected) {
-        socket.emit('message', {
-          ...message,
-          room: 'public'
-        })
-      }
-
-      // 如果是 Kimi AI 聊天室，发送到 AI
-      if (activeChat === 'kimi-ai') {
-        await handleKimiMessage(newMessage)
-      }
-    } catch (error) {
-      handleError(error, '发送消息失败')
-      // 移除失败的消息
-      setMessages(prev => prev.slice(0, -1))
-    } finally {
-      setIsSending(false)
-    }
-  }
-
-  // 修改聊天室切换的逻辑
-  const handleChatChange = async (chatId) => {
-    if (chatId === activeChat) return
-    
-    try {
-      setActiveChat(chatId)
-      setMessages([])
-      setIsLoading(true)
-
-      // 更新未读消息数
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === chatId) {
-          return {
-            ...contact,
-            unread: 0
-          }
-        }
-        return contact
-      })
-      setContacts(updatedContacts)
-
-      // 更新用户配置
-      if (userConfig && session?.user?.login && session.accessToken) {
-        const updatedConfig = {
-          ...userConfig,
-          settings: {
-            ...userConfig.settings,
-            activeChat: chatId
-          },
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-          .catch(error => console.error('Error updating config:', error))
-      }
-
-      // 加载消息
-      await loadChatMessages()
-
-      // 更新路由
-      if (session?.user?.login) {
-        router.push(`/${session.user.login}/${chatId}`)
-      }
-    } catch (error) {
-      handleError(error, '切换聊天室失败')
-    }
-  }
 
   // 动滚动到底部
   useEffect(() => {
@@ -316,7 +144,7 @@ export default function Home({ username, roomId }) {
             setContacts(cachedRooms)
             
             // 设置活动聊天室
-            let targetChat = ''
+            let targetChat = 'public'
             if (cachedConfig?.settings?.activeChat) {
               const chatExists = cachedRooms.some(room => room.id === cachedConfig.settings.activeChat)
               if (chatExists) {
@@ -326,12 +154,10 @@ export default function Home({ username, roomId }) {
             setActiveChat(targetChat)
 
             // 从缓存加载消息
-            if (targetChat) {
-              const cachedMessages = getChatMessagesCache(session.user.login, targetChat)
-              if (cachedMessages) {
-                setMessages(cachedMessages)
-                setIsLoading(false)
-              }
+            const cachedMessages = getChatMessagesCache(session.user.login, targetChat)
+            if (cachedMessages) {
+              setMessages(cachedMessages)
+              setIsLoading(false)
             }
           }
 
@@ -354,9 +180,6 @@ export default function Home({ username, roomId }) {
             if (config.kimi_settings?.api_key) {
               setKimiApiKey(config.kimi_settings.api_key)
             }
-            if (config.settings?.theme) {
-              setTheme(config.settings.theme)
-            }
           }
 
           // 加载聊天室列表
@@ -368,7 +191,7 @@ export default function Home({ username, roomId }) {
             updateChatRoomsCache(session.user.login, rooms)
 
             // 设置活动聊天室
-            let targetChat = ''
+            let targetChat = 'public'
             if (config?.settings?.activeChat) {
               const chatExists = rooms.some(room => room.id === config.settings.activeChat)
               if (chatExists) {
@@ -378,26 +201,24 @@ export default function Home({ username, roomId }) {
             setActiveChat(targetChat)
 
             // 加载消息
-            if (targetChat) {
-              const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-              console.log('Loaded messages for', targetChat, ':', messages)
-              
-              if (messages && messages.length > 0) {
-                const formattedMessages = messages.map(msg => ({
-                  content: msg.content || '',
-                  user: {
-                    name: msg.user?.name || 'Unknown User',
-                    image: msg.user?.image || '/default-avatar.png',
-                    id: msg.user?.id || 'unknown'
-                  },
-                  createdAt: msg.createdAt || new Date().toISOString(),
-                  type: msg.type || 'message'
-                }))
-                setMessages(formattedMessages)
-                updateChatMessagesCache(session.user.login, targetChat, formattedMessages)
-              } else {
-                setMessages([])
-              }
+            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
+            console.log('Loaded messages for', targetChat, ':', messages)
+            
+            if (messages && messages.length > 0) {
+              const formattedMessages = messages.map(msg => ({
+                content: msg.content || '',
+                user: {
+                  name: msg.user?.name || 'Unknown User',
+                  image: msg.user?.image || '/default-avatar.png',
+                  id: msg.user?.id || 'unknown'
+                },
+                createdAt: msg.createdAt || new Date().toISOString(),
+                type: msg.type || 'message'
+              }))
+              setMessages(formattedMessages)
+              updateChatMessagesCache(session.user.login, targetChat, formattedMessages)
+            } else {
+              setMessages([])
             }
           }
         } catch (error) {
@@ -411,51 +232,341 @@ export default function Home({ username, roomId }) {
     initializeData()
   }, [session])
 
-  // 修改主题变化时的逻辑
-  useEffect(() => {
-    if (userConfig && theme !== userConfig.settings?.theme) {
-      const updatedConfig = {
-        ...userConfig,
-        settings: {
-          ...userConfig.settings,
-          theme
-        },
-        last_updated: new Date().toISOString()
-      }
-      updateConfig(session.accessToken, session.user.login, updatedConfig)
-        .catch(error => console.error('Error updating theme:', error))
-    }
-  }, [theme])
+  // 修改加载消息的逻辑
+  const loadChatMessages = async () => {
+    if (!session?.user?.login || !session.accessToken || !activeChat) return
 
-  // 修改渲染导航栏的逻辑
-  const renderNavigation = () => {
-    return (
-      <nav className="w-64 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-y-auto">
-        <div className="p-4">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">聊天室列表</h2>
-          <div className="space-y-2">
-            {contacts.map(contact => (
-              <button
-                key={contact.id}
-                onClick={() => handleChatChange(contact.id)}
-                className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-                  activeChat === contact.id
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
-                    : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                }`}
-              >
-                <span className="truncate">{contact.name}</span>
-                {contact.unread > 0 && (
-                  <span className="ml-auto bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
-                    {contact.unread}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
+    try {
+      setIsLoading(true)
+      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
+
+      // 尝试从缓存加载消息
+      const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
+      if (cachedMessages) {
+        console.log('Using cached messages for', activeChat)
+        const formattedCachedMessages = cachedMessages.map(msg => ({
+          ...msg,
+          isOwnMessage: msg.user?.id === session.user.id
+        }))
+        setMessages(formattedCachedMessages)
+        setIsLoading(false)
+        return
+      }
+
+      console.log('Loading messages for chat:', activeChat)
+
+      // 从 GitHub 加载消息
+      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
+      console.log('Loaded messages:', messages)
+
+      if (Array.isArray(messages) && messages.length > 0) {
+        const formattedMessages = messages.map(msg => ({
+          content: msg.content || '',
+          user: {
+            name: msg.user?.name || 'Unknown User',
+            image: msg.user?.image || '/default-avatar.png',
+            id: msg.user?.id || 'unknown'
+          },
+          createdAt: msg.createdAt || new Date().toISOString(),
+          type: msg.type || 'message',
+          isOwnMessage: msg.user?.id === session.user.id
+        }))
+
+        setMessages(formattedMessages)
+        updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+      setMessages([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 修改发送消息的逻辑
+  const sendMessage = async (e) => {
+    e.preventDefault()
+    if (!newMessage.trim() || !session || isSending) return
+
+    try {
+      setIsSending(true)
+      const message = {
+        content: newMessage,
+        user: {
+          name: session.user.name,
+          image: session.user.image,
+          id: session.user.id
+        },
+        createdAt: new Date().toISOString(),
+        isOwnMessage: true
+      }
+
+      // 添加消息到本地状态
+      setMessages(prev => [...prev, message])
+      setNewMessage('')
+
+      // 发送消息到 Socket.IO
+      if (socket?.connected) {
+        socket.emit('message', {
+          ...message,
+          room: activeChat
+        })
+      }
+
+      // 根据聊天室类型保存消息
+      if (activeChat === 'kimi-ai') {
+        await handleKimiMessage(message.content)
+      } else {
+        // 获取当前所有消息，包括新消息
+        const updatedMessages = [...messages, message]
+        try {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          console.log('Successfully saved messages:', updatedMessages)
+
+          // 更新缓存
+          updateChatMessagesCache(session.user.login, activeChat, updatedMessages)
+
+          // 更新联系人列表
+          const updatedContacts = contacts.map(contact => {
+            if (contact.id === activeChat) {
+              return {
+                ...contact,
+                last_message: message,
+                message_count: updatedMessages.length,
+                updated_at: new Date().toISOString()
+              }
+            }
+            return contact
+          })
+          setContacts(updatedContacts)
+          updateChatRoomsCache(session.user.login, updatedContacts)
+
+          // 更新用户配置
+          if (userConfig) {
+            const updatedConfig = {
+              ...userConfig,
+              contacts: updatedContacts,
+              last_updated: new Date().toISOString()
+            }
+            await updateConfig(session.accessToken, session.user.login, updatedConfig)
+            setUserConfig(updatedConfig)
+          }
+        } catch (error) {
+          console.error('Failed to save messages:', error)
+          throw error
+        }
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      // 移除失败的消息并显示错误
+      setMessages(prev => {
+        const newMessages = prev.slice(0, -1)
+        return [...newMessages, {
+          content: '消息发送失败，请重试',
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          isError: true,
+          createdAt: new Date().toISOString()
+        }]
+      })
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  // 修改聊天室切换的逻辑
+  const handleChatChange = (chatId) => {
+    setActiveChat(chatId)
+    setCurrentView('chat')
+    
+    // 更新路由
+    if (typeof window !== 'undefined' && session?.user?.login) {
+      router.push(`/${session.user.login}/${chatId}`)
+    }
+    
+    // 更新未读消息数
+    setContacts(prev => 
+      prev.map(contact => 
+        contact.id === chatId 
+          ? { ...contact, unread: 0 }
+          : contact
+      )
     )
+  }
+
+  // 修改保存消息的逻辑
+  const saveMessages = async (roomId, messages) => {
+    if (!session?.user?.login || !session.accessToken) return
+
+    try {
+      console.log('Saving messages for room:', roomId)
+      const savedMessages = await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
+      
+      // 更新联系人列表中的消息状态
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === roomId) {
+          return {
+            ...contact,
+            last_message: savedMessages[savedMessages.length - 1] || null,
+            message_count: savedMessages.length,
+            updated_at: new Date().toISOString()
+          }
+        }
+        return contact
+      })
+      setContacts(updatedContacts)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
+
+      console.log('Successfully saved messages')
+    } catch (error) {
+      console.error('Error saving messages:', error)
+    }
+  }
+
+  // 在消息列表变化时保存
+  useEffect(() => {
+    if (activeChat && messages.length > 0) {
+      saveMessages(activeChat, messages)
+    }
+  }, [messages])
+
+  const handleKimiMessage = async (content) => {
+    if (!kimiApiKey) {
+      console.error('Kimi API key not set');
+      return;
+    }
+
+    try {
+      setIsWaitingForKimi(true);
+      // 显示正在输入状态
+      const typingMessage = {
+        content: '正在思考...',
+        user: {
+          name: 'Kimi AI',
+          image: '/kimi-avatar.png',
+          id: 'kimi-ai'
+        },
+        isTyping: true,
+        createdAt: new Date().toISOString()
+      };
+
+      setMessages(prev => [...prev, typingMessage]);
+
+      const response = await sendMessageToKimi(content, kimiApiKey);
+      
+      // 移除正在输入状态的消息并添加 AI 响应
+      setMessages(prev => {
+        const messagesWithoutTyping = prev.filter(msg => !msg.isTyping);
+        const aiMessage = {
+          content: response,
+          user: {
+            name: 'Kimi AI',
+            image: '/kimi-avatar.png',
+            id: 'kimi-ai'
+          },
+          createdAt: new Date().toISOString()
+        };
+        
+        const updatedMessages = [...messagesWithoutTyping, aiMessage];
+        
+        // 保存更新后的消息
+        saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          .catch(error => console.error('Error saving AI chat history:', error));
+        
+        return updatedMessages;
+      });
+    } catch (error) {
+      console.error('Failed to get Kimi AI response:', error);
+      setMessages(prev => {
+        const messagesWithoutTyping = prev.filter(msg => !msg.isTyping);
+        const errorMessage = {
+          content: '抱歉，我遇到了一些问题。请稍后再试。',
+          user: {
+            name: 'Kimi AI',
+            image: '/kimi-avatar.png',
+            id: 'kimi-ai'
+          },
+          isError: true,
+          createdAt: new Date().toISOString()
+        };
+        
+        const updatedMessages = [...messagesWithoutTyping, errorMessage];
+        
+        // 保存错误消息
+        saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
+          .catch(error => console.error('Error saving error message:', error));
+        
+        return updatedMessages;
+      });
+    } finally {
+      setIsWaitingForKimi(false);
+    }
+  };
+
+  const handleJoin = async (e) => {
+    e.preventDefault()
+    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) return
+
+    try {
+      // 初始化聊天室
+      await initializeChatRoom(
+        session.accessToken,
+        session.user.login,
+        joinInput,
+        `聊天室 ${joinInput}`,
+        'room',
+        {
+          creator: session.user.login,
+          created_at: new Date().toISOString()
+        }
+      )
+
+      // 更新联系人列表
+      const newContact = {
+        id: joinInput,
+        name: `聊天室 ${joinInput}`,
+        type: 'room',
+        unread: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        message_count: 0,
+        last_message: null
+      }
+
+      setContacts(prev => [...prev, newContact])
+      setJoinInput('')
+      setShowJoinModal(false)
+      setActiveChat(joinInput)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: [...contacts, newContact],
+          settings: {
+            ...userConfig.settings,
+            activeChat: joinInput
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
+    } catch (error) {
+      console.error('Error joining chat room:', error)
+      alert('加入聊天室失败')
+    }
   }
 
   // 修改初始化检查的逻辑
@@ -517,6 +628,14 @@ export default function Home({ username, roomId }) {
       await updateConfig(session.accessToken, session.user.login, updatedConfig)
       setUserConfig(updatedConfig)
       
+      // 应用新的设置
+      if (updatedConfig.settings?.autoSave) {
+        setupAutoSave(updatedConfig.settings.saveInterval || 5)
+      } else if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+        setAutoSaveInterval(null)
+      }
+
       // 更新主题
       if (updatedConfig.settings?.theme) {
         setTheme(updatedConfig.settings.theme)
@@ -535,17 +654,9 @@ export default function Home({ username, roomId }) {
   // 在相关状态变化时保存配置
   useEffect(() => {
     if (userConfig) {
-      const updatedConfig = {
-        ...userConfig,
-        settings: {
-          ...userConfig.settings,
-          theme: theme
-        },
-        last_updated: new Date().toISOString()
-      }
-      saveConfig(updatedConfig)
+      saveConfig(userConfig)
     }
-  }, [theme])
+  }, [kimiApiKey, contacts, activeChat])
 
   // 修改添加 Kimi AI 聊天室函数
   const addKimiAIChat = () => {
@@ -570,6 +681,79 @@ export default function Home({ username, roomId }) {
     setActiveChat('kimi-ai')
     setMessages([])
   }
+
+  // 加载用户设置
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (session?.user?.login && session.accessToken) {
+        try {
+          const config = await getConfig(session.accessToken, session.user.login)
+          if (config?.general_settings?.autoSaveToGitHub) {
+            // 设置自动保存间隔
+            const interval = config.general_settings.saveInterval || 5
+            setupAutoSave(interval)
+          }
+        } catch (error) {
+          console.error('Error loading user settings:', error)
+        }
+      }
+    }
+
+    loadUserSettings()
+    return () => {
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+      }
+    }
+  }, [session])
+
+  // 设置自动保存
+  const setupAutoSave = (interval) => {
+    if (autoSaveInterval) {
+      clearInterval(autoSaveInterval)
+    }
+
+    const newInterval = setInterval(async () => {
+      if (session?.user?.login && session.accessToken && messages.length > 0) {
+        try {
+          await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+          console.log('Auto-saved messages to GitHub')
+        } catch (error) {
+          console.error('Error auto-saving messages:', error)
+        }
+      }
+    }, interval * 60 * 1000) // 转换为毫秒
+
+    setAutoSaveInterval(newInterval)
+  }
+
+  // 在组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+      }
+    }
+  }, [autoSaveInterval])
+
+  // 消息变化时手动保存
+  useEffect(() => {
+    const saveMessagesToGitHub = async () => {
+      if (!session?.user?.login || !session.accessToken || !activeChat || messages.length === 0) return
+
+      try {
+        console.log('Saving messages for room:', activeChat)
+        await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+        console.log('Successfully saved messages')
+      } catch (error) {
+        console.error('Error saving messages:', error)
+      }
+    }
+
+    // 使用防抖来避免频繁保存
+    const timeoutId = setTimeout(saveMessagesToGitHub, 1000)
+    return () => clearTimeout(timeoutId)
+  }, [messages, activeChat, session])
 
   // 修改删除聊天室的逻辑
   const handleDeleteChatRoom = async (roomId) => {
@@ -727,35 +911,30 @@ export default function Home({ username, roomId }) {
 
   // 添加加入聊天室的逻辑
   const handleJoinRoom = async (roomId) => {
-    if (!roomId.trim() || !session?.user?.login || !session.accessToken) return
+    if (!session?.user?.login || !session.accessToken || !roomId) return
 
     try {
-      // 初始化聊天室
-      await initializeChatRoom(
-        session.accessToken,
-        session.user.login,
-        roomId,
-        `聊天室 ${roomId}`,
-        'room',
-        {
-          creator: session.user.login,
-          created_at: new Date().toISOString()
-        }
-      )
+      // 检查聊天室是否已存在于联系人列表中
+      const existingRoom = contacts.find(c => c.id === roomId)
+      if (existingRoom) {
+        setActiveChat(roomId)
+        setShowJoinModal(false)
+        return
+      }
 
-      // 更新联系人列表
-      const newContact = {
+      // 创建新的聊天室对象
+      const newRoom = {
         id: roomId,
         name: `聊天室 ${roomId}`,
         type: 'room',
-        unread: 0,
-        created_at: new Date().toISOString(),
+        joined_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         message_count: 0,
-        last_message: null
+        unread: 0
       }
 
-      const updatedContacts = [...contacts, newContact]
+      // 更新联系人列表
+      const updatedContacts = [...contacts, newRoom]
       setContacts(updatedContacts)
       updateChatRoomsCache(session.user.login, updatedContacts)
 
@@ -764,10 +943,6 @@ export default function Home({ username, roomId }) {
         const updatedConfig = {
           ...userConfig,
           contacts: updatedContacts,
-          settings: {
-            ...userConfig.settings,
-            activeChat: roomId
-          },
           last_updated: new Date().toISOString()
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
@@ -778,11 +953,11 @@ export default function Home({ username, roomId }) {
       setActiveChat(roomId)
       setShowJoinModal(false)
 
-      // 更新路由
-      router.push(`/${session.user.login}/${roomId}`)
+      // 加载聊天记录
+      await loadChatMessages()
     } catch (error) {
-      console.error('Error joining chat room:', error)
-      alert('加入聊天室失败')
+      console.error('Error joining room:', error)
+      alert('加入聊天室失败，请重试')
     }
   }
 
@@ -793,28 +968,7 @@ export default function Home({ username, roomId }) {
     }
   }, [activeChat, session])
 
-  // 加载用户设置
-  useEffect(() => {
-    const loadUserSettings = async () => {
-      if (session?.user?.login && session.accessToken) {
-        try {
-          const config = await getConfig(session.accessToken, session.user.login)
-          if (config) {
-            setUserConfig(config)
-            if (config?.settings?.theme) {
-              setTheme(config.settings.theme)
-            }
-          }
-        } catch (error) {
-          console.error('Error loading user settings:', error)
-        }
-      }
-    }
-
-    loadUserSettings()
-  }, [session])
-
-  // 消息保存逻辑
+  // 优化消息保存逻辑
   useEffect(() => {
     if (!activeChat || !messages.length || !session?.user?.login || !session.accessToken) return
 
@@ -826,7 +980,7 @@ export default function Home({ username, roomId }) {
       } catch (error) {
         console.error('Error saving messages:', error)
       }
-    }, 1000)
+    }, 1000) // 1秒延迟保存
 
     return () => clearTimeout(timeoutId)
   }, [messages, activeChat, session])
@@ -893,31 +1047,17 @@ export default function Home({ username, roomId }) {
       }
 
       // 更新联系人列表
-      const updatedContacts = [...contacts, newRoom]
-      setContacts(updatedContacts)
-      updateChatRoomsCache(session.user.login, updatedContacts)
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          settings: {
-            ...userConfig.settings,
-            activeChat: roomId
-          },
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        setUserConfig(updatedConfig)
-      }
-
+      setContacts(prev => [...prev, newRoom])
+      
       // 切换到新创建的聊天室
       setActiveChat(roomId)
       setShowCreateRoomModal(false)
+      setCurrentView('chat') // 确保切换到聊天视图
 
       // 更新路由
-      router.push(`/${session.user.login}/${roomId}`)
+      if (typeof window !== 'undefined') {
+        router.push(`/${session.user.login}/${roomId}`)
+      }
     } catch (error) {
       console.error('Error creating room:', error)
       alert('创建聊天室失败，请重试')
@@ -1152,80 +1292,6 @@ export default function Home({ username, roomId }) {
     loadFriendRequests()
   }, [session])
 
-  // 修改 Kimi AI 消息处理逻辑
-  const handleKimiMessage = async (content) => {
-    if (!kimiApiKey) {
-      console.error('Kimi API key not set')
-      return
-    }
-
-    try {
-      setIsWaitingForKimi(true)
-      // 显示正在输入状态
-      const typingMessage = {
-        content: '正在思考...',
-        user: {
-          name: 'Kimi AI',
-          image: '/kimi-avatar.png',
-          id: 'kimi-ai'
-        },
-        isTyping: true,
-        createdAt: new Date().toISOString()
-      }
-
-      setMessages(prev => [...prev, typingMessage])
-
-      const response = await sendMessageToKimi(content, kimiApiKey)
-      
-      // 移除正在输入状态的消息并添加 AI 响应
-      setMessages(prev => {
-        const messagesWithoutTyping = prev.filter(msg => !msg.isTyping)
-        const aiMessage = {
-          content: response,
-          user: {
-            name: 'Kimi AI',
-            image: '/kimi-avatar.png',
-            id: 'kimi-ai'
-          },
-          createdAt: new Date().toISOString()
-        }
-        
-        const updatedMessages = [...messagesWithoutTyping, aiMessage]
-        
-        // 保存更新后的消息
-        saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-          .catch(error => console.error('Error saving AI chat history:', error))
-        
-        return updatedMessages
-      })
-    } catch (error) {
-      console.error('Failed to get Kimi AI response:', error)
-      setMessages(prev => {
-        const messagesWithoutTyping = prev.filter(msg => !msg.isTyping)
-        const errorMessage = {
-          content: '抱歉，我遇到了一些问题。请稍后再试。',
-          user: {
-            name: 'Kimi AI',
-            image: '/kimi-avatar.png',
-            id: 'kimi-ai'
-          },
-          isError: true,
-          createdAt: new Date().toISOString()
-        }
-        
-        const updatedMessages = [...messagesWithoutTyping, errorMessage]
-        
-        // 保存错误消息
-        saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-          .catch(error => console.error('Error saving error message:', error))
-        
-        return updatedMessages
-      })
-    } finally {
-      setIsWaitingForKimi(false)
-    }
-  }
-
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -1264,63 +1330,113 @@ export default function Home({ username, roomId }) {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      {/* 左侧边栏 */}
-      <div className="w-64 flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
+    <div className="flex h-screen bg-white dark:bg-gray-900">
+      {/* 侧边栏 */}
+      <div className="w-64 flex flex-col border-r border-gray-200 dark:border-gray-700">
         {/* 用户信息 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center space-x-3">
-            {session?.user?.image && (
+          {session?.user ? (
+            <div className="flex items-center space-x-3">
               <Image
-                src={session.user.image}
-                alt={session.user.name || '用户头像'}
+                src={session.user.image || '/default-avatar.png'}
+                alt={session.user.name}
                 width={40}
                 height={40}
                 className="rounded-full"
               />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {session?.user?.name || '用户'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                @{session?.user?.login}
-              </p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {session.user.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  @{session.user.login}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <button
+              onClick={() => signIn('github')}
+              className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            >
+              登录 GitHub
+            </button>
+          )}
+        </div>
+
+        {/* 导航按钮 */}
+        <div className="flex p-2 space-x-2 border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setCurrentView('chat')}
+            className={`flex-1 p-2 rounded-md ${
+              currentView === 'chat'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            <UserGroupIcon className="h-5 w-5 mx-auto" />
+          </button>
+          <button
+            onClick={() => setCurrentView('friends')}
+            className={`flex-1 p-2 rounded-md ${
+              currentView === 'friends'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            <UserCircleIcon className="h-5 w-5 mx-auto" />
+          </button>
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="flex-1 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <Cog6ToothIcon className="h-5 w-5 mx-auto" />
+          </button>
         </div>
 
         {/* 聊天列表 */}
         <div className="flex-1 overflow-y-auto">
-          <div className="space-y-1 p-2">
-            {contacts.map((contact) => (
-              <button
-                key={contact.id}
-                onClick={() => handleChatChange(contact.id)}
-                className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                  activeChat === contact.id
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {contact.name}
-                  </p>
-                  {contact.lastMessage && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {contact.lastMessage}
+          {currentView === 'chat' ? (
+            <div className="space-y-1 p-2">
+              {contacts.map((contact) => (
+                <button
+                  key={contact.id}
+                  onClick={() => handleChatChange(contact.id)}
+                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
+                    activeChat === contact.id
+                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {contact.name}
                     </p>
+                    {contact.lastMessage && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {contact.lastMessage}
+                      </p>
+                    )}
+                  </div>
+                  {contact.unread > 0 && (
+                    <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
+                      {contact.unread}
+                    </span>
                   )}
-                </div>
-                {contact.unread > 0 && (
-                  <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
-                    {contact.unread}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <FriendsPage
+              friends={friends}
+              following={following}
+              onAddFriend={() => setShowAddFriendModal(true)}
+              onShowRequests={() => setShowFriendRequestsModal(true)}
+              onSelectUser={(user) => {
+                setSelectedUser(user)
+                setShowUserProfileModal(true)
+              }}
+            />
+          )}
         </div>
 
         {/* 底部操作按钮 */}
@@ -1347,102 +1463,109 @@ export default function Home({ username, roomId }) {
       {/* 主聊天区域 */}
       <div className="flex-1 flex flex-col">
         {/* 聊天头部 */}
-        <div className="h-16 flex items-center justify-between px-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-white">
+            <h2 className="text-lg font-medium">
               {contacts.find((c) => c.id === activeChat)?.name || '聊天室'}
             </h2>
+            {activeChat === 'kimi' && (
+              <SparklesIcon className="h-5 w-5 ml-2 text-yellow-500" />
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => setCurrentView(currentView === 'chat' ? 'friends' : 'chat')}
-              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => setCurrentView('friends')}
+              className={`p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                currentView === 'friends' ? 'bg-blue-100 dark:bg-blue-900 text-blue-600' : ''
+              }`}
+              title="好友列表"
+            >
+              <UserGroupIcon className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setShowAddFriendModal(true)}
+              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="添加好友"
             >
               <UserPlusIcon className="h-5 w-5" />
             </button>
             <button
-              onClick={() => setShowSettingsModal(true)}
-              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => setShowFriendRequestsModal(true)}
+              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="好友请求"
             >
-              <Cog6ToothIcon className="h-5 w-5" />
+              <BellIcon className="h-5 w-5" />
             </button>
+            {activeChat !== 'public' && (
+              <button
+                onClick={() => setShowChatSettings(true)}
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                title="聊天设置"
+              >
+                <Cog6ToothIcon className="h-5 w-5" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* 聊天内容区域 */}
-        {currentView === 'chat' ? (
-          <>
-            {/* 消息列表 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((message, index) => (
+        {/* 消息列表 */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.map((message, index) => (
+            <div
+              key={index}
+              className={`flex items-start space-x-3 ${
+                message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
+              }`}
+            >
+              <Image
+                src={message.user.image || '/default-avatar.png'}
+                alt={message.user.name}
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+              <div
+                className={`flex flex-col ${
+                  message.user.id === session?.user?.id ? 'items-end' : 'items-start'
+                }`}
+              >
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {message.user.name}
+                </span>
                 <div
-                  key={index}
-                  className={`flex items-start space-x-3 ${
-                    message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
+                  className={`mt-1 px-4 py-2 rounded-lg ${
+                    message.user.id === session?.user?.id
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 dark:bg-gray-800'
                   }`}
                 >
-                  <Image
-                    src={message.user.image || '/default-avatar.png'}
-                    alt={message.user.name}
-                    width={40}
-                    height={40}
-                    className="rounded-full"
-                  />
-                  <div
-                    className={`flex flex-col ${
-                      message.user.id === session?.user?.id ? 'items-end' : 'items-start'
-                    }`}
-                  >
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {message.user.name}
-                    </span>
-                    <div
-                      className={`mt-1 px-4 py-2 rounded-lg ${
-                        message.user.id === session?.user?.id
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 dark:bg-gray-800'
-                      }`}
-                    >
-                      {message.content}
-                    </div>
-                  </div>
+                  {message.content}
                 </div>
-              ))}
-              <div ref={messagesEndRef} />
+              </div>
             </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
 
-            {/* 输入框 */}
-            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-              <form onSubmit={sendMessage} className="flex space-x-2">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="输入消息..."
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                />
-                <button
-                  type="submit"
-                  disabled={!isConnected || isSending}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  <PaperAirplaneIcon className="h-5 w-5" />
-                </button>
-              </form>
-            </div>
-          </>
-        ) : (
-          <FriendsPage
-            friends={friends}
-            following={following}
-            onAddFriend={() => setShowAddFriendModal(true)}
-            onShowRequests={() => setShowFriendRequestsModal(true)}
-            onSelectUser={(user) => {
-              setSelectedUser(user)
-              setShowUserProfileModal(true)
-            }}
-          />
-        )}
+        {/* 输入框 */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          <form onSubmit={sendMessage} className="flex space-x-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="输入消息..."
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
+            />
+            <button
+              type="submit"
+              disabled={!isConnected || isSending}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <PaperAirplaneIcon className="h-5 w-5" />
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* 加入聊天室模态框 */}
