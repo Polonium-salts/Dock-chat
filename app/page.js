@@ -11,6 +11,7 @@ import FriendsPage from './components/FriendsPage'
 import ChatRoom from './components/ChatRoom'
 import SettingsModal from './components/SettingsModal'
 import { useRooms } from '@/lib/hooks'
+import { useNotification } from './contexts/NotificationContext'
 
 export default function Home() {
   const { data: session } = useSession()
@@ -23,6 +24,7 @@ export default function Home() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [currentRoom, setCurrentRoom] = useState(null)
   const [error, setError] = useState('')
+  const { showNotification } = useNotification()
   
   // 使用自定义hook获取聊天室列表
   const { rooms, isLoading, mutate } = useRooms(session)
@@ -64,9 +66,11 @@ export default function Home() {
       router.push(`/${session.user.login}/${room.id}`)
       
       setShowCreateModal(false)
+      showNotification('success', '创建成功', '聊天室已成功创建')
     } catch (err) {
       console.error('Failed to create room:', err)
       setError(err.message)
+      showNotification('error', '创建失败', err.message)
     }
   }
 
@@ -86,9 +90,11 @@ export default function Home() {
       
       // 跳转到加入的聊天室
       router.push(`/${session.user.login}/${roomId}`)
+      showNotification('success', '加入成功', '已成功加入聊天室')
     } catch (err) {
       console.error('Failed to join room:', err)
       setError(err.message)
+      showNotification('error', '加入失败', err.message)
     }
   }
 
