@@ -18,7 +18,9 @@ export default function SettingsModal({ isOpen, onClose, config, onSave, theme, 
       ...config,
       settings: {
         ...config.settings,
-        theme: formData.get('theme')
+        theme: formData.get('theme'),
+        autoSave: formData.get('autoSave') === 'on',
+        saveInterval: parseInt(formData.get('saveInterval')) || 5
       },
       last_updated: new Date().toISOString()
     }
@@ -82,6 +84,32 @@ export default function SettingsModal({ isOpen, onClose, config, onSave, theme, 
               <option value="light">浅色</option>
               <option value="dark">深色</option>
             </select>
+          </div>
+
+          <div>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                name="autoSave"
+                defaultChecked={config?.settings?.autoSave}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">自动保存到 GitHub</span>
+            </label>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              保存间隔（分钟）
+            </label>
+            <input
+              type="number"
+              name="saveInterval"
+              defaultValue={config?.settings?.saveInterval || 5}
+              min="1"
+              max="60"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            />
           </div>
 
           <div className="pt-4 space-y-4">
