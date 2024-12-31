@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useTheme } from 'next-themes'
+import { io } from 'socket.io-client'
 import { 
   Cog6ToothIcon,
   PlusCircleIcon,
@@ -15,6 +16,13 @@ import {
 } from '@heroicons/react/24/outline'
 import SettingsModal from './components/SettingsModal'
 import CreateRoomModal from './components/CreateRoomModal'
+import { 
+  updateConfig, 
+  saveChatHistory, 
+  updateChatRoomsCache, 
+  updateUserConfigCache 
+} from '@/lib/github'
+import Navigation from './components/Navigation'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -39,6 +47,7 @@ export default function Home({ username, roomId }) {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
+  const ws = useRef(null)
 
   // 动态滚动到底部
   useEffect(() => {
@@ -174,99 +183,119 @@ export default function Home({ username, roomId }) {
     }
   }
 
+  // WebSocket 连接
+  useEffect(() => {
+    if (!session?.user?.name) return
+
+    // 创建WebSocket连接
+    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || 'wss://dock-chat.vercel.app'}/ws?username=${session.user.name}`
+    ws.current = new WebSocket(wsUrl)
+
+    ws.current.onopen = () => {
+      console.log('WebSocket connected')
+    }
+
+    ws.current.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'message' && data.roomId === activeChat) {
+          // 添加新消息到消息列表
+          setMessages(prev => [...prev, data.message])
+          
+          // 更新联系人列表
+          setContacts(prev => prev.map(contact => {
+            if (contact.id === data.roomId) {
+              return {
+                ...contact,
+                last_message: data.message,
+                message_count: (contact.message_count || 0) + 1,
+                updated_at: new Date().toISOString()
+              }
+            }
+            return contact
+          }))
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error)
+      }
+    }
+
+    ws.current.onclose = () => {
+      console.log('WebSocket disconnected')
+    }
+
+    // 清理函数
+    return () => {
+      if (ws.current) {
+        ws.current.close()
+      }
+    }
+  }, [session?.user?.name, activeChat])
+
+  // 发送消息
+  const sendMessage = async (message) => {
+    if (!message.trim() || !activeChat) return
+
+    const newMessage = {
+      id: Date.now().toString(),
+      content: message,
+      sender: session?.user?.name || 'Anonymous',
+      createdAt: new Date().toISOString(),
+      type: 'text'
+    }
+
+    // 更新本地消息列表
+    setMessages(prev => [...prev, newMessage])
+
+    // 通过WebSocket发送消息
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'message',
+        roomId: activeChat,
+        message: newMessage
+      }))
+    }
+
+    // 保存消息到GitHub
+    try {
+      const updatedMessages = [...messages, newMessage]
+      await saveChatHistory(session.accessToken, session.user.name, activeChat, updatedMessages)
+      
+      // 更新联系人列表中的最后一条消息
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === activeChat) {
+          return {
+            ...contact,
+            last_message: newMessage,
+            message_count: (contact.message_count || 0) + 1,
+            updated_at: new Date().toISOString()
+          }
+        }
+        return contact
+      })
+      setContacts(updatedContacts)
+      
+      // 更新缓存
+      updateChatRoomsCache(session.user.name, updatedContacts)
+    } catch (error) {
+      console.error('Error saving message:', error)
+      toast.error('保存消息失败')
+    }
+  }
+
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      {/* 侧边栏 */}
-      <div className="w-64 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        {/* 顶部用户信息 */}
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              {session?.user?.image && (
-                <Image
-                  src={session.user.image}
-                  alt={session.user.name || ''}
-                  width={32}
-                  height={32}
-                  className="rounded-full"
-                />
-              )}
-              <span className="ml-2 text-sm font-medium text-gray-900 dark:text-white">
-                {session?.user?.name}
-              </span>
-            </div>
-            <button
-              onClick={() => setShowSettingsModal(true)}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              <Cog6ToothIcon className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* 聊天室列表 */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="space-y-1 p-2">
-            {contacts.map((contact) => (
-              <button
-                key={contact.id}
-                onClick={() => handleChatChange(contact.id)}
-                className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                  activeChat === contact.id
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {contact.name}
-                  </p>
-                  {contact.lastMessage && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {contact.lastMessage}
-                    </p>
-                  )}
-                </div>
-                {contact.unread > 0 && (
-                  <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
-                    {contact.unread}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 底部操作按钮 */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <div className="space-y-2">
-            <button
-              onClick={() => setShowCreateRoomModal(true)}
-              className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-            >
-              <PlusCircleIcon className="h-5 w-5 mr-2" />
-              新建聊天
-            </button>
-            <button
-              onClick={() => setShowJoinModal(true)}
-              className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
-            >
-              <UserGroupIcon className="h-5 w-5 mr-2" />
-              加入聊天室
-            </button>
-            <button
-              onClick={() => router.push('/friends')}
-              className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
-            >
-              <UserIcon className="h-5 w-5 mr-2" />
-              好友列表
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="flex h-screen bg-white dark:bg-gray-900">
+      {/* 导航栏 */}
+      <Navigation
+        contacts={contacts}
+        activeChat={activeChat}
+        onChatSelect={handleChatChange}
+        onCreateRoom={() => setShowCreateRoomModal(true)}
+      />
 
       {/* 主聊天区域 */}
-      <div className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col">
         {/* 聊天头部 */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center">
@@ -342,7 +371,7 @@ export default function Home({ username, roomId }) {
             </button>
           </form>
         </div>
-      </div>
+      </main>
 
       {/* 模态框 */}
       {showSettingsModal && (

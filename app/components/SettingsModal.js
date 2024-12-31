@@ -1,176 +1,144 @@
 'use client'
 
 import { useState } from 'react'
-import { XMarkIcon, TrashIcon } from '@heroicons/react/24/outline'
-import { useSession } from 'next-auth/react'
+import { Dialog } from '@headlessui/react'
+import { XMarkIcon } from '@heroicons/react/24/outline'
 
-export default function SettingsModal({ isOpen, onClose, config, onSave, theme, setTheme }) {
-  const { data: session } = useSession()
+export default function SettingsModal({ isOpen, onClose, config, onSave }) {
+  const [settings, setSettings] = useState(config?.settings || {})
   const [isDeleting, setIsDeleting] = useState(false)
-  const [showConfirmDelete, setShowConfirmDelete] = useState(false)
 
-  if (!isOpen) return null
-
-  const handleSave = async (e) => {
-    e.preventDefault()
-    const formData = new FormData(e.target)
-    const updatedConfig = {
-      ...config,
-      settings: {
-        ...config.settings,
-        theme: formData.get('theme'),
-        autoSave: formData.get('autoSave') === 'on',
-        saveInterval: parseInt(formData.get('saveInterval')) || 5
-      },
-      last_updated: new Date().toISOString()
-    }
-    await onSave(updatedConfig)
+  const handleSave = async () => {
+    await onSave(settings)
     onClose()
   }
 
-  const handleDeleteRepository = async () => {
-    if (!session?.accessToken || !session.user?.login) return
-    
-    try {
+  const handleDeleteRepo = async () => {
+    if (window.confirm('确定要删除私有存储库吗？这将删除所有聊天记录和设置。')) {
       setIsDeleting(true)
-      const response = await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Accept': 'application/vnd.github.v3+json'
+      try {
+        const response = await fetch('/api/delete-repo', {
+          method: 'POST'
+        })
+        if (response.ok) {
+          window.location.reload()
+        } else {
+          throw new Error('删除失败')
         }
-      })
-
-      if (response.status === 204) {
-        alert('存储库已成功删除')
-        window.location.reload()
-      } else {
-        throw new Error('删除存储库失败')
+      } catch (error) {
+        console.error('Error deleting repo:', error)
+        alert('删除失败，请重试')
+      } finally {
+        setIsDeleting(false)
       }
-    } catch (error) {
-      console.error('Error deleting repository:', error)
-      alert('删除存储库失败，请重试')
-    } finally {
-      setIsDeleting(false)
-      setShowConfirmDelete(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">设置</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      className="fixed inset-0 z-50 overflow-y-auto"
+    >
+      <div className="flex items-center justify-center min-h-screen">
+        <Dialog.Overlay className="fixed inset-0 bg-black opacity-30" />
 
-        <form onSubmit={handleSave} className="p-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              主题
-            </label>
-            <select
-              name="theme"
-              defaultValue={theme}
-              onChange={(e) => setTheme(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+        <div className="relative bg-white dark:bg-gray-800 rounded-lg max-w-md w-full mx-4 p-6">
+          <div className="flex justify-between items-center mb-4">
+            <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">
+              设置
+            </Dialog.Title>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-500"
             >
-              <option value="system">跟随系统</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
-            </select>
+              <XMarkIcon className="h-6 w-6" />
+            </button>
           </div>
 
-          <div>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                name="autoSave"
-                defaultChecked={config?.settings?.autoSave}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">自动保存到 GitHub</span>
-            </label>
-          </div>
+          <div className="space-y-4">
+            {/* 主题设置 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                主题
+              </label>
+              <select
+                value={settings.theme || 'light'}
+                onChange={(e) => setSettings({ ...settings, theme: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+              >
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+                <option value="system">跟随系统</option>
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              保存间隔（分钟）
-            </label>
-            <input
-              type="number"
-              name="saveInterval"
-              defaultValue={config?.settings?.saveInterval || 5}
-              min="1"
-              max="60"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
+            {/* 语言设置 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                语言
+              </label>
+              <select
+                value={settings.language || 'zh-CN'}
+                onChange={(e) => setSettings({ ...settings, language: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+              >
+                <option value="zh-CN">简体中文</option>
+                <option value="en-US">English</option>
+              </select>
+            </div>
 
-          <div className="pt-4 space-y-4">
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            {/* 通知设置 */}
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                通知
+              </label>
               <button
                 type="button"
-                onClick={() => setShowConfirmDelete(true)}
-                className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-400 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-md transition-colors"
+                onClick={() => setSettings({ ...settings, notifications: !settings.notifications })}
+                className={`${
+                  settings.notifications ? 'bg-blue-600' : 'bg-gray-200'
+                } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
               >
-                <TrashIcon className="w-5 h-5 mr-2" />
-                删除私有存储库
+                <span
+                  className={`${
+                    settings.notifications ? 'translate-x-5' : 'translate-x-0'
+                  } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+                />
               </button>
             </div>
 
-            <div className="flex justify-end space-x-3">
+            {/* 删除存储库 */}
+            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
+                onClick={handleDeleteRepo}
+                disabled={isDeleting}
+                className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
               >
-                取消
+                {isDeleting ? '正在删除...' : '删除私有存储库'}
               </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </form>
-
-        {showConfirmDelete && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-sm w-full mx-4 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                确认删除
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                此操作将删除您的私有存储库及其中的所有数据。此操作不可逆，请谨慎操作。
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                删除后将清除所有聊天记录和设置，此操作不可恢复
               </p>
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowConfirmDelete(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
-                  disabled={isDeleting}
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleDeleteRepository}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50"
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? '删除中...' : '确认删除'}
-                </button>
-              </div>
             </div>
           </div>
-        )}
+
+          <div className="mt-6 flex justify-end space-x-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              保存
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </Dialog>
   )
 } 
