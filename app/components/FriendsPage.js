@@ -1,294 +1,235 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Fragment, useState } from 'react'
+import { Dialog, Transition } from '@headlessui/react'
+import { XMarkIcon, UserPlusIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
-import { 
-  UserPlusIcon,
-  UserGroupIcon,
-  HeartIcon,
-  UsersIcon,
-  BellIcon,
-  ChatBubbleLeftRightIcon,
-  MagnifyingGlassIcon
-} from '@heroicons/react/24/solid'
-import { useDebounce } from '@/lib/hooks'
 
-export default function FriendsPage({ 
-  session, 
-  friends = [], 
-  following = [], 
-  friendRequests = [], 
-  onAddFriend, 
-  onAcceptRequest, 
-  onRejectRequest, 
-  onShowUserProfile,
-  onStartChat
-}) {
-  const [activeTab, setActiveTab] = useState('friends') // 'friends', 'following', 'requests'
-  const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearch = useDebounce(searchQuery, 300)
+export default function FriendsPage({ isOpen, onClose, onAddFriend, session }) {
+  const [activeTab, setActiveTab] = useState('friends') // 'friends' or 'requests'
+  const [friends, setFriends] = useState([])
+  const [requests, setRequests] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  // 过滤列表
-  const filteredFriends = friends.filter(friend => 
-    friend.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-    friend.login?.toLowerCase().includes(debouncedSearch.toLowerCase())
-  )
+  const loadFriends = async () => {
+    try {
+      setIsLoading(true)
+      setError('')
 
-  const filteredFollowing = following.filter(user => 
-    user.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-    user.login?.toLowerCase().includes(debouncedSearch.toLowerCase())
-  )
+      const response = await fetch('/api/friends')
+      if (!response.ok) {
+        throw new Error('加载好友列表失败')
+      }
+
+      const data = await response.json()
+      setFriends(data)
+    } catch (err) {
+      console.error('Failed to load friends:', err)
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const loadRequests = async () => {
+    try {
+      setIsLoading(true)
+      setError('')
+
+      const response = await fetch('/api/friends/requests')
+      if (!response.ok) {
+        throw new Error('加载好友请求失败')
+      }
+
+      const data = await response.json()
+      setRequests(data)
+    } catch (err) {
+      console.error('Failed to load friend requests:', err)
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
-      {/* 标题和搜索区域 */}
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">好友列表</h1>
-          <button
-            onClick={onAddFriend}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+    <Transition appear show={isOpen} as={Fragment}>
+      <Dialog as="div" className="fixed inset-0 z-50 overflow-y-auto" onClose={onClose}>
+        <div className="min-h-screen px-4 text-center">
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
           >
-            <UserPlusIcon className="w-5 h-5" />
-            添加好友
-          </button>
-        </div>
+            <Dialog.Overlay className="fixed inset-0 bg-black bg-opacity-30" />
+          </Transition.Child>
 
-        {/* 搜索框 */}
-        <div className="relative">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-            placeholder="搜索好友或关注..."
-          />
-        </div>
-      </div>
+          <span className="inline-block h-screen align-middle" aria-hidden="true">&#8203;</span>
 
-      {/* 标签页切换 */}
-      <div className="flex border-b border-gray-200 dark:border-gray-700">
-        <button
-          onClick={() => setActiveTab('friends')}
-          className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'friends'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
-        >
-          <div className="flex items-center justify-center gap-2">
-            <UserGroupIcon className="w-5 h-5" />
-            好友
-            <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded-full text-xs">
-              {friends.length}
-            </span>
-          </div>
-        </button>
-        <button
-          onClick={() => setActiveTab('following')}
-          className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'following'
-              ? 'border-pink-500 text-pink-600 dark:text-pink-400'
-              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
-        >
-          <div className="flex items-center justify-center gap-2">
-            <HeartIcon className="w-5 h-5" />
-            关注
-            <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded-full text-xs">
-              {following.length}
-            </span>
-          </div>
-        </button>
-        <button
-          onClick={() => setActiveTab('requests')}
-          className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'requests'
-              ? 'border-yellow-500 text-yellow-600 dark:text-yellow-400'
-              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
-        >
-          <div className="flex items-center justify-center gap-2">
-            <BellIcon className="w-5 h-5" />
-            好友请求
-            {friendRequests.length > 0 && (
-              <span className="bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full text-xs">
-                {friendRequests.length}
-              </span>
-            )}
-          </div>
-        </button>
-      </div>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0 scale-95"
+            enterTo="opacity-100 scale-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100 scale-100"
+            leaveTo="opacity-0 scale-95"
+          >
+            <div className="inline-block w-full max-w-md p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white dark:bg-gray-800 shadow-xl rounded-2xl">
+              <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-gray-900 dark:text-white">
+                好友管理
+              </Dialog.Title>
+              <button
+                onClick={onClose}
+                className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
 
-      {/* 列表内容 */}
-      <div className="flex-1 p-6 overflow-y-auto">
-        {activeTab === 'friends' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredFriends.length > 0 ? (
-              filteredFriends.map(friend => (
-                <div
-                  key={friend.id}
-                  className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
-                >
-                  <div
-                    onClick={() => onShowUserProfile(friend)}
-                    className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer"
-                  >
-                    <Image
-                      src={friend.image || '/default-avatar.png'}
-                      alt={friend.name}
-                      width={48}
-                      height={48}
-                      className="rounded-full"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 dark:text-white truncate">
-                        {friend.name}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                        @{friend.login}
-                      </p>
+              <div className="mt-4">
+                {/* 标签页 */}
+                <div className="border-b border-gray-200 dark:border-gray-700">
+                  <nav className="-mb-px flex space-x-8">
+                    <button
+                      onClick={() => setActiveTab('friends')}
+                      className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                        activeTab === 'friends'
+                          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      好友列表
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('requests')}
+                      className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                        activeTab === 'requests'
+                          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      好友请求
+                      {requests.length > 0 && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-600 rounded-full">
+                          {requests.length}
+                        </span>
+                      )}
+                    </button>
+                  </nav>
+                </div>
+
+                {/* 内容区域 */}
+                <div className="mt-4">
+                  {isLoading ? (
+                    <div className="text-center py-4">
+                      <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                     </div>
-                  </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => onStartChat(friend)}
-                      className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                      title="开始聊天"
-                    >
-                      <ChatBubbleLeftRightIcon className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : searchQuery ? (
-              <div className="col-span-2 flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <MagnifyingGlassIcon className="w-16 h-16 mb-4" />
-                <p>未找到相关好友</p>
-              </div>
-            ) : (
-              <div className="col-span-2 flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <UsersIcon className="w-16 h-16 mb-4" />
-                <p>暂无好友</p>
-                <button
-                  onClick={onAddFriend}
-                  className="mt-4 flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                >
-                  <UserPlusIcon className="w-5 h-5" />
-                  添加好友
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'following' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredFollowing.length > 0 ? (
-              filteredFollowing.map(user => (
-                <div
-                  key={user.id}
-                  className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
-                >
-                  <div
-                    onClick={() => onShowUserProfile(user)}
-                    className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer"
-                  >
-                    <Image
-                      src={user.image || '/default-avatar.png'}
-                      alt={user.name}
-                      width={48}
-                      height={48}
-                      className="rounded-full"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 dark:text-white truncate">
-                        {user.name}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                        @{user.login}
-                      </p>
+                  ) : error ? (
+                    <div className="text-center text-red-500 dark:text-red-400">
+                      {error}
                     </div>
-                  </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => onAddFriend(user)}
-                      className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                      title="添加好友"
-                    >
-                      <UserPlusIcon className="w-5 h-5" />
-                    </button>
-                  </div>
+                  ) : activeTab === 'friends' ? (
+                    <div className="space-y-4">
+                      <button
+                        onClick={onAddFriend}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                      >
+                        <UserPlusIcon className="w-5 h-5" />
+                        添加好友
+                      </button>
+                      {friends.length === 0 ? (
+                        <p className="text-center text-gray-500 dark:text-gray-400">
+                          暂无好友
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {friends.map(friend => (
+                            <div
+                              key={friend.id}
+                              className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <Image
+                                  src={friend.image || '/default-avatar.png'}
+                                  alt={friend.name}
+                                  width={40}
+                                  height={40}
+                                  className="rounded-full"
+                                />
+                                <div>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {friend.name}
+                                  </p>
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    @{friend.login}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {requests.length === 0 ? (
+                        <p className="text-center text-gray-500 dark:text-gray-400">
+                          暂无好友请求
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {requests.map(request => (
+                            <div
+                              key={request.id}
+                              className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <Image
+                                  src={request.user.image || '/default-avatar.png'}
+                                  alt={request.user.name}
+                                  width={40}
+                                  height={40}
+                                  className="rounded-full"
+                                />
+                                <div>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {request.user.name}
+                                  </p>
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    {request.note || '无验证消息'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleAcceptRequest(request.id)}
+                                  className="px-3 py-1 text-sm text-white bg-blue-500 hover:bg-blue-600 rounded"
+                                >
+                                  接受
+                                </button>
+                                <button
+                                  onClick={() => handleRejectRequest(request.id)}
+                                  className="px-3 py-1 text-sm text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded"
+                                >
+                                  拒绝
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))
-            ) : searchQuery ? (
-              <div className="col-span-2 flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <MagnifyingGlassIcon className="w-16 h-16 mb-4" />
-                <p>未找到相关用户</p>
               </div>
-            ) : (
-              <div className="col-span-2 flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <HeartIcon className="w-16 h-16 mb-4" />
-                <p>暂无关注</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'requests' && (
-          <div className="space-y-4">
-            {friendRequests.length > 0 ? (
-              friendRequests.map(request => (
-                <div
-                  key={request.id}
-                  className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg"
-                >
-                  <Image
-                    src={request.user?.image || '/default-avatar.png'}
-                    alt={request.user?.name}
-                    width={48}
-                    height={48}
-                    className="rounded-full"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {request.user?.name}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      @{request.from}
-                    </p>
-                    {request.note && (
-                      <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                        {request.note}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onAcceptRequest(request.id)}
-                      className="px-3 py-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
-                    >
-                      接受
-                    </button>
-                    <button
-                      onClick={() => onRejectRequest(request.id)}
-                      className="px-3 py-1 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors"
-                    >
-                      拒绝
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <BellIcon className="w-16 h-16 mb-4" />
-                <p>暂无好友请求</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+            </div>
+          </Transition.Child>
+        </div>
+      </Dialog>
+    </Transition>
   )
 } 

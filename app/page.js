@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, usePathname } from 'next/navigation'
-import { ChatBubbleLeftRightIcon, UserPlusIcon, UsersIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
+import { ChatBubbleLeftRightIcon, UserPlusIcon, UsersIcon, Cog6ToothIcon, UserGroupIcon } from '@heroicons/react/24/outline'
 import CreateRoomModal from './components/CreateRoomModal'
 import JoinRoomModal from './components/JoinRoomModal'
 import AddFriendModal from './components/AddFriendModal'
@@ -25,6 +25,7 @@ export default function Home() {
   const [currentRoom, setCurrentRoom] = useState(null)
   const [error, setError] = useState('')
   const { showNotification } = useNotification()
+  const [showFriendsPage, setShowFriendsPage] = useState(false)
   
   // 使用自定义hook获取聊天室列表
   const { rooms, isLoading, mutate } = useRooms(session)
@@ -190,15 +191,15 @@ export default function Home() {
             加入聊天室
           </button>
           <button
-            onClick={() => setShowFriendsModal(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+            onClick={() => setShowFriendsPage(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
-            <UsersIcon className="w-5 h-5" />
+            <UserGroupIcon className="w-5 h-5" />
             好友管理
           </button>
           <button
             onClick={() => setShowSettingsModal(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             <Cog6ToothIcon className="w-5 h-5" />
             设置
@@ -277,51 +278,52 @@ export default function Home() {
       </div>
 
       {/* 模态框 */}
-      {showCreateModal && (
-        <CreateRoomModal
-          isOpen={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-          onCreate={handleCreateRoom}
-          session={session}
-        />
-      )}
+      <CreateRoomModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreate={handleCreateRoom}
+        session={session}
+      />
 
-      {showJoinModal && (
-        <JoinRoomModal
-          isOpen={showJoinModal}
-          onClose={() => setShowJoinModal(false)}
-          onJoin={handleJoinRoom}
-          session={session}
-        />
-      )}
+      <JoinRoomModal
+        isOpen={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+        onJoin={handleJoinRoom}
+        session={session}
+      />
 
       {showFriendsModal && (
         <FriendsPage
-          session={session}
+          isOpen={showFriendsModal}
           onClose={() => setShowFriendsModal(false)}
           onAddFriend={() => {
             setShowFriendsModal(false)
             setShowAddFriendModal(true)
           }}
-        />
-      )}
-
-      {showAddFriendModal && (
-        <AddFriendModal
-          isOpen={showAddFriendModal}
-          onClose={() => setShowAddFriendModal(false)}
-          onSubmit={handleSendFriendRequest}
           session={session}
         />
       )}
 
-      {showSettingsModal && (
-        <SettingsModal
-          isOpen={showSettingsModal}
-          onClose={() => setShowSettingsModal(false)}
-          session={session}
-        />
-      )}
+      <AddFriendModal
+        isOpen={showAddFriendModal}
+        onClose={() => setShowAddFriendModal(false)}
+        onSubmit={handleSendFriendRequest}
+        session={session}
+      />
+
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        session={session}
+      />
+
+      {/* 好友管理页面 */}
+      <FriendsPage
+        isOpen={showFriendsPage}
+        onClose={() => setShowFriendsPage(false)}
+        onAddFriend={() => setShowAddFriendModal(true)}
+        session={session}
+      />
 
       {/* 错误提示 */}
       {error && (
