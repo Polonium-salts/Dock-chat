@@ -1,292 +1,310 @@
 'use client'
 
-import { useState } from 'react'
-import { XMarkIcon } from '@heroicons/react/24/solid'
+import { useState, useEffect } from 'react'
+import { Dialog } from '@headlessui/react'
+import { 
+  XMarkIcon,
+  LockClosedIcon,
+  LockOpenIcon,
+  MagnifyingGlassIcon,
+  ChatBubbleLeftEllipsisIcon,
+  SparklesIcon,
+  FolderIcon
+} from '@heroicons/react/24/outline'
+import { useSession } from 'next-auth/react'
+import { useDebounce } from 'use-debounce'
 
-export default function CreateRoomModal({ onClose, onCreate }) {
-  const [roomName, setRoomName] = useState('')
-  const [roomDescription, setRoomDescription] = useState('')
+export default function CreateRoomModal({ isOpen, onClose, onCreate }) {
+  const { data: session } = useSession()
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
+  const [enableAI, setEnableAI] = useState(false)
+  const [repoSearch, setRepoSearch] = useState('')
+  const [debouncedRepoSearch] = useDebounce(repoSearch, 500)
+  const [repositories, setRepositories] = useState([])
+  const [selectedRepo, setSelectedRepo] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  
-  // 聊天室配置状态
-  const [config, setConfig] = useState({
-    model: 'gpt-3.5-turbo',
-    temperature: 0.7,
-    max_tokens: 2000,
-    presence_penalty: 0,
-    frequency_penalty: 0,
-    system_prompt: '',
-    auto_title: false,
-    auto_summary: false,
-    save_interval: 300000,
-    history_count: 20
-  })
+  const [error, setError] = useState('')
+
+  // 搜索用户的仓库
+  useEffect(() => {
+    if (!debouncedRepoSearch || !session?.accessToken) return
+
+    const searchRepositories = async () => {
+      setIsLoading(true)
+      setError('')
+      try {
+        const response = await fetch(
+          `https://api.github.com/search/repositories?q=user:${session.user.login}+${debouncedRepoSearch}`,
+          {
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+              Accept: 'application/vnd.github.v3+json',
+            },
+          }
+        )
+        if (!response.ok) throw new Error('Failed to fetch repositories')
+        const data = await response.json()
+        setRepositories(data.items || [])
+      } catch (err) {
+        setError('获取仓库列表失败')
+        console.error(err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    searchRepositories()
+  }, [debouncedRepoSearch, session])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!roomName.trim()) return
+    if (!name.trim()) {
+      setError('请输入聊天室名称')
+      return
+    }
 
-    setIsLoading(true)
     try {
       await onCreate({
-        name: roomName.trim(),
-        description: roomDescription.trim(),
+        name: name.trim(),
+        description: description.trim(),
         isPrivate,
-        type: 'room',
-        config
+        enableAI,
+        configRepo: selectedRepo ? {
+          id: selectedRepo.id,
+          name: selectedRepo.name,
+          full_name: selectedRepo.full_name,
+          private: selectedRepo.private
+        } : null
       })
       onClose()
-    } catch (error) {
-      console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
-    } finally {
-      setIsLoading(false)
+      // 重置表单
+      setName('')
+      setDescription('')
+      setIsPrivate(false)
+      setEnableAI(false)
+      setSelectedRepo(null)
+      setError('')
+    } catch (err) {
+      setError('创建聊天室失败')
+      console.error(err)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">创建聊天室</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      className="fixed inset-0 z-50 overflow-y-auto"
+    >
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
 
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          <div>
-            <label htmlFor="roomName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              聊天室名称 *
-            </label>
-            <input
-              type="text"
-              id="roomName"
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-              placeholder="输入聊天室名称"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="roomDescription" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              描述
-            </label>
-            <textarea
-              id="roomDescription"
-              value={roomDescription}
-              onChange={(e) => setRoomDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-              placeholder="聊天室描述（可选）"
-              rows={3}
-            />
-          </div>
-
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="isPrivate"
-              checked={isPrivate}
-              onChange={(e) => setIsPrivate(e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label htmlFor="isPrivate" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-              设为私密聊天室
-            </label>
-          </div>
-
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 shadow-xl">
+          {/* 标题栏 */}
+          <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+            <Dialog.Title className="text-lg font-semibold text-gray-900 dark:text-white">
+              创建聊天室
+            </Dialog.Title>
             <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             >
-              {showAdvanced ? '隐藏高级设置' : '显示高级设置'}
+              <XMarkIcon className="h-5 w-5" />
             </button>
           </div>
 
-          {showAdvanced && (
-            <div className="space-y-4 border rounded-lg p-4">
+          {/* 表单内容 */}
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* 基本信息 */}
+            <div className="space-y-4">
               <div>
-                <label htmlFor="model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AI 模型
-                </label>
-                <select
-                  id="model"
-                  value={config.model}
-                  onChange={(e) => setConfig({ ...config, model: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="gpt-3.5-turbo">GPT-3.5-Turbo</option>
-                  <option value="gpt-4">GPT-4</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="temperature" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  温度 ({config.temperature})
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  聊天室名称
                 </label>
                 <input
-                  type="range"
-                  id="temperature"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={config.temperature}
-                  onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) })}
-                  className="w-full"
+                  type="text"
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="输入聊天室名称"
                 />
               </div>
 
               <div>
-                <label htmlFor="max_tokens" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  最大令牌数
-                </label>
-                <input
-                  type="number"
-                  id="max_tokens"
-                  value={config.max_tokens}
-                  onChange={(e) => setConfig({ ...config, max_tokens: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  min="1"
-                  max="4000"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="system_prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  系统提示词
+                <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  描述
                 </label>
                 <textarea
-                  id="system_prompt"
-                  value={config.system_prompt}
-                  onChange={(e) => setConfig({ ...config, system_prompt: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="输入系统提示词（可选）"
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                   rows={3}
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="描述这个聊天室的用途"
                 />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="presence_penalty" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    存在惩罚 ({config.presence_penalty})
-                  </label>
-                  <input
-                    type="range"
-                    id="presence_penalty"
-                    min="-2"
-                    max="2"
-                    step="0.1"
-                    value={config.presence_penalty}
-                    onChange={(e) => setConfig({ ...config, presence_penalty: parseFloat(e.target.value) })}
-                    className="w-full"
-                  />
+            {/* 设置选项 */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  {isPrivate ? (
+                    <LockClosedIcon className="h-5 w-5 text-yellow-500" />
+                  ) : (
+                    <LockOpenIcon className="h-5 w-5 text-green-500" />
+                  )}
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                      {isPrivate ? '私密聊天室' : '公开聊天室'}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {isPrivate ? '仅邀请的成员可以加入' : '任何人都可以加入'}
+                    </p>
+                  </div>
                 </div>
-
-                <div>
-                  <label htmlFor="frequency_penalty" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    频率惩罚 ({config.frequency_penalty})
-                  </label>
-                  <input
-                    type="range"
-                    id="frequency_penalty"
-                    min="-2"
-                    max="2"
-                    step="0.1"
-                    value={config.frequency_penalty}
-                    onChange={(e) => setConfig({ ...config, frequency_penalty: parseFloat(e.target.value) })}
-                    className="w-full"
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(!isPrivate)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    isPrivate ? 'bg-yellow-500' : 'bg-green-500'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isPrivate ? 'translate-x-6' : 'translate-x-1'
+                    }`}
                   />
-                </div>
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="auto_title"
-                    checked={config.auto_title}
-                    onChange={(e) => setConfig({ ...config, auto_title: e.target.checked })}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="auto_title" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                    自动生成标题
-                  </label>
+              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <SparklesIcon className="h-5 w-5 text-purple-500" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                      AI 助手
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      启用 AI 助手来协助对话
+                    </p>
+                  </div>
                 </div>
-
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="auto_summary"
-                    checked={config.auto_summary}
-                    onChange={(e) => setConfig({ ...config, auto_summary: e.target.checked })}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                <button
+                  type="button"
+                  onClick={() => setEnableAI(!enableAI)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    enableAI ? 'bg-purple-500' : 'bg-gray-200 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      enableAI ? 'translate-x-6' : 'translate-x-1'
+                    }`}
                   />
-                  <label htmlFor="auto_summary" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                    自动生成摘要
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="save_interval" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    保存间隔（毫秒）
-                  </label>
-                  <input
-                    type="number"
-                    id="save_interval"
-                    value={config.save_interval}
-                    onChange={(e) => setConfig({ ...config, save_interval: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                    min="1000"
-                    step="1000"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="history_count" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    历史记录数量
-                  </label>
-                  <input
-                    type="number"
-                    id="history_count"
-                    value={config.history_count}
-                    onChange={(e) => setConfig({ ...config, history_count: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                    min="1"
-                  />
-                </div>
+                </button>
               </div>
             </div>
-          )}
 
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading || !roomName.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? '创建中...' : '创建'}
-            </button>
-          </div>
-        </form>
+            {/* 仓库选择 */}
+            <div className="space-y-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                配置文件存储仓库
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={repoSearch}
+                  onChange={(e) => setRepoSearch(e.target.value)}
+                  className="w-full px-4 py-2 pl-10 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="搜索你的仓库..."
+                />
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              </div>
+
+              {isLoading ? (
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                  加载中...
+                </div>
+              ) : repositories.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto space-y-2">
+                  {repositories.map((repo) => (
+                    <button
+                      key={repo.id}
+                      type="button"
+                      onClick={() => setSelectedRepo(repo)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                        selectedRepo?.id === repo.id
+                          ? 'bg-blue-50 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                      }`}
+                    >
+                      <FolderIcon className="h-5 w-5" />
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-medium">{repo.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {repo.private ? '私有' : '公开'} · 更新于 {new Date(repo.updated_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : repoSearch && !isLoading ? (
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                  未找到相关仓库
+                </div>
+              ) : null}
+
+              {selectedRepo && (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/50 rounded-lg">
+                  <FolderIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                      已选择: {selectedRepo.name}
+                    </p>
+                    <p className="text-xs text-blue-500 dark:text-blue-300">
+                      {selectedRepo.full_name}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRepo(null)}
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                  >
+                    <XMarkIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <div className="text-sm text-red-600 dark:text-red-400">
+                {error}
+              </div>
+            )}
+
+            {/* 操作按钮 */}
+            <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+              >
+                创建
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </Dialog>
   )
 } 

@@ -38,6 +38,7 @@ import AddFriendModal from './components/AddFriendModal'
 import FriendRequestsModal from './components/FriendRequestsModal'
 import UserProfileModal from './components/UserProfileModal'
 import FriendsPage from './components/FriendsPage'
+import { loadRoomMessages, saveRoomMessages, sendMessage } from '@/lib/messages'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -241,43 +242,11 @@ export default function Home({ username, roomId }) {
       setIsLoading(true)
       setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
 
-      // 尝试从缓存加载消息
-      const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
-      if (cachedMessages) {
-        console.log('Using cached messages for', activeChat)
-        const formattedCachedMessages = cachedMessages.map(msg => ({
-          ...msg,
-          isOwnMessage: msg.user?.id === session.user.id
-        }))
-        setMessages(formattedCachedMessages)
-        setIsLoading(false)
-        return
-      }
-
-      console.log('Loading messages for chat:', activeChat)
-
-      // 从 GitHub 加载消息
-      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
-      console.log('Loaded messages:', messages)
-
-      if (Array.isArray(messages) && messages.length > 0) {
-        const formattedMessages = messages.map(msg => ({
-          content: msg.content || '',
-          user: {
-            name: msg.user?.name || 'Unknown User',
-            image: msg.user?.image || '/default-avatar.png',
-            id: msg.user?.id || 'unknown'
-          },
-          createdAt: msg.createdAt || new Date().toISOString(),
-          type: msg.type || 'message',
-          isOwnMessage: msg.user?.id === session.user.id
-        }))
-
-        setMessages(formattedMessages)
-        updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
-      }
-    } catch (error) {
-      console.error('Error loading messages:', error)
+      const messages = await loadRoomMessages(session.accessToken, session.user.login, activeChat)
+      setMessages(messages)
+      updateChatMessagesCache(session.user.login, activeChat, messages)
+    } catch (err) {
+      console.error('Error loading messages:', err)
       setMessages([])
     } finally {
       setIsLoading(false)
@@ -285,96 +254,33 @@ export default function Home({ username, roomId }) {
   }
 
   // 修改发送消息的逻辑
-  const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !session || isSending) return
+  const handleSendMessage = async (message) => {
+    if (!session?.user?.login || !message.trim() || !activeChat) return
 
     try {
-      setIsSending(true)
-      const message = {
-        content: newMessage,
-        user: {
-          name: session.user.name,
-          image: session.user.image,
-          id: session.user.id
-        },
-        createdAt: new Date().toISOString(),
-        isOwnMessage: true
-      }
+      const result = await sendMessage(
+        session.accessToken,
+        session.user.login,
+        activeChat,
+        message,
+        socket
+      )
 
-      // 添加消息到本地状态
-      setMessages(prev => [...prev, message])
-      setNewMessage('')
-
-      // 发送消息到 Socket.IO
-      if (socket?.connected) {
-        socket.emit('message', {
-          ...message,
-          room: activeChat
-        })
-      }
-
-      // 根据聊天室类型保存消息
-      if (activeChat === 'kimi-ai') {
-        await handleKimiMessage(message.content)
-      } else {
-        // 获取当前所有消息，包括新消息
-        const updatedMessages = [...messages, message]
-        try {
-          await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-          console.log('Successfully saved messages:', updatedMessages)
-
-          // 更新缓存
-          updateChatMessagesCache(session.user.login, activeChat, updatedMessages)
-
-          // 更新联系人列表
-          const updatedContacts = contacts.map(contact => {
-            if (contact.id === activeChat) {
-              return {
-                ...contact,
-                last_message: message,
-                message_count: updatedMessages.length,
-                updated_at: new Date().toISOString()
-              }
-            }
-            return contact
-          })
-          setContacts(updatedContacts)
-          updateChatRoomsCache(session.user.login, updatedContacts)
-
-          // 更新用户配置
-          if (userConfig) {
-            const updatedConfig = {
-              ...userConfig,
-              contacts: updatedContacts,
-              last_updated: new Date().toISOString()
-            }
-            await updateConfig(session.accessToken, session.user.login, updatedConfig)
-            setUserConfig(updatedConfig)
-          }
-        } catch (error) {
-          console.error('Failed to save messages:', error)
-          throw error
-        }
-      }
-    } catch (error) {
-      console.error('Failed to send message:', error)
-      // 移除失败的消息并显示错误
-      setMessages(prev => {
-        const newMessages = prev.slice(0, -1)
-        return [...newMessages, {
+      setMessages(result.messages)
+      updateChatMessagesCache(session.user.login, activeChat, result.messages)
+    } catch (err) {
+      console.error('Error sending message:', err)
+      // 显示错误提示
+      setMessages(prev => [
+        ...prev,
+        {
+          id: Date.now().toString(),
           content: '消息发送失败，请重试',
-          user: {
-            name: 'System',
-            image: '/system-avatar.png',
-            id: 'system'
-          },
-          isError: true,
-          createdAt: new Date().toISOString()
-        }]
-      })
-    } finally {
-      setIsSending(false)
+          sender: 'System',
+          timestamp: new Date().toISOString(),
+          isError: true
+        }
+      ])
     }
   }
 
@@ -413,39 +319,50 @@ export default function Home({ username, roomId }) {
 
   // 修改保存消息的逻辑
   const saveMessages = async (roomId, messages) => {
-    if (!session?.user?.login || !session.accessToken) return
-
+    if (!session?.accessToken || !roomId) return
+    
     try {
-      console.log('Saving messages for room:', roomId)
-      const savedMessages = await saveChatHistory(session.accessToken, session.user.login, roomId, messages)
-      
-      // 更新联系人列表中的消息状态
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === roomId) {
-          return {
-            ...contact,
-            last_message: savedMessages[savedMessages.length - 1] || null,
-            message_count: savedMessages.length,
-            updated_at: new Date().toISOString()
-          }
+      // 获取当前文件(如果存在)
+      const response = await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/messages.json`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
         }
-        return contact
-      })
-      setContacts(updatedContacts)
+      )
 
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      const content = {
+        messages,
+        updated_at: new Date().toISOString()
       }
 
-      console.log('Successfully saved messages')
-    } catch (error) {
-      console.error('Error saving messages:', error)
+      const requestBody = {
+        message: `Update messages for room ${roomId}`,
+        content: btoa(JSON.stringify(content)),
+        ...(response.ok && {
+          sha: (await response.json()).sha
+        })
+      }
+
+      await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/messages.json`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody)
+        }
+      )
+
+      // 更新缓存
+      updateChatMessagesCache(session.user.login, roomId, messages)
+    } catch (err) {
+      console.error('Error saving messages:', err)
     }
   }
 
@@ -1005,34 +922,23 @@ export default function Home({ username, roomId }) {
   }
 
   // 修改聊天室切换逻辑
-  const handleRoomChange = async (roomId) => {
-    if (roomId === activeChat) return
+  const handleRoomChange = async (room) => {
+    setCurrentRoom(room)
+    router.push(`/${session.user.login}/${room.id}`)
     
-    setActiveChat(roomId)
-    setMessages([]) // 立即清空消息
-    setIsLoading(true)
+    try {
+      setIsLoading(true)
+      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
 
-    // 更新 URL
-    if (typeof window !== 'undefined') {
-      router.replace(`/${session.user.login}/${roomId}`)
+      const messages = await loadRoomMessages(session.accessToken, session.user.login, room.id)
+      setMessages(messages)
+      updateChatMessagesCache(session.user.login, room.id, messages)
+    } catch (err) {
+      console.error('Error loading messages:', err)
+      setMessages([])
+    } finally {
+      setIsLoading(false)
     }
-
-    // 更新用户配置
-    if (session?.accessToken && session.user.login && userConfig) {
-      const updatedConfig = {
-        ...userConfig,
-        settings: {
-          ...userConfig.settings,
-          activeChat: roomId
-        },
-        last_updated: new Date().toISOString()
-      }
-      await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        .catch(error => console.error('Error updating config:', error))
-    }
-
-    // 加载新聊天室的消息
-    await loadChatMessages()
   }
 
   // 修改创建聊天室的逻辑
@@ -1282,6 +1188,139 @@ export default function Home({ username, roomId }) {
 
     loadFriendRequests()
   }, [session])
+
+  // 加载聊天记录
+  const loadMessages = async (roomId) => {
+    if (!session?.accessToken || !roomId) return []
+    
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/messages.json`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      )
+
+      if (response.status === 404) {
+        // 如果文件不存在,创建一个空的消息列表
+        return []
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to load messages')
+      }
+
+      const data = await response.json()
+      const content = JSON.parse(atob(data.content))
+      return content.messages || []
+    } catch (err) {
+      console.error('Error loading messages:', err)
+      return []
+    }
+  }
+
+  // 保存聊天记录
+  const saveMessages = async (roomId, messages) => {
+    if (!session?.accessToken || !roomId) return
+    
+    try {
+      // 获取当前文件(如果存在)
+      const response = await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/messages.json`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      )
+
+      const content = {
+        messages,
+        updated_at: new Date().toISOString()
+      }
+
+      const requestBody = {
+        message: `Update messages for room ${roomId}`,
+        content: btoa(JSON.stringify(content)),
+        ...(response.ok && {
+          sha: (await response.json()).sha
+        })
+      }
+
+      await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/rooms/${roomId}/messages.json`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody)
+        }
+      )
+
+      // 更新缓存
+      updateChatMessagesCache(session.user.login, roomId, messages)
+    } catch (err) {
+      console.error('Error saving messages:', err)
+    }
+  }
+
+  // 发送消息
+  const handleSendMessage = async (message) => {
+    if (!session?.user?.login || !message.trim() || !activeChat) return
+
+    try {
+      const result = await sendMessage(
+        session.accessToken,
+        session.user.login,
+        activeChat,
+        message,
+        socket
+      )
+
+      setMessages(result.messages)
+      updateChatMessagesCache(session.user.login, activeChat, result.messages)
+    } catch (err) {
+      console.error('Error sending message:', err)
+      // 显示错误提示
+      setMessages(prev => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          content: '消息发送失败，请重试',
+          sender: 'System',
+          timestamp: new Date().toISOString(),
+          isError: true
+        }
+      ])
+    }
+  }
+
+  // 切换聊天室
+  const handleRoomChange = async (room) => {
+    setCurrentRoom(room)
+    router.push(`/${session.user.login}/${room.id}`)
+    
+    try {
+      setIsLoading(true)
+      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
+
+      const messages = await loadRoomMessages(session.accessToken, session.user.login, room.id)
+      setMessages(messages)
+      updateChatMessagesCache(session.user.login, room.id, messages)
+    } catch (err) {
+      console.error('Error loading messages:', err)
+      setMessages([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   if (status === 'loading') {
     return (
