@@ -1,414 +1,202 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { XMarkIcon } from '@heroicons/react/24/solid'
-import { useTheme } from 'next-themes'
-import { getConfig, updateConfig } from '@/lib/github'
-import { signOut } from 'next-auth/react'
+import { useState } from 'react'
+import { Dialog } from '@headlessui/react'
+import { 
+  XMarkIcon,
+  SunIcon,
+  MoonIcon,
+  BellIcon,
+  LanguageIcon,
+  KeyIcon,
+  CloudIcon
+} from '@heroicons/react/24/outline'
 
 export default function SettingsModal({ isOpen, onClose, session }) {
-  const { theme, setTheme } = useTheme()
-  const [activeTab, setActiveTab] = useState('general')
-  const [settings, setSettings] = useState({
-    general: {
-      autoSaveToGitHub: true,
-      saveInterval: 5,
-      notificationsEnabled: true,
-      language: 'zh-CN'
-    },
-    appearance: {
-      theme: 'system'
-    }
-  })
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [githubStats, setGithubStats] = useState(null)
+  const [theme, setTheme] = useState('system') // 'light', 'dark', 'system'
+  const [notifications, setNotifications] = useState(true)
+  const [language, setLanguage] = useState('zh-CN')
+  const [apiKey, setApiKey] = useState('')
+  const [error, setError] = useState('')
 
-  // 加载设置
-  useEffect(() => {
-    if (session?.user?.login && session.accessToken) {
-      loadSettings()
-      loadGitHubStats()
-    }
-  }, [session])
-
-  const loadSettings = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault()
     try {
-      setIsLoading(true)
-      const config = await getConfig(session.accessToken, session.user.login)
-      if (config?.settings) {
-        setSettings(prev => ({
-          ...prev,
-          ...config.settings
-        }))
-      }
-    } catch (error) {
-      console.error('Error loading settings:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const loadGitHubStats = async () => {
-    try {
-      const response = await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setGithubStats({
-          size: data.size,
-          created_at: new Date(data.created_at).toLocaleDateString(),
-          updated_at: new Date(data.updated_at).toLocaleDateString()
-        })
-      }
-    } catch (error) {
-      console.error('Error loading GitHub stats:', error)
-    }
-  }
-
-  // 保存设置
-  const saveSettings = async () => {
-    try {
-      setIsSaving(true)
-      const config = await getConfig(session.accessToken, session.user.login)
-      const updatedConfig = {
-        ...config,
-        settings: settings,
-        last_updated: new Date().toISOString()
-      }
-      await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      // 保存设置
       onClose()
-    } catch (error) {
-      console.error('Error saving settings:', error)
-    } finally {
-      setIsSaving(false)
+    } catch (err) {
+      setError('保存设置失败')
     }
   }
-
-  // 处理退出登录
-  const handleSignOut = async () => {
-    try {
-      await signOut({ callbackUrl: '/' })
-    } catch (error) {
-      console.error('Error signing out:', error)
-    }
-  }
-
-  if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
-        <div className="flex h-full">
-          {/* 左侧导航栏 */}
-          <div className="w-64 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">设置</h2>
-            </div>
-            <nav className="flex-1 p-2 space-y-1">
-              <button
-                onClick={() => setActiveTab('general')}
-                className={`w-full px-3 py-2 text-sm font-medium rounded-lg text-left ${
-                  activeTab === 'general'
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200'
-                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                常规
-              </button>
-              <button
-                onClick={() => setActiveTab('github')}
-                className={`w-full px-3 py-2 text-sm font-medium rounded-lg text-left ${
-                  activeTab === 'github'
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200'
-                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                GitHub 存储
-              </button>
-              <button
-                onClick={() => setActiveTab('appearance')}
-                className={`w-full px-3 py-2 text-sm font-medium rounded-lg text-left ${
-                  activeTab === 'appearance'
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200'
-                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                外观
-              </button>
-            </nav>
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={handleSignOut}
-                className="w-full px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 rounded-lg text-center"
-              >
-                退出登录
-              </button>
-            </div>
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      className="fixed inset-0 z-50 overflow-y-auto"
+    >
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
+
+        <div className="relative w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl">
+          {/* 标题栏 */}
+          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+            <Dialog.Title className="text-xl font-semibold text-gray-900 dark:text-white">
+              设置
+            </Dialog.Title>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+            >
+              <XMarkIcon className="w-6 h-6" />
+            </button>
           </div>
 
-          {/* 右侧内容区 */}
-          <div className="flex-1 flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                {activeTab === 'general' && '常规设置'}
-                {activeTab === 'github' && 'GitHub 存储设置'}
-                {activeTab === 'appearance' && '外观设置'}
-              </h3>
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* 主题设置 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                主题
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${
+                    theme === 'light'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800'
+                  }`}
+                >
+                  <SunIcon className={`w-6 h-6 ${
+                    theme === 'light' ? 'text-blue-500' : 'text-gray-400'
+                  }`} />
+                  <span className="text-sm font-medium">浅色</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${
+                    theme === 'dark'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800'
+                  }`}
+                >
+                  <MoonIcon className={`w-6 h-6 ${
+                    theme === 'dark' ? 'text-blue-500' : 'text-gray-400'
+                  }`} />
+                  <span className="text-sm font-medium">深色</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('system')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${
+                    theme === 'system'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800'
+                  }`}
+                >
+                  <CloudIcon className={`w-6 h-6 ${
+                    theme === 'system' ? 'text-blue-500' : 'text-gray-400'
+                  }`} />
+                  <span className="text-sm font-medium">跟随系统</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 通知设置 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                通知
+              </label>
               <button
-                onClick={onClose}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                type="button"
+                onClick={() => setNotifications(!notifications)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  notifications ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                }`}
               >
-                <XMarkIcon className="w-6 h-6" />
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    notifications ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
               </button>
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                接收新消息和好友请求的通知
+              </p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
-              {/* 常规设置 */}
-              {activeTab === 'general' && (
-                <div className="space-y-6">
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        语言
-                      </label>
-                      <select
-                        value={settings.general.language}
-                        onChange={(e) => setSettings(prev => ({
-                          ...prev,
-                          general: {
-                            ...prev.general,
-                            language: e.target.value
-                          }
-                        }))}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                      >
-                        <option value="zh-CN">简体中文</option>
-                        <option value="en">English</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
-                          checked={settings.general.autoSaveToGitHub}
-                          onChange={(e) => setSettings(prev => ({
-                            ...prev,
-                            general: {
-                              ...prev.general,
-                              autoSaveToGitHub: e.target.checked
-                            }
-                          }))}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-gray-700 dark:text-gray-300">自动保存聊天记录到 GitHub</span>
-                      </label>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 ml-7">
-                        开启后将自动将聊天记录保存到您的 GitHub 私人仓库中
-                      </p>
-                    </div>
-
-                    {settings.general.autoSaveToGitHub && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          保存间隔（分钟）
-                        </label>
-                        <input
-                          type="number"
-                          value={settings.general.saveInterval}
-                          onChange={(e) => setSettings(prev => ({
-                            ...prev,
-                            general: {
-                              ...prev.general,
-                              saveInterval: parseInt(e.target.value) || 5
-                            }
-                          }))}
-                          min="1"
-                          max="60"
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
-                          checked={settings.general.notificationsEnabled}
-                          onChange={(e) => setSettings(prev => ({
-                            ...prev,
-                            general: {
-                              ...prev.general,
-                              notificationsEnabled: e.target.checked
-                            }
-                          }))}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-gray-700 dark:text-gray-300">启用通知提醒</span>
-                      </label>
-                    </div>
-                  </div>
+            {/* 语言设置 */}
+            <div>
+              <label htmlFor="language" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                语言
+              </label>
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <LanguageIcon className="h-5 w-5 text-gray-400" />
                 </div>
-              )}
-
-              {/* GitHub 存储设置 */}
-              {activeTab === 'github' && (
-                <div className="space-y-6">
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="text-base font-medium text-gray-900 dark:text-white">
-                          数据存储位置
-                        </h4>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          您的聊天记录和设置将存储在 GitHub 私人仓库：
-                          <code className="ml-1 px-2 py-1 bg-gray-100 dark:bg-gray-600 rounded">
-                            {session?.user?.login}/dock-chat-data
-                          </code>
-                        </p>
-                      </div>
-
-                      {githubStats && (
-                        <div>
-                          <h4 className="text-base font-medium text-gray-900 dark:text-white">
-                            存储统计
-                          </h4>
-                          <div className="mt-2 space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                            <p>仓库大小：{githubStats.size} KB</p>
-                            <p>创建时间：{githubStats.created_at}</p>
-                            <p>最后更新：{githubStats.updated_at}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <h4 className="text-base font-medium text-gray-900 dark:text-white">
-                          数据安全
-                        </h4>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          所有数据都存储在您的私人仓库中，只有您能够访问。我们不会在其他地方存储您的数据。
-                        </p>
-                      </div>
-
-                      <div>
-                        <h4 className="text-base font-medium text-gray-900 dark:text-white">
-                          数据导出
-                        </h4>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          您可以随时通过 GitHub 仓库下载或导出您的所有数据。
-                        </p>
-                        <a
-                          href={`https://github.com/${session?.user?.login}/dock-chat-data`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-2 inline-block text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                        >
-                          访问 GitHub 仓库 →
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 外观设置 */}
-              {activeTab === 'appearance' && (
-                <div className="space-y-6">
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        主题设置
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setTheme('light')
-                            setSettings(prev => ({
-                              ...prev,
-                              appearance: {
-                                ...prev.appearance,
-                                theme: 'light'
-                              }
-                            }))
-                          }}
-                          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg ${
-                            theme === 'light'
-                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                          }`}
-                        >
-                          浅色
-                        </button>
-                        <button
-                          onClick={() => {
-                            setTheme('dark')
-                            setSettings(prev => ({
-                              ...prev,
-                              appearance: {
-                                ...prev.appearance,
-                                theme: 'dark'
-                              }
-                            }))
-                          }}
-                          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg ${
-                            theme === 'dark'
-                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                          }`}
-                        >
-                          深色
-                        </button>
-                        <button
-                          onClick={() => {
-                            setTheme('system')
-                            setSettings(prev => ({
-                              ...prev,
-                              appearance: {
-                                ...prev.appearance,
-                                theme: 'system'
-                              }
-                            }))
-                          }}
-                          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg ${
-                            theme === 'system'
-                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                          }`}
-                        >
-                          跟随系统
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                <select
+                  id="language"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="block w-full pl-10 rounded-md border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                >
+                  <option value="zh-CN">简体中文</option>
+                  <option value="en-US">English</option>
+                </select>
+              </div>
             </div>
 
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+            {/* API设置 */}
+            <div>
+              <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                OpenAI API Key
+              </label>
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <KeyIcon className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  type="password"
+                  id="apiKey"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="block w-full pl-10 rounded-md border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                  placeholder="设置默认的 API Key"
+                />
+              </div>
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                用于AI助手功能，如不设置则需要在创建AI助手时单独设置
+              </p>
+            </div>
+
+            {/* 错误提示 */}
+            {error && (
+              <div className="text-sm text-red-600 dark:text-red-400">
+                {error}
+              </div>
+            )}
+
+            {/* 操作按钮 */}
+            <div className="flex justify-end gap-4">
               <button
+                type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
               >
                 取消
               </button>
               <button
-                onClick={saveSettings}
-                disabled={isSaving}
-                className={`px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg ${
-                  isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
-                }`}
+                type="submit"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
               >
-                {isSaving ? '保存中...' : '保存设置'}
+                保存
               </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
-    </div>
+    </Dialog>
   )
 } 

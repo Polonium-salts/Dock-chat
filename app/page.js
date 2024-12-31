@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, usePathname } from 'next/navigation'
-import { ChatBubbleLeftRightIcon, UserPlusIcon } from '@heroicons/react/24/outline'
+import { ChatBubbleLeftRightIcon, UserPlusIcon, UsersIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
 import CreateRoomModal from './components/CreateRoomModal'
+import JoinRoomModal from './components/JoinRoomModal'
 import AddFriendModal from './components/AddFriendModal'
 import FriendsPage from './components/FriendsPage'
 import ChatRoom from './components/ChatRoom'
+import SettingsModal from './components/SettingsModal'
 import { useRooms } from '@/lib/hooks'
 
 export default function Home() {
@@ -15,8 +17,10 @@ export default function Home() {
   const router = useRouter()
   const pathname = usePathname()
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showJoinModal, setShowJoinModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [currentRoom, setCurrentRoom] = useState(null)
   const [error, setError] = useState('')
   
@@ -143,7 +147,10 @@ export default function Home() {
       <div className="w-64 flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
         {/* 用户信息 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center space-x-3">
+          <div 
+            onClick={() => router.push(`/${session.user.login}`)}
+            className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 p-2 rounded-lg transition-colors"
+          >
             <img
               src={session.user.image}
               alt={session.user.name}
@@ -170,11 +177,25 @@ export default function Home() {
             创建聊天室
           </button>
           <button
-            onClick={() => setShowFriendsModal(true)}
+            onClick={() => setShowJoinModal(true)}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
           >
             <UserPlusIcon className="w-5 h-5" />
+            加入聊天室
+          </button>
+          <button
+            onClick={() => setShowFriendsModal(true)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+          >
+            <UsersIcon className="w-5 h-5" />
             好友管理
+          </button>
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+          >
+            <Cog6ToothIcon className="w-5 h-5" />
+            设置
           </button>
         </div>
 
@@ -259,6 +280,15 @@ export default function Home() {
         />
       )}
 
+      {showJoinModal && (
+        <JoinRoomModal
+          isOpen={showJoinModal}
+          onClose={() => setShowJoinModal(false)}
+          onJoin={handleJoinRoom}
+          session={session}
+        />
+      )}
+
       {showFriendsModal && (
         <FriendsPage
           session={session}
@@ -275,6 +305,14 @@ export default function Home() {
           isOpen={showAddFriendModal}
           onClose={() => setShowAddFriendModal(false)}
           onSubmit={handleSendFriendRequest}
+          session={session}
+        />
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
           session={session}
         />
       )}
