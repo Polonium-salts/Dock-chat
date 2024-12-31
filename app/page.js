@@ -42,6 +42,10 @@ import FriendsPage from './components/FriendsPage'
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const [currentView, setCurrentView] = useState('chat')
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [activeChat, setActiveChat] = useState('')
+  const [contacts, setContacts] = useState([])
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [socket, setSocket] = useState(null)
@@ -49,19 +53,13 @@ export default function Home({ username, roomId }) {
   const [isLoading, setIsLoading] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinInput, setJoinInput] = useState('')
-  const [activeChat, setActiveChat] = useState('public')
-  const [contacts, setContacts] = useState([])
   const messagesEndRef = useRef(null)
-  const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [currentView, setCurrentView] = useState('chat') // 'chat', 'profile', 'friends'
   const [showKimiModal, setShowKimiModal] = useState(false)
   const [kimiApiKey, setKimiApiKey] = useState('')
   const [isWaitingForKimi, setIsWaitingForKimi] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [userConfig, setUserConfig] = useState(null)
   const [isSending, setIsSending] = useState(false)
-  const [autoSaveInterval, setAutoSaveInterval] = useState(null)
-  const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
@@ -380,32 +378,24 @@ export default function Home({ username, roomId }) {
   const handleChatChange = (chatId) => {
     if (chatId === activeChat) return
     setActiveChat(chatId)
-    setMessages([]) // 立即清空消息
-    setIsLoading(true) // 显示加载状态
+    setMessages([])
+    setIsLoading(true)
 
-    // 如果切换到系统通知，清除未读消息数
-    if (chatId === 'system') {
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === 'system') {
-          return {
-            ...contact,
-            unread: 0
-          }
+    // 更新未读消息数
+    const updatedContacts = contacts.map(contact => {
+      if (contact.id === chatId) {
+        return {
+          ...contact,
+          unread: 0
         }
-        return contact
-      })
-      setContacts(updatedContacts)
-
-      // 更新用户配置
-      if (session?.accessToken && session.user.login && userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          last_updated: new Date().toISOString()
-        }
-        updateConfig(session.accessToken, session.user.login, updatedConfig)
-          .catch(error => console.error('Error updating config:', error))
       }
+      return contact
+    })
+    setContacts(updatedContacts)
+
+    // 更新路由
+    if (session?.user?.login) {
+      router.push(`/${session.user.login}/${chatId}`)
     }
   }
 
@@ -1358,113 +1348,63 @@ export default function Home({ username, roomId }) {
   }
 
   return (
-    <div className="flex h-screen bg-white dark:bg-gray-900">
-      {/* 侧边栏 */}
-      <div className="w-64 flex flex-col border-r border-gray-200 dark:border-gray-700">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      {/* 左侧边栏 */}
+      <div className="w-64 flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
         {/* 用户信息 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          {session?.user ? (
-            <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3">
+            {session?.user?.image && (
               <Image
-                src={session.user.image || '/default-avatar.png'}
-                alt={session.user.name}
+                src={session.user.image}
+                alt={session.user.name || '用户头像'}
                 width={40}
                 height={40}
                 className="rounded-full"
               />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {session.user.name}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  @{session.user.login}
-                </p>
-              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                {session?.user?.name || '用户'}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                @{session?.user?.login}
+              </p>
             </div>
-          ) : (
-            <button
-              onClick={() => signIn('github')}
-              className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-            >
-              登录 GitHub
-            </button>
-          )}
-        </div>
-
-        {/* 导航按钮 */}
-        <div className="flex p-2 space-x-2 border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setCurrentView('chat')}
-            className={`flex-1 p-2 rounded-md ${
-              currentView === 'chat'
-                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            <UserGroupIcon className="h-5 w-5 mx-auto" />
-          </button>
-          <button
-            onClick={() => setCurrentView('friends')}
-            className={`flex-1 p-2 rounded-md ${
-              currentView === 'friends'
-                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            <UserCircleIcon className="h-5 w-5 mx-auto" />
-          </button>
-          <button
-            onClick={() => setShowSettingsModal(true)}
-            className="flex-1 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <Cog6ToothIcon className="h-5 w-5 mx-auto" />
-          </button>
+          </div>
         </div>
 
         {/* 聊天列表 */}
         <div className="flex-1 overflow-y-auto">
-          {currentView === 'chat' ? (
-            <div className="space-y-1 p-2">
-              {contacts.map((contact) => (
-                <button
-                  key={contact.id}
-                  onClick={() => handleChatChange(contact.id)}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    activeChat === contact.id
-                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {contact.name}
+          <div className="space-y-1 p-2">
+            {contacts.map((contact) => (
+              <button
+                key={contact.id}
+                onClick={() => handleChatChange(contact.id)}
+                className={`w-full flex items-center px-3 py-2 rounded-lg ${
+                  activeChat === contact.id
+                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {contact.name}
+                  </p>
+                  {contact.lastMessage && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {contact.lastMessage}
                     </p>
-                    {contact.lastMessage && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                        {contact.lastMessage}
-                      </p>
-                    )}
-                  </div>
-                  {contact.unread > 0 && (
-                    <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
-                      {contact.unread}
-                    </span>
                   )}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <FriendsPage
-              friends={friends}
-              following={following}
-              onAddFriend={() => setShowAddFriendModal(true)}
-              onShowRequests={() => setShowFriendRequestsModal(true)}
-              onSelectUser={(user) => {
-                setSelectedUser(user)
-                setShowUserProfileModal(true)
-              }}
-            />
-          )}
+                </div>
+                {contact.unread > 0 && (
+                  <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
+                    {contact.unread}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* 底部操作按钮 */}
@@ -1491,85 +1431,102 @@ export default function Home({ username, roomId }) {
       {/* 主聊天区域 */}
       <div className="flex-1 flex flex-col">
         {/* 聊天头部 */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="h-16 flex items-center justify-between px-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center">
-            <h2 className="text-lg font-medium">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white">
               {contacts.find((c) => c.id === activeChat)?.name || '聊天室'}
             </h2>
-            {activeChat === 'kimi' && (
-              <SparklesIcon className="h-5 w-5 ml-2 text-yellow-500" />
-            )}
           </div>
           <div className="flex items-center space-x-2">
-            {activeChat !== 'public' && (
-              <button
-                onClick={() => setShowChatSettings(true)}
-                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                <Cog6ToothIcon className="h-5 w-5" />
-              </button>
-            )}
+            <button
+              onClick={() => setCurrentView(currentView === 'chat' ? 'friends' : 'chat')}
+              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <UserPlusIcon className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <Cog6ToothIcon className="h-5 w-5" />
+            </button>
           </div>
         </div>
 
-        {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex items-start space-x-3 ${
-                message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
-              }`}
-            >
-              <Image
-                src={message.user.image || '/default-avatar.png'}
-                alt={message.user.name}
-                width={40}
-                height={40}
-                className="rounded-full"
-              />
-              <div
-                className={`flex flex-col ${
-                  message.user.id === session?.user?.id ? 'items-end' : 'items-start'
-                }`}
-              >
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {message.user.name}
-                </span>
+        {/* 聊天内容区域 */}
+        {currentView === 'chat' ? (
+          <>
+            {/* 消息列表 */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {messages.map((message, index) => (
                 <div
-                  className={`mt-1 px-4 py-2 rounded-lg ${
-                    message.user.id === session?.user?.id
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-800'
+                  key={index}
+                  className={`flex items-start space-x-3 ${
+                    message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
                   }`}
                 >
-                  {message.content}
+                  <Image
+                    src={message.user.image || '/default-avatar.png'}
+                    alt={message.user.name}
+                    width={40}
+                    height={40}
+                    className="rounded-full"
+                  />
+                  <div
+                    className={`flex flex-col ${
+                      message.user.id === session?.user?.id ? 'items-end' : 'items-start'
+                    }`}
+                  >
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {message.user.name}
+                    </span>
+                    <div
+                      className={`mt-1 px-4 py-2 rounded-lg ${
+                        message.user.id === session?.user?.id
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 dark:bg-gray-800'
+                      }`}
+                    >
+                      {message.content}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
 
-        {/* 输入框 */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <form onSubmit={sendMessage} className="flex space-x-2">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="输入消息..."
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
-            />
-            <button
-              type="submit"
-              disabled={!isConnected || isSending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              <PaperAirplaneIcon className="h-5 w-5" />
-            </button>
-          </form>
-        </div>
+            {/* 输入框 */}
+            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+              <form onSubmit={sendMessage} className="flex space-x-2">
+                <input
+                  type="text"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="输入消息..."
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                />
+                <button
+                  type="submit"
+                  disabled={!isConnected || isSending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <PaperAirplaneIcon className="h-5 w-5" />
+                </button>
+              </form>
+            </div>
+          </>
+        ) : (
+          <FriendsPage
+            friends={friends}
+            following={following}
+            onAddFriend={() => setShowAddFriendModal(true)}
+            onShowRequests={() => setShowFriendRequestsModal(true)}
+            onSelectUser={(user) => {
+              setSelectedUser(user)
+              setShowUserProfileModal(true)
+            }}
+          />
+        )}
       </div>
 
       {/* 加入聊天室模态框 */}
