@@ -49,10 +49,8 @@ export default function Home({ username, roomId }) {
   const [isLoading, setIsLoading] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinInput, setJoinInput] = useState('')
-  const [activeChat, setActiveChat] = useState('public')
-  const [contacts, setContacts] = useState([
-    { id: 'public', name: '公共聊天室', type: 'room', unread: 0 },
-  ])
+  const [activeChat, setActiveChat] = useState('')
+  const [contacts, setContacts] = useState([])
   const messagesEndRef = useRef(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [currentView, setCurrentView] = useState('chat') // 'chat', 'profile', 'friends'
@@ -1431,22 +1429,23 @@ export default function Home({ username, roomId }) {
         </div>
 
         {/* 底部操作按钮 */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
-          <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <PlusCircleIcon className="h-5 w-5 mr-2" />
-            新建聊天
-          </button>
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            <UserGroupIcon className="h-5 w-5 mr-2" />
-            加入聊天室
-          </button>
-        </div>
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="space-y-2">
+            <button
+              onClick={() => setShowCreateRoomModal(true)}
+              className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            >
+              <PlusCircleIcon className="h-5 w-5 mr-2" />
+              新建聊天
+            </button>
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
+            >
+              <UserGroupIcon className="h-5 w-5 mr-2" />
+              加入聊天室
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1534,7 +1533,58 @@ export default function Home({ username, roomId }) {
         </div>
       </div>
 
-      {/* 模态框 */}
+      {/* 加入聊天室模态框 */}
+      {showJoinModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">加入聊天室</h2>
+              <button
+                onClick={() => setShowJoinModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleJoin} className="p-4 space-y-4">
+              <div>
+                <label htmlFor="roomId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  聊天室 ID
+                </label>
+                <input
+                  type="text"
+                  id="roomId"
+                  value={joinInput}
+                  onChange={(e) => setJoinInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  placeholder="输入聊天室 ID"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowJoinModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={!joinInput.trim()}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  加入
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 其他模态框 */}
       {showSettingsModal && (
         <SettingsModal
           isOpen={showSettingsModal}
