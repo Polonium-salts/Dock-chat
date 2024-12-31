@@ -8,27 +8,14 @@
   --background-end-rgb: 255, 255, 255;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-start-rgb));
-}
-
-/* 滚动条样式 */
+/* 自定义滚动条样式 */
 ::-webkit-scrollbar {
   width: 6px;
-  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #f1f1f1;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -38,15 +25,6 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
-}
-
-/* 暗色模式滚动条 */
-.dark ::-webkit-scrollbar-thumb {
-  background: #555;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #666;
 }
 
 /* 消息动画 */
