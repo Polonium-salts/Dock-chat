@@ -104,8 +104,8 @@ export default function Home({ username, roomId }) {
         console.log('Socket connected')
         setIsConnected(true)
         if (activeChat) {
-          socket.emit('join', { 
-            room: activeChat,
+        socket.emit('join', { 
+          room: activeChat,
             user: {
               id: session.user.id,
               name: session.user.name,
@@ -161,9 +161,9 @@ export default function Home({ username, roomId }) {
               login: session.user.login
             }
           })
-          socket.disconnect()
-        }
+        socket.disconnect()
       }
+    }
     }
   }, [session, activeChat])
 
@@ -211,16 +211,16 @@ export default function Home({ username, roomId }) {
               // 最后设置活动聊天室
               if (config.settings?.activeChat) {
                 const chatExists = formattedContacts.some(contact => contact.id === config.settings.activeChat)
-                if (chatExists) {
+              if (chatExists) {
                   setActiveChat(config.settings.activeChat)
-                }
               }
+            }
             } else {
               setUserConfig(config)
             }
           }
 
-          // 加载消息
+            // 加载消息
           if (activeChat) {
             const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
             if (messages && messages.length > 0) {
@@ -333,17 +333,17 @@ export default function Home({ username, roomId }) {
     try {
       setIsSending(true);
       const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const message = {
+    const message = {
         id: messageId,
         content: newMessage.trim(),
-        user: {
-          name: session.user.name,
-          image: session.user.image,
+      user: {
+        name: session.user.name,
+        image: session.user.image,
           id: session.user.id,
           login: session.user.login
-        },
+      },
         room: activeChat,
-        createdAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
         type: 'message'
       };
 
@@ -365,29 +365,29 @@ export default function Home({ username, roomId }) {
         await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
 
         // 更新联系人列表中的最后一条消息
-        const updatedContacts = contacts.map(contact => {
-          if (contact.id === activeChat) {
-            return {
-              ...contact,
+          const updatedContacts = contacts.map(contact => {
+            if (contact.id === activeChat) {
+              return {
+                ...contact,
               lastMessage: message.content,
-              updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString()
             };
           }
           return contact;
         });
         setContacts(updatedContacts);
 
-        // 更新用户配置
-        if (userConfig) {
-          const updatedConfig = {
-            ...userConfig,
-            contacts: updatedContacts,
-            last_updated: new Date().toISOString()
+          // 更新用户配置
+          if (userConfig) {
+            const updatedConfig = {
+              ...userConfig,
+              contacts: updatedContacts,
+              last_updated: new Date().toISOString()
           };
           await updateConfig(session.accessToken, session.user.login, updatedConfig);
           setUserConfig(updatedConfig);
-        }
-      } catch (error) {
+          }
+        } catch (error) {
         console.error('Error saving message:', error);
         showToast('消息已发送但保存失败', 'warning');
       }
@@ -591,98 +591,220 @@ export default function Home({ username, roomId }) {
         return;
       }
 
-      // 创建新的聊天室对象
-      const newRoom = {
-        id: roomId,
-        name: `聊天室 ${roomId}`,
-        type: 'room',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        lastMessage: null,
-        unread: 0,
-        description: '',
-        isPrivate: false,
-        members: [{
-          id: session.user.id,
-          login: session.user.login,
-          name: session.user.name,
-          image: session.user.image
-        }]
-      };
-
-      // 更新联系人列表
-      const updatedContacts = [...contacts, newRoom];
-      setContacts(updatedContacts);
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          settings: {
-            ...userConfig.settings,
-            activeChat: roomId
-          },
-          last_updated: new Date().toISOString()
-        };
-        
-        try {
-          await updateConfig(session.accessToken, session.user.login, updatedConfig);
-          setUserConfig(updatedConfig);
-          setActiveChat(roomId);
-          setCurrentView('chat');
-          setShowJoinModal(false);
-          setJoinInput('');
-
-          // 加入 Socket.IO 房间
-          if (socket?.connected) {
-            socket.emit('join', {
-              room: roomId,
-              user: {
-                id: session.user.id,
-                name: session.user.name,
-                image: session.user.image,
-                login: session.user.login
-              }
-            });
-
-            // 发送系统消息通知其他用户
-            const systemMessage = {
-              id: `sys-${Date.now()}`,
-              content: `${session.user.name} 加入了聊天室`,
-              user: {
-                name: 'System',
-                image: '/system-avatar.png',
-                id: 'system'
-              },
-              room: roomId,
-              type: 'system',
-              createdAt: new Date().toISOString()
-            };
-            socket.emit('message', systemMessage);
-
-            // 保存系统消息
-            try {
-              const messages = await loadChatHistory(session.accessToken, session.user.login, roomId);
-              const updatedMessages = [...(messages || []), systemMessage];
-              await saveChatHistory(session.accessToken, session.user.login, roomId, updatedMessages);
-            } catch (error) {
-              console.error('Error saving system message:', error);
+      // 获取聊天室信息和管理员信息
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/${roomId.split('-')[0]}/dock-chat-data/contents/chats/${roomId}/info.json`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Accept': 'application/vnd.github.v3+json'
             }
           }
+        );
 
-          showToast('成功加入聊天室', 'success');
-        } catch (error) {
-          console.error('Error saving config:', error);
-          showToast('加入聊天室失败，请重试', 'error');
-          // 如果保存失败，回滚状态
-          setContacts(contacts);
-          setActiveChat(activeChat);
+        if (!response.ok) {
+          showToast('聊天室不存在或无法访问', 'error');
+          return;
         }
+
+        const data = await response.json();
+        const roomInfo = JSON.parse(atob(data.content));
+        const adminLogin = roomInfo.admin;
+
+        // 创建加入申请
+        const joinRequest = {
+          id: `jr-${Date.now()}`,
+          type: 'join_request',
+          room: roomId,
+          user: {
+            id: session.user.id,
+            login: session.user.login,
+            name: session.user.name,
+            image: session.user.image
+          },
+          status: 'pending',
+          created_at: new Date().toISOString()
+        };
+
+        // 保存申请到管理员的仓库
+        const encodedRequest = btoa(JSON.stringify(joinRequest, null, 2));
+        await fetch(
+          `https://api.github.com/repos/${adminLogin}/dock-chat-data/contents/join_requests/${roomId}/${joinRequest.id}.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Join request from ${session.user.login}`,
+              content: encodedRequest
+            })
+          }
+        );
+
+        // 发送系统通知给管理员
+        const systemMessage = {
+          id: `sys-${Date.now()}`,
+          content: `用户 ${session.user.name} (${session.user.login}) 请求加入聊天室 ${roomId}`,
+          type: 'join_request',
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          request: joinRequest,
+          createdAt: new Date().toISOString()
+        };
+
+        // 加载管理员的系统消息
+        const adminMessages = await loadChatHistory(session.accessToken, adminLogin, 'system');
+        const updatedMessages = [...(adminMessages || []), systemMessage];
+        
+        // 保存系统消息到管理员的仓库
+        await saveChatHistory(session.accessToken, adminLogin, 'system', updatedMessages);
+
+        showToast('已发送加入申请，请等待管理员审核', 'success');
+        setShowJoinModal(false);
+        setJoinInput('');
+      } catch (error) {
+        console.error('Error sending join request:', error);
+        showToast('发送加入申请失败，请重试', 'error');
       }
     } catch (error) {
       console.error('Error joining room:', error);
       showToast('加入聊天室失败，请重试', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 添加处理加入申请的函数
+  const handleJoinRequest = async (request, action) => {
+    if (!session?.user?.login || !session.accessToken) {
+      showToast('请先登录', 'error');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const { room, user } = request;
+
+      if (action === 'accept') {
+        // 更新申请状态
+        request.status = 'accepted';
+        const encodedRequest = btoa(JSON.stringify(request, null, 2));
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/join_requests/${room}/${request.id}.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Accept join request from ${user.login}`,
+              content: encodedRequest
+            })
+          }
+        );
+
+        // 更新聊天室成员列表
+        const roomInfoResponse = await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${room}/info.json`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          }
+        );
+
+        if (roomInfoResponse.ok) {
+          const data = await roomInfoResponse.json();
+          const roomInfo = JSON.parse(atob(data.content));
+          roomInfo.members = [...(roomInfo.members || []), user];
+          
+          const encodedInfo = btoa(JSON.stringify(roomInfo, null, 2));
+          await fetch(
+            `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${room}/info.json`,
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                message: `Update room members: add ${user.login}`,
+                content: encodedInfo,
+                sha: data.sha
+              })
+            }
+          );
+        }
+
+        // 发送系统通知给申请者
+        const systemMessage = {
+          id: `sys-${Date.now()}`,
+          content: `您的加入申请已被管理员通过，已加入聊天室 ${room}`,
+          type: 'join_request_accepted',
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          room: room,
+          createdAt: new Date().toISOString()
+        };
+
+        const userMessages = await loadChatHistory(session.accessToken, user.login, 'system');
+        const updatedMessages = [...(userMessages || []), systemMessage];
+        await saveChatHistory(session.accessToken, user.login, 'system', updatedMessages);
+
+        showToast('已同意加入申请', 'success');
+      } else {
+        // 拒绝申请
+        request.status = 'rejected';
+        const encodedRequest = btoa(JSON.stringify(request, null, 2));
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/join_requests/${room}/${request.id}.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Reject join request from ${user.login}`,
+              content: encodedRequest
+            })
+          }
+        );
+
+        // 发送系统通知给申请者
+        const systemMessage = {
+          id: `sys-${Date.now()}`,
+          content: `您的加入聊天室 ${room} 的申请已被管理员拒绝`,
+          type: 'join_request_rejected',
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          room: room,
+          createdAt: new Date().toISOString()
+        };
+
+        const userMessages = await loadChatHistory(session.accessToken, user.login, 'system');
+        const updatedMessages = [...(userMessages || []), systemMessage];
+        await saveChatHistory(session.accessToken, user.login, 'system', updatedMessages);
+
+        showToast('已拒绝加入申请', 'success');
+      }
+    } catch (error) {
+      console.error('Error handling join request:', error);
+      showToast('处理加入申请失败，请重试', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -1125,9 +1247,9 @@ export default function Home({ username, roomId }) {
         await fetch(
           `https://api.github.com/repos/${friendId}/dock-chat-data/contents/friend_requests/.gitkeep`,
           {
-            method: 'PUT',
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -1149,11 +1271,11 @@ export default function Home({ username, roomId }) {
           headers: {
             'Authorization': `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            message: `Friend request from ${session.user.login}`,
-            content: encodedContent
-          })
+        },
+        body: JSON.stringify({
+          message: `Friend request from ${session.user.login}`,
+          content: encodedContent
+        })
         }
       );
 
@@ -1367,12 +1489,12 @@ export default function Home({ username, roomId }) {
           const directories = ['chats', 'config', 'friend_requests'];
           for (const dir of directories) {
             await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/${dir}/.gitkeep`, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${session.accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
                 message: `Create ${dir} directory`,
                 content: 'MQ==', // Base64 encoded "1"
               })
@@ -1562,17 +1684,17 @@ export default function Home({ username, roomId }) {
 
   // 获取文件的 SHA 值
   const getFileSha = async (token, username, path) => {
-    try {
-      const response = await fetch(
+      try {
+        const response = await fetch(
         `https://api.github.com/repos/${username}/dock-chat-data/contents/${path}`,
-        {
-          headers: {
+          {
+            headers: {
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/vnd.github.v3+json'
+            }
           }
-        }
       );
-      if (response.ok) {
+        if (response.ok) {
         const data = await response.json();
         return data.sha;
       }
@@ -1635,8 +1757,8 @@ export default function Home({ username, roomId }) {
                   last_updated: new Date().toISOString()
                 }
                 await updateConfig(session.accessToken, session.user.login, updatedConfig)
-              }
-            } catch (error) {
+        }
+      } catch (error) {
               console.error('Error saving system notification:', error)
             }
           }
@@ -1770,15 +1892,15 @@ export default function Home({ username, roomId }) {
                 height={40}
                 className="rounded-full"
               />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                   {session.user.name}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  @{session.user.login}
-                </p>
-              </div>
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                @{session.user.login}
+              </p>
             </div>
+          </div>
           ) : (
             <button
               onClick={() => signIn('github')}
@@ -1827,21 +1949,21 @@ export default function Home({ username, roomId }) {
         <div className="flex-1 overflow-y-auto">
           <div className="space-y-1 p-2">
             {contacts.map((contact) => (
-              <button
-                key={contact.id}
+            <button
+              key={contact.id}
                 onClick={() => {
                   handleChatChange(contact.id)
                   setCurrentView('chat')
                 }}
                 className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                  activeChat === contact.id
+                activeChat === contact.id
                     ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
                     : 'hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">
-                    {contact.name}
+                {contact.name}
                   </p>
                   {contact.lastMessage && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
@@ -1849,33 +1971,33 @@ export default function Home({ username, roomId }) {
                     </p>
                   )}
                 </div>
-                {contact.unread > 0 && (
+              {contact.unread > 0 && (
                   <span className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
-                    {contact.unread}
-                  </span>
-                )}
-              </button>
-            ))}
+                  {contact.unread}
+                </span>
+              )}
+            </button>
+          ))}
           </div>
         </div>
 
         {/* 底部操作按钮 */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           <div className="space-y-2">
-            <button
-              onClick={() => setShowCreateRoomModal(true)}
+          <button
+            onClick={() => setShowCreateRoomModal(true)}
               className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
             >
               <PlusCircleIcon className="h-5 w-5 mr-2" />
               新建聊天
-            </button>
-            <button
-              onClick={() => setShowJoinModal(true)}
+          </button>
+          <button
+            onClick={() => setShowJoinModal(true)}
               className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
-            >
+          >
               <UserGroupIcon className="h-5 w-5 mr-2" />
-              加入聊天室
-            </button>
+            加入聊天室
+          </button>
           </div>
         </div>
       </div>
@@ -1893,14 +2015,14 @@ export default function Home({ username, roomId }) {
                   </h2>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <button
+                <button
                     onClick={() => setShowChatSettings(true)}
                     className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-                  >
+                >
                     <Cog6ToothIcon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                  </button>
-                </div>
-              </div>
+                </button>
+          </div>
+                    </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((message, index) => (
@@ -1910,32 +2032,32 @@ export default function Home({ username, roomId }) {
                       message.user.id === session?.user?.id ? 'flex-row-reverse space-x-reverse' : ''
                     }`}
                   >
-                    <Image
-                      src={message.user.image || '/default-avatar.png'}
-                      alt={message.user.name}
-                      width={40}
-                      height={40}
-                      className="rounded-full"
-                    />
-                    <div
+                        <Image
+                          src={message.user.image || '/default-avatar.png'}
+                          alt={message.user.name}
+                          width={40}
+                          height={40}
+                          className="rounded-full"
+                        />
+                      <div
                       className={`flex flex-col ${
                         message.user.id === session?.user?.id ? 'items-end' : 'items-start'
                       }`}
-                    >
+                      >
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {message.user.name}
-                      </span>
-                      <div
+                        </span>
+                        <div
                         className={`mt-1 px-4 py-2 rounded-lg ${
                           message.user.id === session?.user?.id
                             ? 'bg-blue-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                        }`}
-                      >
-                        {message.content}
+                          }`}
+                        >
+                          {message.content}
+                        </div>
                       </div>
                     </div>
-                  </div>
                 ))}
                 <div ref={messagesEndRef} />
               </div>
@@ -1960,8 +2082,8 @@ export default function Home({ username, roomId }) {
                       <PaperAirplaneIcon className="h-5 w-5" />
                     )}
                   </button>
-                </form>
-              </div>
+              </form>
+            </div>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
