@@ -581,6 +581,7 @@ export default function Home({ username, roomId }) {
     }
 
     try {
+      setIsLoading(true);
       const roomId = joinInput.trim();
       
       // 检查聊天室是否已存在
@@ -603,6 +604,7 @@ export default function Home({ username, roomId }) {
             }
           });
         }
+        showToast('已加入聊天室', 'success');
         return;
       }
 
@@ -645,6 +647,26 @@ export default function Home({ username, roomId }) {
         updateChatRoomsCache(session.user.login, updatedContacts);
       }
 
+      // 创建聊天室目录
+      try {
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Create chat room ${roomId}`,
+              content: btoa(JSON.stringify([])) // 创建空的消息数组
+            })
+          }
+        );
+      } catch (error) {
+        console.error('Error creating chat room file:', error);
+      }
+
       // 切换到新聊天室
       setActiveChat(roomId);
       setCurrentView('chat');
@@ -672,6 +694,7 @@ export default function Home({ username, roomId }) {
             image: '/system-avatar.png',
             id: 'system'
           },
+          room: roomId,
           type: 'system',
           createdAt: new Date().toISOString()
         };
@@ -682,6 +705,8 @@ export default function Home({ username, roomId }) {
     } catch (error) {
       console.error('Error joining room:', error);
       showToast('加入聊天室失败，请重试', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1667,6 +1692,60 @@ export default function Home({ username, roomId }) {
     }
   }, [session, socket?.connected])
 
+  // 添加离开聊天室的处理函数
+  const handleLeaveRoom = async (roomId) => {
+    if (!session?.user?.login || !session.accessToken) return;
+
+    try {
+      // 从联系人列表中移除
+      const updatedContacts = contacts.filter(c => c.id !== roomId);
+      setContacts(updatedContacts);
+      
+      // 如果当前正在查看被删除的聊天室，切换到公共聊天室
+      if (activeChat === roomId) {
+        setActiveChat('public');
+      }
+
+      // 离开 Socket.IO 房间
+      if (socket?.connected) {
+        socket.emit('leave', { 
+          room: roomId,
+          user: {
+            id: session.user.id,
+            name: session.user.name,
+            image: session.user.image,
+            login: session.user.login
+          }
+        });
+      }
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: activeChat === roomId ? 'public' : activeChat
+          },
+          last_updated: new Date().toISOString()
+        };
+        await updateConfig(session.accessToken, session.user.login, updatedConfig);
+        setUserConfig(updatedConfig);
+        
+        // 更新缓存
+        updateUserConfigCache(session.user.login, updatedConfig);
+        updateChatRoomsCache(session.user.login, updatedContacts);
+      }
+
+      showToast('已离开聊天室', 'success');
+      setShowChatSettings(false);
+    } catch (error) {
+      console.error('Error leaving room:', error);
+      showToast('离开聊天室失败', 'error');
+    }
+  };
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -2071,7 +2150,7 @@ export default function Home({ username, roomId }) {
           isOpen={showChatSettings}
           onClose={() => setShowChatSettings(false)}
           roomId={activeChat}
-          onLeave={handleLeaveRoom}
+          onDelete={handleDeleteChatRoom}
         />
       )}
 
