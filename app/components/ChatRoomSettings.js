@@ -1,173 +1,130 @@
 'use client'
 
 import { useState } from 'react'
-import { XMarkIcon } from '@heroicons/react/24/solid'
-import Image from 'next/image'
+import { useSession } from 'next-auth/react'
+import JoinRequestsPanel from './JoinRequestsPanel'
 
-export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete, members = [] }) {
-  const [autoSave, setAutoSave] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+export default function ChatRoomSettings({ 
+  roomId, 
+  onClose, 
+  onDelete,
+  showToast,
+  isLoading,
+  members = []
+}) {
+  const { data: session } = useSession();
+  const [activeTab, setActiveTab] = useState('general');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  if (!isOpen) return null
-
-  // 生成加入 ID（使用原始的 roomId）
-  const joinId = roomId;
-
-  // 复制加入 ID 到剪贴板
-  const copyJoinId = () => {
-    navigator.clipboard.writeText(joinId)
-      .then(() => {
-        alert('已复制到剪贴板');
-      })
-      .catch((err) => {
-        console.error('复制失败:', err);
-        alert('复制失败，请手动复制');
-      });
-  };
+  const isOwner = members.length > 0 && members[0] === session?.user?.login;
 
   const handleDelete = () => {
-    if (roomId === 'public' || roomId === 'kimi-ai' || roomId === 'system') {
-      alert('系统聊天室不能删除')
-      return
+    if (showDeleteConfirm) {
+      onDelete();
+      setShowDeleteConfirm(false);
+    } else {
+      setShowDeleteConfirm(true);
     }
-    setShowDeleteConfirm(true)
-  }
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">聊天室设置</h2>
+      <div className="bg-white rounded-lg w-full max-w-lg max-h-[80vh] overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-xl font-semibold">聊天室设置</h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="text-gray-500 hover:text-gray-700"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
-          {/* 加入 ID 部分 */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">加入 ID</h3>
-            <div className="flex items-center space-x-2">
-              <input
-                type="text"
-                value={joinId}
-                readOnly
-                className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
-              />
+        <div className="border-b">
+          <div className="flex">
+            <button
+              className={`px-4 py-2 ${activeTab === 'general' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+              onClick={() => setActiveTab('general')}
+            >
+              常规设置
+            </button>
+            <button
+              className={`px-4 py-2 ${activeTab === 'members' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+              onClick={() => setActiveTab('members')}
+            >
+              成员管理
+            </button>
+            {isOwner && (
               <button
-                onClick={copyJoinId}
-                className="px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
+                className={`px-4 py-2 ${activeTab === 'requests' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                onClick={() => setActiveTab('requests')}
               >
-                复制
+                加入申请
               </button>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              其他用户可以使用此 ID 加入聊天室
-            </p>
+            )}
           </div>
-
-          {/* 聊天室成员部分 */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              聊天室成员 ({members.length})
-            </h3>
-            <div className="max-h-48 overflow-y-auto space-y-2">
-              {members.map((member, index) => (
-                <div key={index} className="flex items-center space-x-3 p-2 rounded-lg bg-gray-50 dark:bg-gray-700">
-                  <Image
-                    src={member.image || '/default-avatar.png'}
-                    alt={member.name}
-                    width={32}
-                    height={32}
-                    className="rounded-full"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      {member.name}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      @{member.login}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {members.length === 0 && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
-                  暂无成员信息
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* 自动保存设置 */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900 dark:text-white">自动保存聊天记录</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                每隔5分钟自动保存聊天记录到 GitHub
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={autoSave}
-                onChange={(e) => setAutoSave(e.target.checked)}
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-            </label>
-          </div>
-
-          {/* 删除聊天室 */}
-          {roomId !== 'public' && roomId !== 'kimi-ai' && roomId !== 'system' && (
-            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={handleDelete}
-                className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
-              >
-                删除聊天室
-              </button>
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                删除后聊天记录将无法恢复，请谨慎操作
-              </p>
-            </div>
-          )}
         </div>
 
-        {/* 删除确认对话框 */}
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-sm w-full mx-4 p-4">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                确认删除聊天室？
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                删除后聊天记录将无法恢复，是否继续？
-              </p>
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() => {
-                    onDelete(roomId)
-                    setShowDeleteConfirm(false)
-                    onClose()
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
-                >
-                  确认删除
-                </button>
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(80vh - 8rem)' }}>
+          {activeTab === 'general' && (
+            <div className="p-4">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    聊天室 ID
+                  </label>
+                  <div className="text-gray-600">{roomId}</div>
+                </div>
+
+                {isOwner && (
+                  <div className="pt-4 border-t">
+                    <h3 className="text-red-600 font-medium mb-2">危险操作</h3>
+                    <button
+                      onClick={handleDelete}
+                      disabled={isLoading}
+                      className="w-full px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50"
+                    >
+                      {showDeleteConfirm ? '确认删除' : '删除聊天室'}
+                    </button>
+                    {showDeleteConfirm && (
+                      <p className="mt-2 text-sm text-red-500">
+                        删除后将无法恢复，请确认是否继续？
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {activeTab === 'members' && (
+            <div className="p-4">
+              <h3 className="text-lg font-semibold mb-4">成员列表</h3>
+              <div className="space-y-3">
+                {members.map((member, index) => (
+                  <div key={member} className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className="ml-3">
+                        <div className="text-sm font-medium text-gray-900">
+                          {member}
+                        </div>
+                        {index === 0 && (
+                          <div className="text-xs text-gray-500">管理员</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'requests' && isOwner && (
+            <JoinRequestsPanel roomId={roomId} showToast={showToast} />
+          )}
+        </div>
       </div>
     </div>
   )
