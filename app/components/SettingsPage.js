@@ -1,242 +1,149 @@
 'use client'
 
 import { useState } from 'react'
-import { 
-  Cog6ToothIcon, 
-  PaintBrushIcon, 
-  BellIcon, 
-  ShieldCheckIcon,
-  TrashIcon,
-  CloudIcon,
-  UserIcon
-} from '@heroicons/react/24/outline'
-import { useTheme } from 'next-themes'
+import { signOut } from 'next-auth/react'
 
-export default function SettingsPage({ config, onSave, onDeleteRepo }) {
-  const { theme, setTheme } = useTheme()
-  const [activeTab, setActiveTab] = useState('general')
-  const [isSaving, setIsSaving] = useState(false)
-  const [settings, setSettings] = useState(config?.settings || {})
+export default function SettingsPage({ config, onSave, onDeleteRepo, onCreateRepo }) {
+  const [activeTab, setActiveTab] = useState('general') // 'general', 'account', 'storage'
 
-  const handleSave = async () => {
-    setIsSaving(true)
+  const handleSignOut = async () => {
     try {
-      await onSave({
-        ...config,
-        settings: {
-          ...settings,
-          theme
-        }
-      })
+      await signOut({ callbackUrl: '/' })
     } catch (error) {
-      console.error('保存设置失败:', error)
-    } finally {
-      setIsSaving(false)
+      console.error('Error signing out:', error)
     }
   }
-
-  const handleDeleteRepo = async () => {
-    if (window.confirm('确定要删除所有聊天记录和设置吗？此操作不可恢复。')) {
-      try {
-        await onDeleteRepo()
-      } catch (error) {
-        console.error('删除仓库失败:', error)
-      }
-    }
-  }
-
-  const tabs = [
-    { id: 'general', name: '通用', icon: Cog6ToothIcon },
-    { id: 'appearance', name: '外观', icon: PaintBrushIcon },
-    { id: 'notifications', name: '通知', icon: BellIcon },
-    { id: 'privacy', name: '隐私与安全', icon: ShieldCheckIcon },
-    { id: 'storage', name: '存储', icon: CloudIcon },
-    { id: 'profile', name: '个人资料', icon: UserIcon }
-  ]
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-800">
-      {/* 顶部标题 */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">设置</h1>
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isSaving ? '保存中...' : '保存设置'}
-        </button>
+      {/* 顶部标签栏 */}
+      <div className="flex items-center p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex space-x-4">
+          <button
+            onClick={() => setActiveTab('general')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg ${
+              activeTab === 'general'
+                ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+            }`}
+          >
+            常规设置
+          </button>
+          <button
+            onClick={() => setActiveTab('account')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg ${
+              activeTab === 'account'
+                ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+            }`}
+          >
+            账号设置
+          </button>
+          <button
+            onClick={() => setActiveTab('storage')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg ${
+              activeTab === 'storage'
+                ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+            }`}
+          >
+            存储设置
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 flex">
-        {/* 左侧导航栏 */}
-        <div className="w-64 border-r border-gray-200 dark:border-gray-700">
-          <nav className="p-4 space-y-1">
-            {tabs.map((tab) => (
+      {/* 设置内容区域 */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {activeTab === 'general' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">主题设置</h3>
+              <div className="mt-4 space-y-4">
+                <div className="flex items-center">
+                  <input
+                    type="radio"
+                    id="theme-light"
+                    name="theme"
+                    value="light"
+                    checked={config?.settings?.theme === 'light'}
+                    onChange={(e) => onSave({ ...config, settings: { ...config?.settings, theme: e.target.value } })}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                  />
+                  <label htmlFor="theme-light" className="ml-3 text-sm text-gray-700 dark:text-gray-300">
+                    浅色主题
+                  </label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="radio"
+                    id="theme-dark"
+                    name="theme"
+                    value="dark"
+                    checked={config?.settings?.theme === 'dark'}
+                    onChange={(e) => onSave({ ...config, settings: { ...config?.settings, theme: e.target.value } })}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                  />
+                  <label htmlFor="theme-dark" className="ml-3 text-sm text-gray-700 dark:text-gray-300">
+                    深色主题
+                  </label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="radio"
+                    id="theme-system"
+                    name="theme"
+                    value="system"
+                    checked={config?.settings?.theme === 'system'}
+                    onChange={(e) => onSave({ ...config, settings: { ...config?.settings, theme: e.target.value } })}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                  />
+                  <label htmlFor="theme-system" className="ml-3 text-sm text-gray-700 dark:text-gray-300">
+                    跟随系统
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'account' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">账号管理</h3>
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center px-4 py-2 text-sm font-medium rounded-lg ${
-                  activeTab === tab.id
-                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
-                    : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
-                }`}
+                onClick={handleSignOut}
+                className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-lg transition-colors"
               >
-                <tab.icon className="w-5 h-5 mr-3" />
-                {tab.name}
+                退出登录
               </button>
-            ))}
-          </nav>
-        </div>
+            </div>
+          </div>
+        )}
 
-        {/* 右侧设置内容 */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'general' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">基本设置</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  配置应用的基本行为
+        {activeTab === 'storage' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">存储管理</h3>
+              <div className="space-y-4">
+                <button
+                  onClick={onCreateRepo}
+                  className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  创建私有存储库
+                </button>
+                <button
+                  onClick={onDeleteRepo}
+                  className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+                >
+                  删除私有存储库
+                </button>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  注意：删除私有存储库将清除所有聊天记录和设置。此操作不可恢复。
                 </p>
-                <div className="mt-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        消息提醒
-                      </label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        接收新消息时显示通知
-                      </p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.notifications}
-                        onChange={(e) => setSettings(prev => ({
-                          ...prev,
-                          notifications: e.target.checked
-                        }))}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">消息设置</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  配置消息的显示方式
-                </p>
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      每页显示消息数
-                    </label>
-                    <select
-                      value={settings.messagesPerPage || 50}
-                      onChange={(e) => setSettings(prev => ({
-                        ...prev,
-                        messagesPerPage: Number(e.target.value)
-                      }))}
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md dark:bg-gray-700 dark:text-white"
-                    >
-                      <option value={30}>30条</option>
-                      <option value={50}>50条</option>
-                      <option value={100}>100条</option>
-                    </select>
-                  </div>
-                </div>
               </div>
             </div>
-          )}
-
-          {activeTab === 'appearance' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">主题设置</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  自定义应用的外观
-                </p>
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      颜色主题
-                    </label>
-                    <select
-                      value={theme}
-                      onChange={(e) => setTheme(e.target.value)}
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md dark:bg-gray-700 dark:text-white"
-                    >
-                      <option value="light">浅色</option>
-                      <option value="dark">深色</option>
-                      <option value="system">跟随系统</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'privacy' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">隐私设置</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  管理你的隐私和安全选项
-                </p>
-                <div className="mt-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        在线状态可见
-                      </label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        允许其他用户查看你的在线状态
-                      </p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.showOnlineStatus}
-                        onChange={(e) => setSettings(prev => ({
-                          ...prev,
-                          showOnlineStatus: e.target.checked
-                        }))}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'storage' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">存储管理</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  管理聊天记录和应用数据
-                </p>
-                <div className="mt-4 space-y-4">
-                  <button
-                    onClick={handleDeleteRepo}
-                    className="flex items-center px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 dark:text-red-400 dark:bg-red-900/50 dark:hover:bg-red-900"
-                  >
-                    <TrashIcon className="w-5 h-5 mr-2" />
-                    删除所有数据
-                  </button>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    此操作将删除所有聊天记录和设置，且不可恢复
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )

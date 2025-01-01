@@ -1427,30 +1427,22 @@ export default function Home({ username, roomId }) {
         {/* 用户信息 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           {session?.user ? (
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <Image
-                  src={session.user.image || '/default-avatar.png'}
-                  alt={session.user.name}
-                  width={40}
-                  height={40}
-                  className="rounded-full"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {session.user.name}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    @{session.user.login}
-                  </p>
-                </div>
+            <div className="flex items-center space-x-3">
+              <Image
+                src={session.user.image || '/default-avatar.png'}
+                alt={session.user.name}
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {session.user.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  @{session.user.login}
+                </p>
               </div>
-              <button
-                onClick={handleSignOut}
-                className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-lg transition-colors"
-              >
-                退出登录
-              </button>
             </div>
           ) : (
             <button
@@ -1694,6 +1686,34 @@ export default function Home({ username, roomId }) {
                 } catch (error) {
                   console.error('Error deleting repository:', error)
                   alert('删除仓库失败，请重试')
+                }
+              }}
+              onCreateRepo={async () => {
+                try {
+                  if (session?.accessToken && session.user?.login) {
+                    const response = await fetch('https://api.github.com/user/repos', {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${session.accessToken}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        name: 'dock-chat-data',
+                        private: true,
+                        auto_init: true,
+                        description: 'Private repository for Dock Chat data storage'
+                      })
+                    });
+
+                    if (!response.ok) {
+                      throw new Error('Failed to create repository');
+                    }
+
+                    window.location.reload();
+                  }
+                } catch (error) {
+                  console.error('Error creating repository:', error)
+                  alert('创建仓库失败，请重试')
                 }
               }}
             />
