@@ -16,10 +16,23 @@ export default function JoinRoomModal({ onClose, onJoin, showToast }) {
     
     setIsSearching(true);
     try {
-      const results = await searchChatRooms(session, searchTerm);
-      setSearchResults(results);
-      if (results.length === 0) {
-        showToast('未找到匹配的聊天室', 'info');
+      // 检查是否是直接输入的聊天室ID
+      if (searchTerm.includes('@')) {
+        const result = await searchChatRoom(session, searchTerm);
+        if (result.error) {
+          showToast(result.error, 'error');
+          setSearchResults([]);
+        } else {
+          setSearchResults([result]);
+          setSelectedRoom(result);
+        }
+      } else {
+        // 关键词搜索
+        const results = await searchChatRooms(session, searchTerm);
+        setSearchResults(results);
+        if (results.length === 0) {
+          showToast('未找到匹配的聊天室', 'info');
+        }
       }
     } catch (error) {
       console.error('Error searching rooms:', error);
@@ -42,6 +55,14 @@ export default function JoinRoomModal({ onClose, onJoin, showToast }) {
       await onJoin(selectedRoom.id);
     } finally {
       setIsJoining(false);
+    }
+  };
+
+  // 处理按下回车键
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSearch();
     }
   };
 
@@ -71,7 +92,8 @@ export default function JoinRoomModal({ onClose, onJoin, showToast }) {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="输入关键词搜索"
+                  onKeyPress={handleKeyPress}
+                  placeholder="输入关键词搜索或直接输入聊天室ID"
                   className="flex-1 px-3 py-2 border rounded-md"
                 />
                 <button
@@ -83,7 +105,7 @@ export default function JoinRoomModal({ onClose, onJoin, showToast }) {
                 </button>
               </div>
               <p className="mt-1 text-sm text-gray-500">
-                或者直接输入聊天室ID：用户名@域名
+                聊天室ID格式：用户名@域名（例如：johndoe@chatroom）
               </p>
             </div>
 
@@ -109,6 +131,9 @@ export default function JoinRoomModal({ onClose, onJoin, showToast }) {
                         {room.description && (
                           <p className="text-sm text-gray-600 mt-1">{room.description}</p>
                         )}
+                        <p className="text-sm text-gray-500 mt-1">
+                          ID: {room.id}
+                        </p>
                       </div>
                       <div className="text-sm text-gray-500">
                         {room.members.length} 成员
