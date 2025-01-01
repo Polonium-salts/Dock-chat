@@ -364,7 +364,7 @@ export default function Home({ username, roomId }) {
         socket.emit('message', message);
       }
 
-      // 立即保存消息到 GitHub
+      // 保存消息到自己的仓库
       await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
 
       // 更新联系人列表中的最后一条消息
@@ -584,7 +584,7 @@ export default function Home({ username, roomId }) {
       setIsLoading(true);
       const roomId = joinInput.trim();
       
-      // 检查聊天室是否已存在
+      // 检查聊天室是否已存在于自己的联系人列表中
       const existingRoom = contacts.find(contact => contact.id === roomId);
       if (existingRoom) {
         setActiveChat(roomId);
@@ -647,24 +647,38 @@ export default function Home({ username, roomId }) {
         updateChatRoomsCache(session.user.login, updatedContacts);
       }
 
-      // 创建聊天室目录
+      // 创建或加载聊天记录文件
       try {
-        await fetch(
+        // 先尝试获取现有的聊天记录
+        const response = await fetch(
           `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
           {
-            method: 'PUT',
             headers: {
               'Authorization': `Bearer ${session.accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              message: `Create chat room ${roomId}`,
-              content: btoa(JSON.stringify([])) // 创建空的消息数组
-            })
+              'Accept': 'application/vnd.github.v3+json'
+            }
           }
         );
+
+        if (response.status === 404) {
+          // 如果文件不存在，创建新的聊天记录文件
+          await fetch(
+            `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                message: `Create chat room ${roomId}`,
+                content: btoa(JSON.stringify([])) // 创建空的消息数组
+              })
+            }
+          );
+        }
       } catch (error) {
-        console.error('Error creating chat room file:', error);
+        console.error('Error handling chat history file:', error);
       }
 
       // 切换到新聊天室
