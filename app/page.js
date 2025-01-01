@@ -300,7 +300,7 @@ export default function Home({ username, roomId }) {
     }
   }
 
-  // 修改发送消息的逻辑
+  // 修改发送消息的逻辑，实时保存
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !session || isSending) return;
@@ -331,6 +331,9 @@ export default function Home({ username, roomId }) {
         });
       }
 
+      // 立即保存消息到 GitHub
+      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
+
       // 更新联系人列表中的最后一条消息
       const updatedContacts = contacts.map(contact => {
         if (contact.id === activeChat) {
@@ -343,9 +346,6 @@ export default function Home({ username, roomId }) {
         return contact;
       });
       setContacts(updatedContacts);
-
-      // 保存消息到 GitHub
-      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
 
       // 更新用户配置
       if (userConfig) {
@@ -1433,22 +1433,42 @@ export default function Home({ username, roomId }) {
     checkLoginAndRepository();
   }, [session, status, createRepository, checkRepositoryExists, getConfigCallback]);
 
-  // 修改删除聊天室的逻辑
+  // 修改删除聊天室的处理函数
   const handleDeleteChatRoom = async (roomId) => {
-    if (!session?.user?.login || !session.accessToken) return
-    if (roomId === 'public' || roomId === 'kimi-ai') {
-      alert('系统聊天室不能删除')
-      return
+    if (!session?.user?.login || !session.accessToken) return;
+    if (roomId === 'public' || roomId === 'kimi-ai' || roomId === 'system') {
+      alert('系统聊天室不能删除');
+      return;
     }
 
     try {
       // 从联系人列表中移除
-      const updatedContacts = contacts.filter(c => c.id !== roomId)
-      setContacts(updatedContacts)
+      const updatedContacts = contacts.filter(c => c.id !== roomId);
+      setContacts(updatedContacts);
       
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
       if (activeChat === roomId) {
-        setActiveChat('public')
+        setActiveChat('public');
+      }
+
+      // 删除聊天记录文件
+      try {
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: `Delete chat room ${roomId}`,
+              sha: await getFileSha(session.accessToken, session.user.login, `chats/${roomId}.json`)
+            })
+          }
+        );
+      } catch (error) {
+        console.error('Error deleting chat history:', error);
       }
 
       // 更新用户配置
@@ -1461,14 +1481,44 @@ export default function Home({ username, roomId }) {
             activeChat: activeChat === roomId ? 'public' : activeChat
           },
           last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        };
+        await updateConfig(session.accessToken, session.user.login, updatedConfig);
+        setUserConfig(updatedConfig);
+        
+        // 更新缓存
+        updateUserConfigCache(session.user.login, updatedConfig);
+        updateChatRoomsCache(session.user.login, updatedContacts);
       }
+
+      showToast('聊天室已删除', 'success');
     } catch (error) {
-      console.error('Error deleting chat room:', error)
-      alert('删除聊天室失败')
+      console.error('Error deleting chat room:', error);
+      showToast('删除聊天室失败', 'error');
     }
-  }
+  };
+
+  // 获取文件的 SHA 值
+  const getFileSha = async (token, username, path) => {
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${username}/dock-chat-data/contents/${path}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        return data.sha;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting file SHA:', error);
+      return null;
+    }
+  };
 
   // 修改登录消息发送逻辑
   useEffect(() => {
@@ -1727,25 +1777,6 @@ export default function Home({ username, roomId }) {
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
-                    onClick={handleSaveMessages}
-                    disabled={isSaving || messages.length === 0}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                  >
-                    {isSaving ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>保存中...</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                        </svg>
-                        <span>保存消息</span>
-                      </>
-                    )}
-                  </button>
-                  <button
                     onClick={() => setShowChatSettings(true)}
                     className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
                   >
@@ -1804,7 +1835,7 @@ export default function Home({ username, roomId }) {
                   <button
                     type="submit"
                     disabled={!newMessage.trim() || isSending}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                   >
                     {isSending ? (
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
