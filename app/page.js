@@ -624,25 +624,6 @@ export default function Home({ username, roomId }) {
         members: [session.user.login]
       };
 
-      // 创建聊天记录文件
-      const initialMessages = [];
-      const encodedContent = btoa(JSON.stringify(initialMessages));
-      
-      await fetch(
-        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            message: `Create chat room ${roomId}`,
-            content: encodedContent
-          })
-        }
-      );
-
       // 更新联系人列表
       const updatedContacts = [...contacts, newRoom];
       setContacts(updatedContacts);
@@ -662,10 +643,6 @@ export default function Home({ username, roomId }) {
         // 保存配置
         await updateConfig(session.accessToken, session.user.login, updatedConfig);
         setUserConfig(updatedConfig);
-        
-        // 更新缓存
-        updateUserConfigCache(session.user.login, updatedConfig);
-        updateChatRoomsCache(session.user.login, updatedContacts);
       }
 
       // 切换到新聊天室
@@ -764,34 +741,40 @@ export default function Home({ username, roomId }) {
       if (!session?.user?.login || !session.accessToken) return;
       
       try {
-        // 尝试从缓存加载配置
-        const cachedConfig = getUserConfigCache(session.user.login);
-        if (cachedConfig) {
-          setUserConfig(cachedConfig);
-          if (cachedConfig.settings?.theme) {
-            setTheme(cachedConfig.settings.theme);
-          }
-          if (cachedConfig.contacts?.length > 0) {
-            setContacts(cachedConfig.contacts);
-            if (cachedConfig.settings?.activeChat) {
-              setActiveChat(cachedConfig.settings.activeChat);
-            }
-          }
-          return;
-        }
-
-        // 如果没有缓存，从 GitHub 加载配置
+        // 从 GitHub 加载配置
         const config = await getConfig(session.accessToken, session.user.login);
         if (config) {
+          // 更新本地状态和缓存
           setUserConfig(config);
           updateUserConfigCache(session.user.login, config);
+          
           if (config.settings?.theme) {
             setTheme(config.settings.theme);
           }
+          
           if (config.contacts?.length > 0) {
-            setContacts(config.contacts);
+            const formattedContacts = config.contacts.map(contact => ({
+              id: contact.id,
+              name: contact.name,
+              type: contact.type || 'room',
+              unread: contact.unread || 0,
+              created_at: contact.created_at || new Date().toISOString(),
+              updated_at: contact.updated_at || new Date().toISOString(),
+              lastMessage: contact.lastMessage || null,
+              description: contact.description || '',
+              isPrivate: contact.isPrivate || false
+            }));
+            
+            setContacts(formattedContacts);
+            updateChatRoomsCache(session.user.login, formattedContacts);
+            
             if (config.settings?.activeChat) {
-              setActiveChat(config.settings.activeChat);
+              const chatExists = formattedContacts.some(
+                contact => contact.id === config.settings.activeChat
+              );
+              if (chatExists) {
+                setActiveChat(config.settings.activeChat);
+              }
             }
           }
         }
@@ -1540,37 +1523,6 @@ export default function Home({ username, roomId }) {
     try {
       setIsLoading(true);
       
-      // 先获取文件的 SHA
-      const response = await fetch(
-        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-          }
-        }
-      );
-
-      if (response.ok) {
-        const fileData = await response.json();
-        
-        // 删除聊天记录文件
-        await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
-          {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              message: `Delete chat room ${roomId}`,
-              sha: fileData.sha
-            })
-          }
-        );
-      }
-
       // 从联系人列表中移除
       const updatedContacts = contacts.filter(c => c.id !== roomId);
       setContacts(updatedContacts);
@@ -1592,12 +1544,10 @@ export default function Home({ username, roomId }) {
           },
           last_updated: new Date().toISOString()
         };
+
+        // 保存到 GitHub
         await updateConfig(session.accessToken, session.user.login, updatedConfig);
         setUserConfig(updatedConfig);
-        
-        // 更新缓存
-        updateUserConfigCache(session.user.login, updatedConfig);
-        updateChatRoomsCache(session.user.login, updatedContacts);
       }
 
       showToast('聊天室已删除', 'success');
