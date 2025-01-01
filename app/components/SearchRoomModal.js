@@ -6,7 +6,50 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  const [searchMode, setSearchMode] = useState('search'); // 'search' 或 'id'
+
+  // 处理直接加入聊天室
+  const handleDirectJoin = async () => {
+    if (!searchTerm.trim()) {
+      showToast('请输入聊天室ID', 'error');
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      // 检查聊天室是否存在
+      const roomId = searchTerm.trim();
+      const [owner] = roomId.split('-');
+      
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/dock-chat-data/contents/chats/${roomId}/info.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          showToast('聊天室不存在', 'error');
+        } else {
+          throw new Error('检查聊天室失败');
+        }
+        return;
+      }
+
+      // 调用加入聊天室函数
+      await onJoin(roomId);
+      onClose();
+      showToast('已发送加入申请', 'success');
+    } catch (error) {
+      console.error('Error joining room:', error);
+      showToast('加入聊天室失败，请重试', 'error');
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   // 处理搜索
   const handleSearch = async () => {
@@ -14,13 +57,6 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
     
     setIsSearching(true);
     try {
-      if (searchMode === 'id') {
-        // 直接通过 ID 加入
-        onJoin({ preventDefault: () => {} }, searchTerm);
-        onClose();
-        return;
-      }
-
       // 调用 GitHub API 搜索用户
       const response = await fetch(
         `https://api.github.com/search/users?q=${searchTerm}+in:login`,
@@ -44,7 +80,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         try {
           // 检查用户是否有数据仓库
           const repoResponse = await fetch(
-            `https://api.github.com/repos/${user.login}/dock-chat-data`,
+            `https://api.github.com/repos/${user.login}/dock-chat-data/contents/chats`,
             {
               headers: {
                 'Authorization': `Bearer ${session.accessToken}`,
@@ -55,33 +91,20 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
 
           if (!repoResponse.ok) continue;
 
-          // 获取聊天室列表
-          const roomsResponse = await fetch(
-            `https://api.github.com/repos/${user.login}/dock-chat-data/contents/rooms`,
-            {
-              headers: {
-                'Authorization': `Bearer ${session.accessToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            }
-          );
-
-          if (!roomsResponse.ok) continue;
-
-          const rooms = await roomsResponse.json();
+          const rooms = await repoResponse.json();
           
-          // 获取每个聊天室的配置
+          // 获取每个聊天室的信息
           for (const room of rooms) {
+            if (!room.name.endsWith('info.json')) continue;
+            
             try {
-              const configResponse = await fetch(
-                `${room.url}/config.json`,
-                {
-                  headers: {
-                    'Authorization': `Bearer ${session.accessToken}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                  }
+              const roomId = room.name.replace('info.json', '');
+              const configResponse = await fetch(room.download_url, {
+                headers: {
+                  'Authorization': `Bearer ${session.accessToken}`,
+                  'Accept': 'application/vnd.github.v3+json'
                 }
-              );
+              });
 
               if (!configResponse.ok) continue;
 
@@ -92,14 +115,13 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
               if (config.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                   config.description?.toLowerCase().includes(searchTerm.toLowerCase())) {
                 results.push({
-                  id: `${user.login}@${room.name}`,
+                  id: roomId,
                   name: config.name || `${user.login}的聊天室`,
                   owner: {
                     login: user.login,
                     name: user.name || user.login,
                     avatar_url: user.avatar_url
                   },
-                  domain: room.name,
                   members: config.members || [],
                   created_at: config.created_at,
                   description: config.description || '',
@@ -138,11 +160,11 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-lg max-h-[80vh] overflow-hidden">
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">搜索/加入聊天室</h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -152,33 +174,9 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
 
         <div className="p-4">
           <div className="space-y-4">
-            {/* 搜索模式切换 */}
-            <div className="flex space-x-2 mb-4">
-              <button
-                onClick={() => setSearchMode('search')}
-                className={`flex-1 py-2 px-4 rounded-md ${
-                  searchMode === 'search'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                }`}
-              >
-                搜索聊天室
-              </button>
-              <button
-                onClick={() => setSearchMode('id')}
-                className={`flex-1 py-2 px-4 rounded-md ${
-                  searchMode === 'id'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                }`}
-              >
-                通过ID加入
-              </button>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {searchMode === 'search' ? '搜索聊天室' : '输入聊天室ID'}
+                输入聊天室ID或搜索关键词
               </label>
               <div className="flex space-x-2">
                 <input
@@ -186,26 +184,36 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder={searchMode === 'search' ? '输入关键词搜索聊天室' : '输入聊天室ID'}
-                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                  placeholder="输入聊天室ID或搜索关键词"
+                  className="flex-1 px-3 py-2 border dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                 />
+                <button
+                  onClick={handleDirectJoin}
+                  disabled={!searchTerm || isSearching}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                >
+                  加入
+                </button>
                 <button
                   onClick={handleSearch}
                   disabled={!searchTerm || isSearching}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isSearching ? '处理中...' : (searchMode === 'search' ? '搜索' : '加入')}
+                  搜索
                 </button>
               </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                提示：直接输入聊天室ID加入，或输入关键词搜索聊天室
+              </p>
             </div>
 
-            {searchMode === 'search' && searchResults.length > 0 && (
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-[40vh] overflow-y-auto">
+            {searchResults.length > 0 && (
+              <div className="border dark:border-gray-700 rounded-lg divide-y dark:divide-gray-700 max-h-[40vh] overflow-y-auto">
                 {searchResults.map(room => (
                   <div
                     key={room.id}
                     className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                    onClick={() => onJoin({ preventDefault: () => {} }, room.id)}
+                    onClick={() => onJoin(room.id)}
                   >
                     <div className="flex items-center space-x-3">
                       <img
