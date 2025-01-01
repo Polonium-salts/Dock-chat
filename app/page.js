@@ -1307,6 +1307,82 @@ export default function Home({ username, roomId }) {
     loadFriendRequests()
   }, [session])
 
+  // 添加检查仓库是否存在的函数
+  const checkRepositoryExists = async () => {
+    if (!session?.user?.login || !session.accessToken) return false;
+    
+    try {
+      const response = await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+      
+      return response.status === 200;
+    } catch (error) {
+      console.error('Error checking repository:', error);
+      return false;
+    }
+  };
+
+  // 添加创建仓库的函数
+  const createRepository = async () => {
+    if (!session?.user?.login || !session.accessToken) return;
+    
+    try {
+      // 创建私有仓库
+      const response = await fetch('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'dock-chat-data',
+          private: true,
+          auto_init: true,
+          description: 'Private repository for Dock Chat data storage'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create repository');
+      }
+
+      // 重新加载页面以初始化新仓库
+      window.location.reload();
+    } catch (error) {
+      console.error('Error creating repository:', error);
+      alert('创建仓库失败，请重试');
+    }
+  };
+
+  // 添加定期检查仓库是否存在的逻辑
+  useEffect(() => {
+    const checkRepository = async () => {
+      if (session?.user?.login && session.accessToken) {
+        const exists = await checkRepositoryExists();
+        if (!exists) {
+          const shouldCreate = window.confirm(
+            '检测到私有存储库已被删除。需要重新创建私有存储库以保存聊天记录和设置。是否立即创建？'
+          );
+          if (shouldCreate) {
+            await createRepository();
+          }
+        }
+      }
+    };
+
+    // 初始检查
+    checkRepository();
+
+    // 设置定期检查（每5分钟检查一次）
+    const intervalId = setInterval(checkRepository, 5 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, [session]);
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -1351,22 +1427,30 @@ export default function Home({ username, roomId }) {
         {/* 用户信息 */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           {session?.user ? (
-            <div className="flex items-center space-x-3">
-              <Image
-                src={session.user.image || '/default-avatar.png'}
-                alt={session.user.name}
-                width={40}
-                height={40}
-                className="rounded-full"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {session.user.name}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  @{session.user.login}
-                </p>
+            <div className="space-y-3">
+              <div className="flex items-center space-x-3">
+                <Image
+                  src={session.user.image || '/default-avatar.png'}
+                  alt={session.user.name}
+                  width={40}
+                  height={40}
+                  className="rounded-full"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {session.user.name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    @{session.user.login}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+              >
+                退出登录
+              </button>
             </div>
           ) : (
             <button
