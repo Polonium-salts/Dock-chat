@@ -6,6 +6,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchMode, setSearchMode] = useState('search'); // 'search' 或 'id'
 
   // 处理搜索
   const handleSearch = async () => {
@@ -13,6 +14,13 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
     
     setIsSearching(true);
     try {
+      if (searchMode === 'id') {
+        // 直接通过 ID 加入
+        onJoin({ preventDefault: () => {} }, searchTerm);
+        onClose();
+        return;
+      }
+
       // 调用 GitHub API 搜索用户
       const response = await fetch(
         `https://api.github.com/search/users?q=${searchTerm}+in:login`,
@@ -129,12 +137,12 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-full max-w-lg max-h-[80vh] overflow-hidden">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-xl font-semibold">搜索聊天室</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-lg max-h-[80vh] overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">搜索/加入聊天室</h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -144,9 +152,33 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
 
         <div className="p-4">
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+            {/* 搜索模式切换 */}
+            <div className="flex space-x-2 mb-4">
+              <button
+                onClick={() => setSearchMode('search')}
+                className={`flex-1 py-2 px-4 rounded-md ${
+                  searchMode === 'search'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                }`}
+              >
                 搜索聊天室
+              </button>
+              <button
+                onClick={() => setSearchMode('id')}
+                className={`flex-1 py-2 px-4 rounded-md ${
+                  searchMode === 'id'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                }`}
+              >
+                通过ID加入
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {searchMode === 'search' ? '搜索聊天室' : '输入聊天室ID'}
               </label>
               <div className="flex space-x-2">
                 <input
@@ -154,26 +186,26 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="输入关键词搜索聊天室"
-                  className="flex-1 px-3 py-2 border rounded-md"
+                  placeholder={searchMode === 'search' ? '输入关键词搜索聊天室' : '输入聊天室ID'}
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                 />
                 <button
                   onClick={handleSearch}
                   disabled={!searchTerm || isSearching}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isSearching ? '搜索中...' : '搜索'}
+                  {isSearching ? '处理中...' : (searchMode === 'search' ? '搜索' : '加入')}
                 </button>
               </div>
             </div>
 
-            {searchResults.length > 0 && (
-              <div className="border rounded-lg divide-y max-h-[40vh] overflow-y-auto">
+            {searchMode === 'search' && searchResults.length > 0 && (
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-[40vh] overflow-y-auto">
                 {searchResults.map(room => (
                   <div
                     key={room.id}
-                    className="p-4 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => onJoin(room.id)}
+                    className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                    onClick={() => onJoin({ preventDefault: () => {} }, room.id)}
                   >
                     <div className="flex items-center space-x-3">
                       <img
@@ -182,18 +214,18 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
                         className="w-10 h-10 rounded-full"
                       />
                       <div className="flex-1">
-                        <h3 className="font-semibold">{room.name}</h3>
-                        <p className="text-sm text-gray-500">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">{room.name}</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
                           创建者：{room.owner.name} (@{room.owner.login})
                         </p>
                         {room.description && (
-                          <p className="text-sm text-gray-600 mt-1">{room.description}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{room.description}</p>
                         )}
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                           ID: {room.id}
                         </p>
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
                         {room.members.length} 成员
                       </div>
                     </div>
