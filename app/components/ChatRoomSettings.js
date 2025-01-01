@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { XMarkIcon } from '@heroicons/react/24/solid'
+import Image from 'next/image'
 
-export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete }) {
+export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete, members = [] }) {
   const [autoSave, setAutoSave] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
@@ -68,6 +69,39 @@ export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete }) 
             </p>
           </div>
 
+          {/* 聊天室成员部分 */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              聊天室成员 ({members.length})
+            </h3>
+            <div className="max-h-48 overflow-y-auto space-y-2">
+              {members.map((member, index) => (
+                <div key={index} className="flex items-center space-x-3 p-2 rounded-lg bg-gray-50 dark:bg-gray-700">
+                  <Image
+                    src={member.image || '/default-avatar.png'}
+                    alt={member.name}
+                    width={32}
+                    height={32}
+                    className="rounded-full"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {member.name}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      @{member.login}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {members.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
+                  暂无成员信息
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* 自动保存设置 */}
           <div className="flex items-center justify-between">
             <div>
@@ -88,17 +122,19 @@ export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete }) 
           </div>
 
           {/* 删除聊天室 */}
-          <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={handleDelete}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
-            >
-              删除聊天室
-            </button>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              删除后聊天记录将无法恢复，请谨慎操作
-            </p>
-          </div>
+          {roomId !== 'public' && roomId !== 'kimi-ai' && roomId !== 'system' && (
+            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={handleDelete}
+                className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
+              >
+                删除聊天室
+              </button>
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                删除后聊天记录将无法恢复，请谨慎操作
+              </p>
+            </div>
+          )}
         </div>
 
         {/* 删除确认对话框 */}

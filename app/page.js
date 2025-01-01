@@ -270,56 +270,34 @@ export default function Home({ username, roomId }) {
       }
 
       console.log('Loading messages for chat:', activeChat);
-
-      // 从所有成员的仓库加载消息
-      let allMessages = [];
-      const members = contacts.find(c => c.id === activeChat)?.members || [];
+      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat);
       
-      // 如果是公共聊天室或没有成员信息，只从当前用户的仓库加载
-      if (activeChat === 'public' || members.length === 0) {
-        const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat);
-        if (Array.isArray(messages)) {
-          allMessages = messages;
-        }
-      } else {
-        // 从每个成员的仓库加载消息
-        const messagePromises = members.map(async (member) => {
-          try {
-            const messages = await loadChatHistory(session.accessToken, member, activeChat);
-            return Array.isArray(messages) ? messages : [];
-          } catch (error) {
-            console.error(`Error loading messages from ${member}:`, error);
-            return [];
-          }
-        });
+      if (Array.isArray(messages)) {
+        const formattedMessages = messages.map(msg => ({
+          id: msg.id || `msg-${msg.createdAt}-${msg.user?.id}`,
+          content: msg.content || '',
+          user: {
+            name: msg.user?.name || 'Unknown User',
+            image: msg.user?.image || '/default-avatar.png',
+            id: msg.user?.id || 'unknown',
+            login: msg.user?.login
+          },
+          createdAt: msg.createdAt || new Date().toISOString(),
+          type: msg.type || 'message',
+          isOwnMessage: msg.user?.id === session.user.id
+        }));
 
-        const messagesArrays = await Promise.all(messagePromises);
-        allMessages = messagesArrays.flat();
+        // 按时间排序
+        const sortedMessages = formattedMessages.sort(
+          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+        );
+
+        setMessages(sortedMessages);
+        updateChatMessagesCache(session.user.login, activeChat, sortedMessages);
       }
-
-      // 按时间排序并去重
-      const uniqueMessages = Array.from(
-        new Map(allMessages.map(msg => [msg.id || `${msg.createdAt}-${msg.user?.id}`, msg])).values()
-      ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
-      const formattedMessages = uniqueMessages.map(msg => ({
-        id: msg.id || `${msg.createdAt}-${msg.user?.id}`,
-        content: msg.content || '',
-        user: {
-          name: msg.user?.name || 'Unknown User',
-          image: msg.user?.image || '/default-avatar.png',
-          id: msg.user?.id || 'unknown',
-          login: msg.user?.login
-        },
-        createdAt: msg.createdAt || new Date().toISOString(),
-        type: msg.type || 'message',
-        isOwnMessage: msg.user?.id === session.user.id
-      }));
-
-      setMessages(formattedMessages);
-      updateChatMessagesCache(session.user.login, activeChat, formattedMessages);
     } catch (error) {
       console.error('Error loading messages:', error);
+      showToast('加载消息失败', 'error');
       setMessages([]);
     } finally {
       setIsLoading(false);
@@ -624,11 +602,17 @@ export default function Home({ username, roomId }) {
         unread: 0,
         description: '',
         isPrivate: false,
-        members: [session.user.login]
+        members: [{
+          id: session.user.id,
+          login: session.user.login,
+          name: session.user.name,
+          image: session.user.image
+        }]
       };
 
       // 更新联系人列表
       const updatedContacts = [...contacts, newRoom];
+      setContacts(updatedContacts);
 
       // 更新用户配置
       if (userConfig) {
@@ -643,11 +627,7 @@ export default function Home({ username, roomId }) {
         };
         
         try {
-          // 先保存配置
           await updateConfig(session.accessToken, session.user.login, updatedConfig);
-          
-          // 更新状态
-          setContacts(updatedContacts);
           setUserConfig(updatedConfig);
           setActiveChat(roomId);
           setCurrentView('chat');
@@ -680,6 +660,15 @@ export default function Home({ username, roomId }) {
               createdAt: new Date().toISOString()
             };
             socket.emit('message', systemMessage);
+
+            // 保存系统消息
+            try {
+              const messages = await loadChatHistory(session.accessToken, session.user.login, roomId);
+              const updatedMessages = [...(messages || []), systemMessage];
+              await saveChatHistory(session.accessToken, session.user.login, roomId, updatedMessages);
+            } catch (error) {
+              console.error('Error saving system message:', error);
+            }
           }
 
           showToast('成功加入聊天室', 'success');
@@ -2134,6 +2123,7 @@ export default function Home({ username, roomId }) {
           onClose={() => setShowChatSettings(false)}
           roomId={activeChat}
           onDelete={handleDeleteChatRoom}
+          members={contacts.find(c => c.id === activeChat)?.members || []}
         />
       )}
 
