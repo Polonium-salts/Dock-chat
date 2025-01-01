@@ -1,164 +1,210 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Image from 'next/image'
-import Link from 'next/link'
-import { useSession, signIn } from 'next-auth/react'
-import {
-  ChatBubbleLeftIcon,
+import { memo } from 'react'
+import { 
   UserGroupIcon,
+  UserCircleIcon,
   Cog6ToothIcon,
-  PlusCircleIcon
-} from '@heroicons/react/24/outline'
+  PlusCircleIcon,
+  SparklesIcon,
+  UserPlusIcon,
+  BellIcon
+} from '@heroicons/react/24/solid'
+import Image from 'next/image'
 
-export default function Sidebar({
+const Sidebar = memo(({ 
+  session,
   currentView,
-  setCurrentView,
-  contacts,
+  contacts = [],
   activeChat,
-  handleChatChange,
-  setShowSettingsModal,
-  setShowCreateRoomModal,
-  setShowJoinModal
-}) {
-  const { data: session } = useSession()
-  const [selectedChat, setSelectedChat] = useState(activeChat)
-
-  // 同步外部状态
-  useEffect(() => {
-    if (activeChat !== selectedChat) {
-      setSelectedChat(activeChat)
-    }
-  }, [activeChat])
-
-  // 处理聊天室切换
-  const handleChatSelect = (chatId) => {
-    setSelectedChat(chatId)
-    handleChatChange(chatId)
-  }
+  onRoomChange,
+  onViewChange,
+  onCreateRoom,
+  onAddFriend,
+  onShowSettings,
+  onAddAI,
+  onShowRequests,
+  friendRequestsCount = 0
+}) => {
+  // 对联系人进行分组
+  const groupedContacts = contacts.reduce((acc, contact) => {
+    const type = contact.type || 'room'
+    if (!acc[type]) acc[type] = []
+    acc[type].push(contact)
+    return acc
+  }, {})
 
   return (
-    <div className="w-64 flex flex-col border-r border-gray-200 dark:border-gray-700">
-      {/* 用户信息 */}
+    <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+      {/* 用户信息区域 */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        {session?.user ? (
-          <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
+          {session.user.image && (
             <Image
-              src={session.user.image || '/default-avatar.png'}
-              alt={session.user.name}
+              src={session.user.image}
+              alt={session.user.name || '用户头像'}
               width={40}
               height={40}
               className="rounded-full"
             />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {session.user.name}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                @{session.user.login}
-              </p>
-            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+              {session.user.name || '用户'}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+              @{session.user.login}
+            </p>
           </div>
-        ) : (
           <button
-            onClick={() => signIn('github')}
-            className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            onClick={onShowRequests}
+            className="relative p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
           >
-            登录 GitHub
+            <BellIcon className="w-5 h-5" />
+            {friendRequestsCount > 0 && (
+              <span className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white text-xs w-4 h-4 rounded-full flex items-center justify-center">
+                {friendRequestsCount}
+              </span>
+            )}
           </button>
-        )}
+        </div>
       </div>
 
-      {/* 导航菜单 */}
-      <div className="flex items-center p-4 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex space-x-2 w-full">
+      {/* 导航按钮 */}
+      <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex space-x-2">
           <button
-            onClick={() => setCurrentView('chat')}
-            className={`flex items-center justify-center px-3 py-2 text-sm font-medium rounded-md ${
+            onClick={() => onViewChange('chat')}
+            className={`flex-1 flex items-center justify-center gap-2 p-2 text-sm font-medium rounded-lg transition-colors ${
               currentView === 'chat'
-                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+                ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
             }`}
           >
-            <ChatBubbleLeftIcon className="h-5 w-5 mr-2" />
+            <UserGroupIcon className="w-5 h-5" />
             聊天
           </button>
-          <Link
-            href="/friends"
-            className="flex items-center justify-center px-3 py-2 text-sm font-medium rounded-md text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+          <button
+            onClick={() => onViewChange('friends')}
+            className={`flex-1 flex items-center justify-center gap-2 p-2 text-sm font-medium rounded-lg transition-colors ${
+              currentView === 'friends'
+                ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
           >
-            <UserGroupIcon className="h-5 w-5 mr-2" />
+            <UserPlusIcon className="w-5 h-5" />
             好友
-          </Link>
+          </button>
           <button
-            onClick={() => setShowSettingsModal(true)}
-            className="flex items-center justify-center px-3 py-2 text-sm font-medium rounded-md text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+            onClick={() => onViewChange('profile')}
+            className={`flex-1 flex items-center justify-center gap-2 p-2 text-sm font-medium rounded-lg transition-colors ${
+              currentView === 'profile'
+                ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
           >
-            <Cog6ToothIcon className="h-5 w-5 mr-2" />
-            设置
+            <UserCircleIcon className="w-5 h-5" />
+            我的
           </button>
         </div>
       </div>
 
-      {/* 聊天列表 */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="space-y-1 p-2">
-          {contacts.map((contact) => {
-            const isActive = contact.id === selectedChat
-            return (
-              <button
-                key={contact.id}
-                onClick={() => handleChatSelect(contact.id)}
-                className={`w-full flex items-center px-3 py-2 rounded-md transition-colors ${
-                  isActive
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                    : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${
-                    isActive
-                      ? 'text-blue-600 dark:text-blue-300'
-                      : 'text-gray-900 dark:text-white'
-                  }`}>
-                    {contact.name}
-                  </p>
-                  {contact.lastMessage && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {contact.lastMessage.content}
-                    </p>
-                  )}
-                </div>
-                {contact.unread > 0 && (
-                  <span className="ml-2 px-2 py-0.5 text-xs bg-blue-500 text-white rounded-full">
-                    {contact.unread}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      {/* 聊天室列表 - 仅在聊天视图显示 */}
+      {currentView === 'chat' && (
+        <div className="flex-1 overflow-y-auto">
+          {/* 公共聊天室 */}
+          {groupedContacts.room && groupedContacts.room.length > 0 && (
+            <div className="p-3">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                聊天室
+              </h3>
+              <div className="space-y-1">
+                {groupedContacts.room.map(contact => (
+                  <button
+                    key={contact.id}
+                    onClick={() => onRoomChange(contact.id)}
+                    className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                      activeChat === contact.id
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
+                    }`}
+                  >
+                    <UserGroupIcon className="w-5 h-5 flex-shrink-0" />
+                    <span className="flex-1 text-left text-sm font-medium truncate">
+                      {contact.name}
+                    </span>
+                    {contact.unread > 0 && (
+                      <span className="flex-shrink-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                        {contact.unread}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* 底部操作按钮 */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-        <div className="space-y-2">
-          <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <PlusCircleIcon className="h-5 w-5 mr-2" />
-            新建聊天
-          </button>
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            <UserGroupIcon className="h-5 w-5 mr-2" />
-            加入聊天室
-          </button>
+          {/* AI 助手 */}
+          {groupedContacts.ai && groupedContacts.ai.length > 0 && (
+            <div className="p-3 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                AI 助手
+              </h3>
+              <div className="space-y-1">
+                {groupedContacts.ai.map(contact => (
+                  <button
+                    key={contact.id}
+                    onClick={() => onRoomChange(contact.id)}
+                    className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                      activeChat === contact.id
+                        ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/50 dark:text-purple-400'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
+                    }`}
+                  >
+                    <SparklesIcon className="w-5 h-5 flex-shrink-0" />
+                    <span className="flex-1 text-left text-sm font-medium truncate">
+                      {contact.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* 底部按钮区域 */}
+      <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        {currentView === 'chat' && (
+          <>
+            <button
+              onClick={onCreateRoom}
+              className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+            >
+              <PlusCircleIcon className="w-5 h-5" />
+              创建聊天室
+            </button>
+            <button
+              onClick={onAddAI}
+              className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
+            >
+              <SparklesIcon className="w-5 h-5" />
+              添加 AI 助手
+            </button>
+          </>
+        )}
+        <button
+          onClick={onShowSettings}
+          className="w-full flex items-center justify-center gap-2 p-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+        >
+          <Cog6ToothIcon className="w-5 h-5" />
+          设置
+        </button>
       </div>
     </div>
   )
-}
+})
+
+Sidebar.displayName = 'Sidebar'
+
+export default Sidebar 

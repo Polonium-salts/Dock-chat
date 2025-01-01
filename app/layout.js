@@ -1,21 +1,21 @@
-'use client'
-
 import { Inter } from 'next/font/google'
-import { ThemeProvider } from 'next-themes'
-import { SessionProvider } from 'next-auth/react'
+import { Providers } from './providers'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
 
+export const metadata = {
+  title: 'Dock Chat',
+  description: '实时聊天，随时交流',
+}
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="zh" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className={inter.className}>
-        <SessionProvider>
-          <ThemeProvider attribute="class">
-            {children}
-          </ThemeProvider>
-        </SessionProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   )
