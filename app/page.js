@@ -39,6 +39,7 @@ import FriendRequestsModal from './components/FriendRequestsModal'
 import UserProfileModal from './components/UserProfileModal'
 import FriendsPage from './components/FriendsPage'
 import SettingsPage from './components/SettingsPage'
+import Toast from './components/Toast'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -61,7 +62,6 @@ export default function Home({ username, roomId }) {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [userConfig, setUserConfig] = useState(null)
   const [isSending, setIsSending] = useState(false)
-  const [autoSaveInterval, setAutoSaveInterval] = useState(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
   const { theme, setTheme } = useTheme()
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
@@ -72,6 +72,8 @@ export default function Home({ username, roomId }) {
   const [friendRequests, setFriendRequests] = useState([])
   const [friends, setFriends] = useState([])
   const [following, setFollowing] = useState([])
+  const [toast, setToast] = useState(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   // 动滚动到底部
   useEffect(() => {
@@ -258,6 +260,27 @@ export default function Home({ username, roomId }) {
     }
   }
 
+  // 显示消息提示的函数
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type })
+  }
+
+  // 手动保存消息
+  const handleSaveMessages = async () => {
+    if (!session?.user?.login || !session.accessToken || !activeChat || messages.length === 0) return
+
+    try {
+      setIsSaving(true)
+      await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
+      showToast('消息保存成功', 'success')
+    } catch (error) {
+      console.error('Error saving messages:', error)
+      showToast('保存消息失败，请重试', 'error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   // 修改发送消息的逻辑
   const sendMessage = async (e) => {
     e.preventDefault()
@@ -277,8 +300,7 @@ export default function Home({ username, roomId }) {
       }
 
       // 添加消息到本地状态
-      const updatedMessages = [...messages, message]
-      setMessages(updatedMessages)
+      setMessages(prev => [...prev, message])
       setNewMessage('')
 
       // 发送消息到 Socket.IO
@@ -290,41 +312,16 @@ export default function Home({ username, roomId }) {
       }
 
       // 保存消息到 GitHub
-      if (session?.accessToken && session.user?.login) {
-        try {
-          await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-          
-          // 更新联系人列表中的最后一条消息
-          const updatedContacts = contacts.map(contact => {
-            if (contact.id === activeChat) {
-              return {
-                ...contact,
-                lastMessage: message.content,
-                updated_at: new Date().toISOString()
-              }
-            }
-            return contact
-          })
-          setContacts(updatedContacts)
-
-          // 更新用户配置
-          if (userConfig) {
-            const updatedConfig = {
-              ...userConfig,
-              contacts: updatedContacts,
-              last_updated: new Date().toISOString()
-            }
-            await updateConfig(session.accessToken, session.user.login, updatedConfig)
-            setUserConfig(updatedConfig)
-          }
-        } catch (error) {
-          console.error('Failed to save message:', error)
-          throw error
-        }
+      try {
+        await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message])
+        showToast('消息已发送', 'success')
+      } catch (error) {
+        console.error('Failed to save message:', error)
+        showToast('消息已发送，但保存失败', 'warning')
       }
     } catch (error) {
       console.error('Failed to send message:', error)
-      alert('发送消息失败，请重试')
+      showToast('发送消息失败，请重试', 'error')
       // 移除失败的消息
       setMessages(messages)
     } finally {
@@ -1741,6 +1738,25 @@ export default function Home({ username, roomId }) {
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
+                    onClick={handleSaveMessages}
+                    disabled={isSaving || messages.length === 0}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>保存中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                        </svg>
+                        <span>保存消息</span>
+                      </>
+                    )}
+                  </button>
+                  <button
                     onClick={() => setShowChatSettings(true)}
                     className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
                   >
@@ -1970,6 +1986,15 @@ export default function Home({ username, roomId }) {
           onClose={() => setShowChatSettings(false)}
           roomId={activeChat}
           onLeave={handleLeaveRoom}
+        />
+      )}
+
+      {/* Toast 组件 */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>
