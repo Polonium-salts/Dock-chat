@@ -90,25 +90,44 @@ export default function Home({ username, roomId }) {
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
+        timeout: 10000
       })
 
       socket.on('connect', () => {
         console.log('Socket connected')
         setIsConnected(true)
-        socket.emit('join', { 
-          room: activeChat,
-          userId: session.user.id
-        })
+        if (activeChat) {
+          socket.emit('join', { 
+            room: activeChat,
+            userId: session.user.id
+          })
+        }
       })
 
       socket.on('connect_error', (error) => {
         console.error('Connection error:', error)
         setIsConnected(false)
+        showToast('连接服务器失败，请检查网络连接', 'error')
       })
 
       socket.on('disconnect', (reason) => {
         console.log('Socket disconnected:', reason)
         setIsConnected(false)
+        if (reason === 'io server disconnect') {
+          // 服务器主动断开连接，尝试重连
+          socket.connect()
+        }
+      })
+
+      socket.on('reconnect', (attemptNumber) => {
+        console.log('Socket reconnected after', attemptNumber, 'attempts')
+        setIsConnected(true)
+        if (activeChat) {
+          socket.emit('join', { 
+            room: activeChat,
+            userId: session.user.id
+          })
+        }
       })
 
       socket.on('message', (message) => {
@@ -1784,7 +1803,7 @@ export default function Home({ username, roomId }) {
                   />
                   <button
                     type="submit"
-                    disabled={!isConnected || isSending}
+                    disabled={!newMessage.trim() || isSending}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isSending ? (
