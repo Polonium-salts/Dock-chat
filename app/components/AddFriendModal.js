@@ -17,14 +17,18 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
 
   useEffect(() => {
     const searchUsers = async () => {
-      if (!searchQuery.trim() || !session?.accessToken) return
+      if (!searchQuery.trim() || !session?.accessToken) {
+        setSearchResults([])
+        setIsLoading(false)
+        return
+      }
       
       setIsLoading(true)
       setError(null)
       
       try {
         // 首先搜索用户
-        const response = await fetch(`https://api.github.com/search/users?q=${encodeURIComponent(searchQuery)}+in:login+in:name`, {
+        const response = await fetch(`https://api.github.com/search/users?q=${encodeURIComponent(searchQuery)}+in:login+in:name&per_page=5`, {
           headers: {
             'Authorization': `Bearer ${session.accessToken}`,
             'Accept': 'application/vnd.github.v3+json'
@@ -36,12 +40,16 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
         }
 
         const data = await response.json()
+        if (data.items.length === 0) {
+          setSearchResults([])
+          setIsLoading(false)
+          return
+        }
         
         // 获取每个用户的详细信息
         const detailedUsers = await Promise.all(
           data.items
             .filter(user => user.login !== session.user.login)
-            .slice(0, 5) // 限制结果数量
             .map(async user => {
               try {
                 const detailResponse = await fetch(`https://api.github.com/users/${user.login}`, {
@@ -50,6 +58,7 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
                     'Accept': 'application/vnd.github.v3+json'
                   }
                 })
+                if (!detailResponse.ok) return null
                 const detailData = await detailResponse.json()
                 return {
                   id: detailData.id,
@@ -69,7 +78,8 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
             })
         )
 
-        setSearchResults(detailedUsers.filter(Boolean))
+        const validUsers = detailedUsers.filter(Boolean)
+        setSearchResults(validUsers)
       } catch (error) {
         console.error('Search error:', error)
         setError(error.message)
@@ -79,7 +89,8 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
       }
     }
 
-    const timeoutId = setTimeout(searchUsers, 500)
+    // 使用防抖进行搜索，增加延迟时间
+    const timeoutId = setTimeout(searchUsers, 800)
     return () => clearTimeout(timeoutId)
   }, [searchQuery, session, friends])
 
