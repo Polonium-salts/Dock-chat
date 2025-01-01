@@ -2,297 +2,191 @@
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import FriendGroups from '../components/FriendGroups'
-import EditFriendModal from '../components/EditFriendModal'
+import { useRouter } from 'next/navigation'
+import FriendsPage from '../components/FriendsPage'
 import AddFriendModal from '../components/AddFriendModal'
-import FriendRecommendations from '../components/FriendRecommendations'
-import FriendActivity from '../components/FriendActivity'
-import { UserPlusIcon, UserGroupIcon, ChartBarIcon } from '@heroicons/react/24/outline'
+import FriendRequestsModal from '../components/FriendRequestsModal'
+import UserProfileModal from '../components/UserProfileModal'
 
-export default function FriendsPage() {
-  const { data: session } = useSession()
+export default function Friends() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const [friends, setFriends] = useState([])
-  const [groups, setGroups] = useState([])
-  const [showAddFriend, setShowAddFriend] = useState(false)
-  const [showEditFriend, setShowEditFriend] = useState(false)
-  const [selectedFriend, setSelectedFriend] = useState(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [currentView, setCurrentView] = useState('list') // 'list', 'recommendations', 'activity'
+  const [following, setFollowing] = useState([])
+  const [friendRequests, setFriendRequests] = useState([])
+  const [showAddFriendModal, setShowAddFriendModal] = useState(false)
+  const [showFriendRequestsModal, setShowFriendRequestsModal] = useState(false)
+  const [showUserProfileModal, setShowUserProfileModal] = useState(false)
+  const [selectedUser, setSelectedUser] = useState(null)
 
-  // 加载好友和分组数据
+  // 检查用户登录状态
   useEffect(() => {
-    const loadFriendsData = async () => {
-      if (!session?.user?.login || !session.accessToken) return
+    if (status === 'loading') return
+    if (!session) {
+      router.push('/') // 未登录用户重定向到首页
+    }
+  }, [status, session, router])
+
+  // 加载好友列表和关注列表
+  useEffect(() => {
+    const loadFriendsAndFollowing = async () => {
+      if (!session?.accessToken || !session.user?.login) return
 
       try {
-        setIsLoading(true)
-        
-        // 加载好友数据
-        const friendsResponse = await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friends.json`,
-          {
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
-              'Accept': 'application/vnd.github.v3+json'
-            }
-          }
-        )
+        // 加载好友列表
+        const friendsResponse = await fetch(`/api/friends?username=${session.user.login}`)
+        const friendsData = await friendsResponse.json()
+        setFriends(friendsData)
 
-        if (friendsResponse.ok) {
-          const data = await friendsResponse.json()
-          const content = JSON.parse(atob(data.content))
-          setFriends(content.friends || [])
-          setGroups(content.groups || [])
-        }
+        // 加载关注列表
+        const followingResponse = await fetch(`/api/following?username=${session.user.login}`)
+        const followingData = await followingResponse.json()
+        setFollowing(followingData)
+
+        // 加载好友请求
+        const requestsResponse = await fetch(`/api/friend-requests?username=${session.user.login}`)
+        const requestsData = await requestsResponse.json()
+        setFriendRequests(requestsData)
       } catch (error) {
         console.error('Error loading friends data:', error)
-      } finally {
-        setIsLoading(false)
       }
     }
 
-    loadFriendsData()
+    loadFriendsAndFollowing()
   }, [session])
 
-  // 保存好友数据
-  const saveFriendsData = async (updatedFriends, updatedGroups) => {
-    if (!session?.user?.login || !session.accessToken) return
+  // 处理发送好友请求
+  const handleSendFriendRequest = async (data) => {
+    if (!session?.accessToken || !session.user?.login) return
 
     try {
-      const content = JSON.stringify({
-        friends: updatedFriends,
-        groups: updatedGroups
-      }, null, 2)
+      const response = await fetch('/api/friend-requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.accessToken}`
+        },
+        body: JSON.stringify({
+          from: session.user.login,
+          to: data.friendId,
+          note: data.note
+        })
+      })
 
-      const encodedContent = btoa(unescape(encodeURIComponent(content)))
-
-      await fetch(
-        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friends.json`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: 'Update friends data',
-            content: encodedContent,
-            sha: '' // 需要获取文件的 SHA
-          })
-        }
-      )
-    } catch (error) {
-      console.error('Error saving friends data:', error)
-    }
-  }
-
-  // 创建分组
-  const handleCreateGroup = async (newGroup) => {
-    const updatedGroups = [...groups, newGroup]
-    setGroups(updatedGroups)
-    await saveFriendsData(friends, updatedGroups)
-  }
-
-  // 编辑分组
-  const handleEditGroup = async (updatedGroup) => {
-    const updatedGroups = groups.map(group =>
-      group.id === updatedGroup.id ? updatedGroup : group
-    )
-    setGroups(updatedGroups)
-    await saveFriendsData(friends, updatedGroups)
-  }
-
-  // 删除分组
-  const handleDeleteGroup = async (groupId) => {
-    // 将该分组中的好友移动到默认分组
-    const updatedFriends = friends.map(friend =>
-      friend.groupId === groupId ? { ...friend, groupId: null } : friend
-    )
-    const updatedGroups = groups.filter(group => group.id !== groupId)
-    
-    setFriends(updatedFriends)
-    setGroups(updatedGroups)
-    await saveFriendsData(updatedFriends, updatedGroups)
-  }
-
-  // 移动好友到其他分组
-  const handleMoveFriend = async (friendId, groupId) => {
-    const updatedFriends = friends.map(friend =>
-      friend.id === friendId ? { ...friend, groupId } : friend
-    )
-    setFriends(updatedFriends)
-    await saveFriendsData(updatedFriends, groups)
-  }
-
-  // 编辑好友备注
-  const handleEditFriend = async (friendId, note) => {
-    const updatedFriends = friends.map(friend =>
-      friend.id === friendId ? { ...friend, note } : friend
-    )
-    setFriends(updatedFriends)
-    await saveFriendsData(updatedFriends, groups)
-  }
-
-  // 删除好友
-  const handleDeleteFriend = async (friendId) => {
-    const updatedFriends = friends.filter(friend => friend.id !== friendId)
-    setFriends(updatedFriends)
-    await saveFriendsData(updatedFriends, groups)
-  }
-
-  // 发送好友请求
-  const handleSendFriendRequest = async ({ friendId, note }) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      const requestId = `fr-${Date.now()}`
-      const requestContent = JSON.stringify({
-        id: requestId,
-        from: session.user.login,
-        to: friendId,
-        note: note,
-        status: 'pending',
-        created_at: new Date().toISOString()
-      }, null, 2)
-
-      const encodedContent = btoa(unescape(encodeURIComponent(requestContent)))
-      
-      await fetch(
-        `https://api.github.com/repos/${friendId}/dock-chat-data/contents/friend_requests/${requestId}.json`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: `Friend request from ${session.user.login}`,
-            content: encodedContent
-          })
-        }
-      )
-
-      alert('好友请求已发送')
+      if (response.ok) {
+        alert('好友请求已发送')
+      } else {
+        throw new Error('发送好友请求失败')
+      }
     } catch (error) {
       console.error('Error sending friend request:', error)
       alert('发送好友请求失败，请重试')
     }
   }
 
-  // 处理添加推荐好友
-  const handleAddRecommendedFriend = (user) => {
-    setSelectedFriend(user)
-    setShowAddFriend(true)
+  // 处理接受好友请求
+  const handleAcceptRequest = async (requestId) => {
+    if (!session?.accessToken || !session.user?.login) return
+
+    try {
+      const response = await fetch(`/api/friend-requests/${requestId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`
+        }
+      })
+
+      if (response.ok) {
+        // 更新好友请求列表
+        setFriendRequests(prev => prev.filter(req => req.id !== requestId))
+        // 重新加载好友列表
+        const friendsResponse = await fetch(`/api/friends?username=${session.user.login}`)
+        const friendsData = await friendsResponse.json()
+        setFriends(friendsData)
+      } else {
+        throw new Error('接受好友请求失败')
+      }
+    } catch (error) {
+      console.error('Error accepting friend request:', error)
+      alert('接受好友请求失败，请重试')
+    }
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
-      </div>
-    )
+  // 处理拒绝好友请求
+  const handleRejectRequest = async (requestId) => {
+    if (!session?.accessToken || !session.user?.login) return
+
+    try {
+      const response = await fetch(`/api/friend-requests/${requestId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`
+        }
+      })
+
+      if (response.ok) {
+        setFriendRequests(prev => prev.filter(req => req.id !== requestId))
+      } else {
+        throw new Error('拒绝好友请求失败')
+      }
+    } catch (error) {
+      console.error('Error rejecting friend request:', error)
+      alert('拒绝好友请求失败，请重试')
+    }
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900">
-      {/* 顶部栏 */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">好友管理</h1>
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setCurrentView('list')}
-            className={`p-2 rounded-md ${
-              currentView === 'list'
-                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            <UserGroupIcon className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setCurrentView('recommendations')}
-            className={`p-2 rounded-md ${
-              currentView === 'recommendations'
-                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            <UserPlusIcon className="w-5 h-5" />
-          </button>
-          {selectedFriend && (
-            <button
-              onClick={() => setCurrentView('activity')}
-              className={`p-2 rounded-md ${
-                currentView === 'activity'
-                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-              }`}
-            >
-              <ChartBarIcon className="w-5 h-5" />
-            </button>
-          )}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
+          <FriendsPage
+            friends={friends}
+            following={following}
+            onAddFriend={() => setShowAddFriendModal(true)}
+            onShowRequests={() => setShowFriendRequestsModal(true)}
+            onSelectUser={(user) => {
+              setSelectedUser(user)
+              setShowUserProfileModal(true)
+            }}
+          />
         </div>
       </div>
 
-      {/* 主要内容区域 */}
-      <div className="flex-1 h-[calc(100vh-4rem)]">
-        {currentView === 'list' && (
-          <FriendGroups
-            friends={friends}
-            groups={groups}
-            onCreateGroup={handleCreateGroup}
-            onEditGroup={handleEditGroup}
-            onDeleteGroup={handleDeleteGroup}
-            onMoveFriend={handleMoveFriend}
-            onEditFriend={(friend) => {
-              setSelectedFriend(friend)
-              setShowEditFriend(true)
-            }}
-            onDeleteFriend={handleDeleteFriend}
-            onSelectFriend={(friend) => {
-              setSelectedFriend(friend)
-              setCurrentView('activity')
-            }}
-          />
-        )}
-
-        {currentView === 'recommendations' && (
-          <div className="p-4">
-            <FriendRecommendations
-              session={session}
-              onAddFriend={handleAddRecommendedFriend}
-            />
-          </div>
-        )}
-
-        {currentView === 'activity' && selectedFriend && (
-          <div className="p-4">
-            <FriendActivity
-              session={session}
-              friend={selectedFriend}
-            />
-          </div>
-        )}
-      </div>
-
       {/* 模态框 */}
-      {showAddFriend && (
+      {showAddFriendModal && (
         <AddFriendModal
-          isOpen={showAddFriend}
-          onClose={() => setShowAddFriend(false)}
+          isOpen={showAddFriendModal}
+          onClose={() => setShowAddFriendModal(false)}
           onSendRequest={handleSendFriendRequest}
-          preselectedUser={selectedFriend}
         />
       )}
-      {showEditFriend && selectedFriend && (
-        <EditFriendModal
-          isOpen={showEditFriend}
+
+      {showFriendRequestsModal && (
+        <FriendRequestsModal
+          isOpen={showFriendRequestsModal}
+          onClose={() => setShowFriendRequestsModal(false)}
+          requests={friendRequests}
+          onAccept={handleAcceptRequest}
+          onReject={handleRejectRequest}
+        />
+      )}
+
+      {showUserProfileModal && selectedUser && (
+        <UserProfileModal
+          user={selectedUser}
           onClose={() => {
-            setShowEditFriend(false)
-            setSelectedFriend(null)
+            setShowUserProfileModal(false)
+            setSelectedUser(null)
           }}
-          friend={selectedFriend}
-          onSave={handleEditFriend}
+          onAddFriend={() => {
+            setShowAddFriendModal(true)
+            setShowUserProfileModal(false)
+          }}
+          onStartChat={() => {
+            router.push(`/chat/${selectedUser.login}`)
+          }}
+          isFriend={friends.some(f => f.login === selectedUser.login)}
+          isFollowing={following.some(f => f.login === selectedUser.login)}
         />
       )}
     </div>
