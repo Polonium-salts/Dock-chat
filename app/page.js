@@ -40,6 +40,7 @@ import UserProfileModal from './components/UserProfileModal'
 import FriendsPage from './components/FriendsPage'
 import SettingsPage from './components/SettingsPage'
 import Toast from './components/Toast'
+import SearchRoomModal from '@/app/components/SearchRoomModal'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -74,6 +75,7 @@ export default function Home({ username, roomId }) {
   const [following, setFollowing] = useState([])
   const [toast, setToast] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [showSearchModal, setShowSearchModal] = useState(false)
 
   // 动滚动到底部
   useEffect(() => {
@@ -1998,6 +2000,15 @@ export default function Home({ username, roomId }) {
               <UserGroupIcon className="h-5 w-5 mr-2" />
             加入聊天室
           </button>
+          <button
+            onClick={() => setShowSearchModal(true)}
+            className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            搜索聊天室
+          </button>
           </div>
         </div>
       </div>
@@ -2246,6 +2257,13 @@ export default function Home({ username, roomId }) {
           roomId={activeChat}
           onDelete={handleDeleteChatRoom}
           members={contacts.find(c => c.id === activeChat)?.members || []}
+        />
+      )}
+      {showSearchModal && (
+        <SearchRoomModal
+          onClose={() => setShowSearchModal(false)}
+          onJoin={handleJoin}
+          showToast={showToast}
         />
       )}
 
