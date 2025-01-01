@@ -299,9 +299,12 @@ export default function Home({ username, roomId }) {
         isOwnMessage: true
       };
 
-      setMessages(prev => [...prev, message]);
+      // 先更新本地消息状态
+      const updatedMessages = [...messages, message];
+      setMessages(updatedMessages);
       setNewMessage('');
 
+      // 发送消息到 Socket.IO
       if (socket?.connected) {
         socket.emit('message', {
           ...message,
@@ -309,11 +312,41 @@ export default function Home({ username, roomId }) {
         });
       }
 
-      await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message]);
+      // 更新联系人列表中的最后一条消息
+      const updatedContacts = contacts.map(contact => {
+        if (contact.id === activeChat) {
+          return {
+            ...contact,
+            lastMessage: message.content,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return contact;
+      });
+      setContacts(updatedContacts);
+
+      // 保存消息到 GitHub
+      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          last_updated: new Date().toISOString()
+        };
+        await updateConfig(session.accessToken, session.user.login, updatedConfig);
+        setUserConfig(updatedConfig);
+      }
+
+      // 更新消息缓存
+      updateChatMessagesCache(session.user.login, activeChat, updatedMessages);
     } catch (error) {
       console.error('Failed to send message:', error);
       showToast('发送消息失败', 'error');
+      // 恢复原始消息状态
       setMessages(messages);
+      setNewMessage(newMessage);
     } finally {
       setIsSending(false);
     }
@@ -487,19 +520,25 @@ export default function Home({ username, roomId }) {
     }
   };
 
+  // 修改加入聊天室的逻辑
   const handleJoin = async (e) => {
-    e.preventDefault()
-    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) return
+    e.preventDefault();
+    if (!joinInput.trim() || !session?.user?.login || !session.accessToken) {
+      showToast('请先登录或输入聊天室ID', 'error');
+      return;
+    }
 
     try {
-      const roomId = joinInput.trim()
+      const roomId = joinInput.trim();
       
       // 检查聊天室是否已存在
-      if (contacts.some(contact => contact.id === roomId)) {
-        setActiveChat(roomId)
-        setShowJoinModal(false)
-        setJoinInput('')
-        return
+      const existingRoom = contacts.find(contact => contact.id === roomId);
+      if (existingRoom) {
+        setActiveChat(roomId);
+        setCurrentView('chat');
+        setShowJoinModal(false);
+        setJoinInput('');
+        return;
       }
 
       // 创建新的聊天室对象
@@ -513,10 +552,11 @@ export default function Home({ username, roomId }) {
         unread: 0,
         description: '',
         isPrivate: false
-      }
+      };
 
       // 更新联系人列表
-      const updatedContacts = [...contacts, newRoom]
+      const updatedContacts = [...contacts, newRoom];
+      setContacts(updatedContacts);
       
       // 更新用户配置
       if (userConfig) {
@@ -528,28 +568,37 @@ export default function Home({ username, roomId }) {
             activeChat: roomId
           },
           last_updated: new Date().toISOString()
-        }
+        };
         
-        // 先保存配置，确保数据被持久化
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        // 保存配置
+        await updateConfig(session.accessToken, session.user.login, updatedConfig);
+        setUserConfig(updatedConfig);
         
-        // 更新状态
-        setUserConfig(updatedConfig)
-        setContacts(updatedContacts)
-        setActiveChat(roomId)
-        setShowJoinModal(false)
-        setJoinInput('')
-
-        // 更新路由
-        if (typeof window !== 'undefined') {
-          router.push(`/${session.user.login}/${roomId}`)
-        }
+        // 更新缓存
+        updateUserConfigCache(session.user.login, updatedConfig);
+        updateChatRoomsCache(session.user.login, updatedContacts);
       }
+
+      // 切换到新聊天室
+      setActiveChat(roomId);
+      setCurrentView('chat');
+      setShowJoinModal(false);
+      setJoinInput('');
+
+      // 加入 Socket.IO 房间
+      if (socket?.connected) {
+        socket.emit('join', {
+          room: roomId,
+          userId: session.user.id
+        });
+      }
+
+      showToast('成功加入聊天室', 'success');
     } catch (error) {
-      console.error('Error joining room:', error)
-      alert('加入聊天室失败，请重试')
+      console.error('Error joining room:', error);
+      showToast('加入聊天室失败，请重试', 'error');
     }
-  }
+  };
 
   // 修改初始化检查的逻辑
   useEffect(() => {
@@ -938,210 +987,174 @@ export default function Home({ username, roomId }) {
 
   // 处理好友请求
   const handleSendFriendRequest = async ({ friendId, note }) => {
-    if (!session?.user?.login || !session.accessToken) return
+    if (!session?.user?.login || !session.accessToken) {
+      showToast('请先登录', 'error');
+      return;
+    }
 
     try {
-      // 保存好友请求到 GitHub
-      const requestId = `fr-${Date.now()}`
-      const requestContent = JSON.stringify({
+      setIsSending(true);
+      // 创建好友请求对象
+      const requestId = `fr-${Date.now()}`;
+      const requestData = {
         id: requestId,
-        from: session.user.login,
+        from: {
+          id: session.user.id,
+          login: session.user.login,
+          name: session.user.name,
+          image: session.user.image
+        },
         to: friendId,
         note: note,
         status: 'pending',
         created_at: new Date().toISOString()
-      }, null, 2)
+      };
 
-      const encodedContent = btoa(unescape(encodeURIComponent(requestContent)))
-      
-      await fetch(`https://api.github.com/repos/${friendId}/dock-chat-data/contents/friend_requests/${requestId}.json`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: `Friend request from ${session.user.login}`,
-          content: encodedContent
-        })
-      })
-
-      alert('好友请求已发送')
-    } catch (error) {
-      console.error('Error sending friend request:', error)
-      alert('发送好友请求失败，请重试')
-    }
-  }
-
-  // 处理接受好友请求
-  const handleAcceptFriendRequest = async (requestId) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      const request = friendRequests.find(r => r.id === requestId)
-      if (!request) return
-
-      // 更新好友请求状态
-      const updatedRequest = {
-        ...request,
-        status: 'accepted',
-        updated_at: new Date().toISOString()
-      }
-
-      const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(updatedRequest, null, 2))))
-      
-      await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests/${requestId}.json`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: `Accept friend request from ${request.from}`,
-          content: encodedContent
-        })
-      })
-
-      // 添加到好友列表
-      const newFriend = {
-        id: request.from,
-        name: request.user.name,
-        image: request.user.image,
-        added_at: new Date().toISOString()
-      }
-
-      const updatedFriends = [...friends, newFriend]
-      setFriends(updatedFriends)
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          friends: updatedFriends,
-          last_updated: new Date().toISOString()
+      // 确保目标用户的仓库存在
+      const targetRepoResponse = await fetch(
+        `https://api.github.com/repos/${friendId}/dock-chat-data`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
         }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        setUserConfig(updatedConfig)
+      );
+
+      if (!targetRepoResponse.ok) {
+        showToast('对方未初始化聊天数据，无法发送好友请求', 'error');
+        return;
       }
 
-      // 从请求列表中移除
-      setFriendRequests(prev => prev.filter(r => r.id !== requestId))
-    } catch (error) {
-      console.error('Error accepting friend request:', error)
-      alert('接受好友请求失败，请重试')
-    }
-  }
-
-  // 处理拒绝好友请求
-  const handleRejectFriendRequest = async (requestId) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      const request = friendRequests.find(r => r.id === requestId)
-      if (!request) return
-
-      // 更新好友请求状态
-      const updatedRequest = {
-        ...request,
-        status: 'rejected',
-        updated_at: new Date().toISOString()
-      }
-
-      const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(updatedRequest, null, 2))))
-      
-      await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests/${requestId}.json`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: `Reject friend request from ${request.from}`,
-          content: encodedContent
-        })
-      })
-
-      // 从请求列表中移除
-      setFriendRequests(prev => prev.filter(r => r.id !== requestId))
-    } catch (error) {
-      console.error('Error rejecting friend request:', error)
-      alert('拒绝好友请求失败，请重试')
-    }
-  }
-
-  // 处理关注用户
-  const handleFollowUser = async (userId) => {
-    if (!session?.user?.login || !session.accessToken) return
-
-    try {
-      const isFollowing = following.some(f => f.id === userId)
-      let updatedFollowing
-
-      if (isFollowing) {
-        // 取消关注
-        updatedFollowing = following.filter(f => f.id !== userId)
-      } else {
-        // 添加关注
-        const newFollowing = {
-          id: userId,
-          followed_at: new Date().toISOString()
-        }
-        updatedFollowing = [...following, newFollowing]
-      }
-
-      setFollowing(updatedFollowing)
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          following: updatedFollowing,
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        setUserConfig(updatedConfig)
-      }
-    } catch (error) {
-      console.error('Error following user:', error)
-      alert('操作失败，请重试')
-    }
-  }
-
-  // 加载好友请求
-  useEffect(() => {
-    const loadFriendRequests = async () => {
-      if (!session?.user?.login || !session.accessToken) return
-
+      // 确保 friend_requests 目录存在
       try {
-        const response = await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests`,
+        await fetch(
+          `https://api.github.com/repos/${friendId}/dock-chat-data/contents/friend_requests/.gitkeep`,
           {
+            method: 'PUT',
             headers: {
               'Authorization': `Bearer ${session.accessToken}`,
-            }
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: 'Ensure friend_requests directory exists',
+              content: 'MQ==', // Base64 encoded "1"
+            })
           }
-        )
-
-        if (response.ok) {
-          const files = await response.json()
-          const requests = await Promise.all(
-            files
-              .filter(file => file.name.endsWith('.json'))
-              .map(async file => {
-                const content = await fetch(file.download_url).then(res => res.json())
-                return content.status === 'pending' ? content : null
-              })
-          )
-
-          setFriendRequests(requests.filter(Boolean))
-        }
+        );
       } catch (error) {
-        console.error('Error loading friend requests:', error)
+        console.log('Directory might already exist');
       }
-    }
 
-    loadFriendRequests()
-  }, [session])
+      // 保存好友请求
+      const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(requestData, null, 2))));
+      const response = await fetch(
+        `https://api.github.com/repos/${friendId}/dock-chat-data/contents/friend_requests/${requestId}.json`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `Friend request from ${session.user.login}`,
+            content: encodedContent
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to send friend request');
+      }
+
+      // 发送系统通知
+      const notificationMessage = {
+        content: `${session.user.name} (${session.user.login}) 向您发送了好友请求`,
+        type: 'friend_request',
+        user: {
+          name: 'System',
+          image: '/system-avatar.png',
+          id: 'system'
+        },
+        createdAt: new Date().toISOString(),
+        requestId: requestId
+      };
+
+      // 加载目标用户的系统消息
+      const existingMessages = await loadChatHistory(session.accessToken, friendId, 'system');
+      const updatedMessages = [...existingMessages, notificationMessage];
+      
+      // 保存更新后的系统消息
+      await saveChatHistory(session.accessToken, friendId, 'system', updatedMessages);
+
+      showToast('好友请求已发送', 'success');
+      setShowAddFriendModal(false);
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      showToast('发送好友请求失败，请重试', 'error');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // 加载好友请求
+  const loadFriendRequests = async () => {
+    if (!session?.user?.login || !session.accessToken) return;
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/friend_requests`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status !== 404) {
+          console.error('Error loading friend requests:', await response.text());
+        }
+        return;
+      }
+
+      const files = await response.json();
+      const requests = await Promise.all(
+        files
+          .filter(file => file.name.endsWith('.json'))
+          .map(async file => {
+            try {
+              const content = await fetch(file.download_url).then(res => res.json());
+              return content.status === 'pending' ? content : null;
+            } catch (error) {
+              console.error('Error loading friend request:', error);
+              return null;
+            }
+          })
+      );
+
+      const validRequests = requests.filter(Boolean);
+      setFriendRequests(validRequests);
+
+      // 更新未读好友请求数
+      const unreadCount = validRequests.length;
+      if (unreadCount > 0) {
+        showToast(`您有 ${unreadCount} 个新的好友请求`, 'info');
+      }
+    } catch (error) {
+      console.error('Error loading friend requests:', error);
+    }
+  };
+
+  // 定期检查好友请求
+  useEffect(() => {
+    if (session?.user?.login && session.accessToken) {
+      loadFriendRequests();
+      const interval = setInterval(loadFriendRequests, 30000); // 每30秒检查一次
+      return () => clearInterval(interval);
+    }
+  }, [session]);
 
   // 修改检查仓库函数
   const checkRepositoryExists = useCallback(async () => {
