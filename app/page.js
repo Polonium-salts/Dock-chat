@@ -133,76 +133,46 @@ export default function Home({ username, roomId }) {
           setIsLoading(true)
           console.log('Initializing data...')
 
-          // 尝试从缓存加载数据
-          const cachedConfig = getUserConfigCache(session.user.login)
-          const cachedRooms = getChatRoomsCache(session.user.login)
-
-          if (cachedConfig && cachedRooms) {
-            console.log('Using cached data')
-            setUserConfig(cachedConfig)
-            setContacts(cachedRooms)
-            
-            // 设置活动聊天室
-            let targetChat = 'public'
-            if (cachedConfig?.settings?.activeChat) {
-              const chatExists = cachedRooms.some(room => room.id === cachedConfig.settings.activeChat)
-              if (chatExists) {
-                targetChat = cachedConfig.settings.activeChat
-              }
-            }
-            setActiveChat(targetChat)
-
-            // 从缓存加载消息
-            const cachedMessages = getChatMessagesCache(session.user.login, targetChat)
-            if (cachedMessages) {
-              setMessages(cachedMessages)
-              setIsLoading(false)
-            }
-          }
-
-          // 确保仓库和基本结构存在
-          const hasRepo = await checkDataRepository(session.accessToken, session.user.login)
-          if (!hasRepo) {
-            console.log('Creating new repository...')
-            await createDataRepository(session.accessToken, session.user.login)
-          }
-
           // 加载用户配置
           const config = await getConfig(session.accessToken, session.user.login)
           console.log('Loaded config:', config)
           
           if (config) {
             setUserConfig(config)
-            updateUserConfigCache(session.user.login, config)
             
-            // 恢复用户配置
-            if (config.kimi_settings?.api_key) {
-              setKimiApiKey(config.kimi_settings.api_key)
+            // 设置主题
+            if (config.settings?.theme) {
+              setTheme(config.settings.theme)
+            }
+
+            // 加载联系人列表
+            if (config.contacts?.length > 0) {
+              const formattedContacts = config.contacts.map(contact => ({
+                id: contact.id,
+                name: contact.name,
+                type: contact.type || 'room',
+                unread: contact.unread || 0,
+                created_at: contact.created_at || new Date().toISOString(),
+                updated_at: contact.updated_at || new Date().toISOString(),
+                lastMessage: contact.lastMessage || null,
+                description: contact.description,
+                isPrivate: contact.isPrivate
+              }))
+              setContacts(formattedContacts)
+              
+              // 设置活动聊天室
+              if (config.settings?.activeChat) {
+                const chatExists = formattedContacts.some(contact => contact.id === config.settings.activeChat)
+                if (chatExists) {
+                  setActiveChat(config.settings.activeChat)
+                }
+              }
             }
           }
 
-          // 加载聊天室列表
-          const rooms = await getChatRooms(session.accessToken, session.user.login)
-          console.log('Loaded chat rooms:', rooms)
-          
-          if (rooms.length > 0) {
-            setContacts(rooms)
-            updateChatRoomsCache(session.user.login, rooms)
-
-            // 设置活动聊天室
-            let targetChat = 'public'
-            if (config?.settings?.activeChat) {
-              const chatExists = rooms.some(room => room.id === config.settings.activeChat)
-              if (chatExists) {
-                targetChat = config.settings.activeChat
-              }
-            }
-            setActiveChat(targetChat)
-
-            // 加载消息
-            const messages = await loadChatHistory(session.accessToken, session.user.login, targetChat)
-            console.log('Loaded messages for', targetChat, ':', messages)
-            
+          // 加载消息
+          if (activeChat) {
+            const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
             if (messages && messages.length > 0) {
               const formattedMessages = messages.map(msg => ({
                 content: msg.content || '',
@@ -215,9 +185,6 @@ export default function Home({ username, roomId }) {
                 type: msg.type || 'message'
               }))
               setMessages(formattedMessages)
-              updateChatMessagesCache(session.user.login, targetChat, formattedMessages)
-            } else {
-              setMessages([])
             }
           }
         } catch (error) {
@@ -301,7 +268,8 @@ export default function Home({ username, roomId }) {
       }
 
       // 添加消息到本地状态
-      setMessages(prev => [...prev, message])
+      const updatedMessages = [...messages, message]
+      setMessages(updatedMessages)
       setNewMessage('')
 
       // 发送消息到 Socket.IO
@@ -312,33 +280,23 @@ export default function Home({ username, roomId }) {
         })
       }
 
-      // 根据聊天室类型保存消息
-      if (activeChat === 'kimi-ai') {
-        await handleKimiMessage(message.content)
-      } else {
-        // 获取当前所有消息，包括新消息
-        const updatedMessages = [...messages, message]
+      // 保存消息到 GitHub
+      if (session?.accessToken && session.user?.login) {
         try {
           await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages)
-          console.log('Successfully saved messages:', updatedMessages)
-
-          // 更新缓存
-          updateChatMessagesCache(session.user.login, activeChat, updatedMessages)
-
-          // 更新联系人列表
+          
+          // 更新联系人列表中的最后一条消息
           const updatedContacts = contacts.map(contact => {
             if (contact.id === activeChat) {
               return {
                 ...contact,
-                last_message: message,
-                message_count: updatedMessages.length,
+                lastMessage: message.content,
                 updated_at: new Date().toISOString()
               }
             }
             return contact
           })
           setContacts(updatedContacts)
-          updateChatRoomsCache(session.user.login, updatedContacts)
 
           // 更新用户配置
           if (userConfig) {
@@ -351,26 +309,15 @@ export default function Home({ username, roomId }) {
             setUserConfig(updatedConfig)
           }
         } catch (error) {
-          console.error('Failed to save messages:', error)
+          console.error('Failed to save message:', error)
           throw error
         }
       }
     } catch (error) {
       console.error('Failed to send message:', error)
-      // 移除失败的消息并显示错误
-      setMessages(prev => {
-        const newMessages = prev.slice(0, -1)
-        return [...newMessages, {
-          content: '消息发送失败，请重试',
-          user: {
-            name: 'System',
-            image: '/system-avatar.png',
-            id: 'system'
-          },
-          isError: true,
-          createdAt: new Date().toISOString()
-        }]
-      })
+      alert('发送消息失败，请重试')
+      // 移除失败的消息
+      setMessages(messages)
     } finally {
       setIsSending(false)
     }
@@ -378,25 +325,51 @@ export default function Home({ username, roomId }) {
 
   // 修改聊天室切换的逻辑
   const handleChatChange = async (chatId) => {
-    setActiveChat(chatId)
+    if (chatId === activeChat) return
     
-    // 更新路由
-    if (typeof window !== 'undefined') {
-      router.push(`/${session.user.login}/${chatId}`)
-    }
+    setActiveChat(chatId)
+    setMessages([]) // 清空当前消息
+    setIsLoading(true)
 
-    // 更新用户配置
-    if (userConfig) {
-      const updatedConfig = {
-        ...userConfig,
-        settings: {
-          ...userConfig.settings,
-          activeChat: chatId
-        },
-        last_updated: new Date().toISOString()
+    try {
+      // 加载新聊天室的消息
+      const messages = await loadChatHistory(session.accessToken, session.user.login, chatId)
+      if (messages && messages.length > 0) {
+        const formattedMessages = messages.map(msg => ({
+          content: msg.content || '',
+          user: {
+            name: msg.user?.name || 'Unknown User',
+            image: msg.user?.image || '/default-avatar.png',
+            id: msg.user?.id || 'unknown'
+          },
+          createdAt: msg.createdAt || new Date().toISOString(),
+          type: msg.type || 'message'
+        }))
+        setMessages(formattedMessages)
       }
-      await updateConfig(session.accessToken, session.user.login, updatedConfig)
-      setUserConfig(updatedConfig)
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          settings: {
+            ...userConfig.settings,
+            activeChat: chatId
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        setUserConfig(updatedConfig)
+      }
+
+      // 更新路由
+      if (typeof window !== 'undefined') {
+        router.push(`/${session.user.login}/${chatId}`)
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -530,8 +503,8 @@ export default function Home({ username, roomId }) {
         type: 'room',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        unread: 0,
-        lastMessage: null
+        lastMessage: null,
+        unread: 0
       }
 
       // 更新联系人列表
@@ -542,11 +515,6 @@ export default function Home({ username, roomId }) {
       setActiveChat(roomId)
       setShowJoinModal(false)
       setJoinInput('')
-
-      // 更新路由
-      if (typeof window !== 'undefined') {
-        router.push(`/${session.user.login}/${roomId}`)
-      }
 
       // 更新用户配置
       if (userConfig) {
@@ -561,6 +529,11 @@ export default function Home({ username, roomId }) {
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
         setUserConfig(updatedConfig)
+      }
+
+      // 更新路由
+      if (typeof window !== 'undefined') {
+        router.push(`/${session.user.login}/${roomId}`)
       }
     } catch (error) {
       console.error('Error joining room:', error)
@@ -1037,12 +1010,14 @@ export default function Home({ username, roomId }) {
       const newRoom = {
         id: roomId,
         name: roomData.name,
-        type: 'room',
+        description: roomData.description,
+        type: roomData.type || 'room',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         creator: session.user.login,
-        unread: 0,
-        lastMessage: null
+        isPrivate: roomData.isPrivate,
+        lastMessage: null,
+        unread: 0
       }
 
       // 更新联系人列表
@@ -1052,11 +1027,6 @@ export default function Home({ username, roomId }) {
       // 立即切换到新创建的聊天室
       setActiveChat(roomId)
       setShowCreateRoomModal(false)
-
-      // 更新路由
-      if (typeof window !== 'undefined') {
-        router.push(`/${session.user.login}/${roomId}`)
-      }
 
       // 更新用户配置
       if (userConfig) {
@@ -1071,6 +1041,11 @@ export default function Home({ username, roomId }) {
         }
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
         setUserConfig(updatedConfig)
+      }
+
+      // 更新路由
+      if (typeof window !== 'undefined') {
+        router.push(`/${session.user.login}/${roomId}`)
       }
     } catch (error) {
       console.error('Error creating room:', error)
