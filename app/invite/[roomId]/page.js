@@ -12,6 +12,7 @@ export default function InvitePage({ params }) {
   const [roomInfo, setRoomInfo] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [isJoining, setIsJoining] = useState(false)
 
   const roomId = params.roomId
   const roomName = searchParams.get('name')
@@ -62,8 +63,14 @@ export default function InvitePage({ params }) {
     }
 
     try {
-      setIsLoading(true);
+      setIsJoining(true);
       const [owner] = roomId.split('-');
+
+      // 检查是否已经是成员
+      if (roomInfo?.members?.some(member => member.login === session.user.login)) {
+        router.push(`/${session.user.login}`);
+        return;
+      }
 
       // 创建加入申请
       const joinRequest = {
@@ -146,13 +153,13 @@ export default function InvitePage({ params }) {
         }
       );
 
-      // 重定向到主页
-      router.push(`/${session.user.login}`);
+      // 重定向到主页并显示提示
+      router.push(`/${session.user.login}?message=join_request_sent`);
     } catch (error) {
       console.error('Error joining room:', error);
       setError('加入聊天室失败，请重试');
     } finally {
-      setIsLoading(false);
+      setIsJoining(false);
     }
   };
 
@@ -173,17 +180,46 @@ export default function InvitePage({ params }) {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
           <div className="p-8">
             <div className="text-center">
+              {/* Logo 或图标 */}
+              <div className="mb-6">
+                <Image
+                  src="/logo.png"
+                  alt="Dock Chat"
+                  width={64}
+                  height={64}
+                  className="mx-auto"
+                />
+              </div>
+
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 {roomName || '聊天室邀请'}
               </h2>
+
               {roomInfo && (
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  {roomInfo.description || '欢迎加入我们的聊天室！'}
-                </p>
+                <div className="mb-6">
+                  <p className="text-gray-600 dark:text-gray-400">
+                    {roomInfo.description || '欢迎加入我们的聊天室！'}
+                  </p>
+                  <div className="mt-4 flex items-center justify-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                      </svg>
+                      {roomInfo.members?.length || 0} 位成员
+                    </div>
+                    <span>•</span>
+                    <div>
+                      由 {roomInfo.owner?.name || roomInfo.owner?.login} 创建
+                    </div>
+                  </div>
+                </div>
               )}
+
               {error ? (
-                <div className="text-red-500 dark:text-red-400 mb-4">
-                  {error}
+                <div className="mb-6">
+                  <div className="text-red-500 dark:text-red-400 p-3 rounded-lg bg-red-50 dark:bg-red-900/20">
+                    {error}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -198,13 +234,39 @@ export default function InvitePage({ params }) {
                       使用 GitHub 登录
                     </button>
                   ) : (
-                    <button
-                      onClick={handleJoin}
-                      disabled={isLoading}
-                      className="w-full bg-blue-600 text-white rounded-lg px-4 py-2.5 hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {isLoading ? '处理中...' : '加入聊天室'}
-                    </button>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-center space-x-3">
+                        <Image
+                          src={session.user.image}
+                          alt={session.user.name}
+                          width={40}
+                          height={40}
+                          className="rounded-full"
+                        />
+                        <div className="text-left">
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            {session.user.name}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            @{session.user.login}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleJoin}
+                        disabled={isJoining}
+                        className="w-full bg-blue-600 text-white rounded-lg px-4 py-2.5 hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+                      >
+                        {isJoining ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
+                            处理中...
+                          </>
+                        ) : (
+                          '加入聊天室'
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
