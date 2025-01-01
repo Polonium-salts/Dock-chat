@@ -357,7 +357,7 @@ export default function Home({ username, roomId }) {
       const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const message = {
         id: messageId,
-        content: newMessage,
+        content: newMessage.trim(),
         user: {
           name: session.user.name,
           image: session.user.image,
@@ -366,12 +366,14 @@ export default function Home({ username, roomId }) {
         },
         room: activeChat,
         createdAt: new Date().toISOString(),
-        isOwnMessage: true
+        type: 'message'
       };
 
       // 先更新本地消息状态
-      const updatedMessages = [...messages, message];
-      setMessages(updatedMessages);
+      setMessages(prev => [...prev, {
+        ...message,
+        isOwnMessage: true
+      }]);
       setNewMessage('');
 
       // 发送消息到 Socket.IO
@@ -379,41 +381,42 @@ export default function Home({ username, roomId }) {
         socket.emit('message', message);
       }
 
-      // 保存消息到自己的仓库
-      await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
+      // 保存消息到仓库
+      try {
+        const updatedMessages = [...messages, message];
+        await saveChatHistory(session.accessToken, session.user.login, activeChat, updatedMessages);
 
-      // 更新联系人列表中的最后一条消息
-      const updatedContacts = contacts.map(contact => {
-        if (contact.id === activeChat) {
-          return {
-            ...contact,
-            lastMessage: message.content,
-            updated_at: new Date().toISOString()
+        // 更新联系人列表中的最后一条消息
+        const updatedContacts = contacts.map(contact => {
+          if (contact.id === activeChat) {
+            return {
+              ...contact,
+              lastMessage: message.content,
+              updated_at: new Date().toISOString()
+            };
+          }
+          return contact;
+        });
+        setContacts(updatedContacts);
+
+        // 更新用户配置
+        if (userConfig) {
+          const updatedConfig = {
+            ...userConfig,
+            contacts: updatedContacts,
+            last_updated: new Date().toISOString()
           };
+          await updateConfig(session.accessToken, session.user.login, updatedConfig);
+          setUserConfig(updatedConfig);
         }
-        return contact;
-      });
-      setContacts(updatedContacts);
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          last_updated: new Date().toISOString()
-        };
-        await updateConfig(session.accessToken, session.user.login, updatedConfig);
-        setUserConfig(updatedConfig);
+      } catch (error) {
+        console.error('Error saving message:', error);
+        showToast('消息已发送但保存失败', 'warning');
       }
-
-      // 更新消息缓存
-      updateChatMessagesCache(session.user.login, activeChat, updatedMessages);
     } catch (error) {
       console.error('Failed to send message:', error);
       showToast('发送消息失败', 'error');
-      // 恢复原始消息状态
-      setMessages(messages);
-      setNewMessage(newMessage);
+      setNewMessage(newMessage); // 恢复消息内容
     } finally {
       setIsSending(false);
     }

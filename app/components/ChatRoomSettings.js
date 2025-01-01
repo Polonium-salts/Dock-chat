@@ -9,6 +9,21 @@ export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete }) 
 
   if (!isOpen) return null
 
+  // 生成加入 ID（使用原始的 roomId）
+  const joinId = roomId;
+
+  // 复制加入 ID 到剪贴板
+  const copyJoinId = () => {
+    navigator.clipboard.writeText(joinId)
+      .then(() => {
+        alert('已复制到剪贴板');
+      })
+      .catch((err) => {
+        console.error('复制失败:', err);
+        alert('复制失败，请手动复制');
+      });
+  };
+
   const handleDelete = () => {
     if (roomId === 'public' || roomId === 'kimi-ai' || roomId === 'system') {
       alert('系统聊天室不能删除')
@@ -31,6 +46,28 @@ export default function ChatRoomSettings({ isOpen, onClose, roomId, onDelete }) 
         </div>
 
         <div className="p-4 space-y-4">
+          {/* 加入 ID 部分 */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">加入 ID</h3>
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={joinId}
+                readOnly
+                className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+              />
+              <button
+                onClick={copyJoinId}
+                className="px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
+              >
+                复制
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              其他用户可以使用此 ID 加入聊天室
+            </p>
+          </div>
+
           {/* 自动保存设置 */}
           <div className="flex items-center justify-between">
             <div>
