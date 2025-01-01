@@ -15,6 +15,8 @@ export default function ChatRoomSettings({
   const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState('general');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [inviteLink, setInviteLink] = useState('');
+  const [showCopiedMessage, setShowCopiedMessage] = useState(false);
 
   const isOwner = members.length > 0 && members[0] === session?.user?.login;
 
@@ -24,6 +26,48 @@ export default function ChatRoomSettings({
       setShowDeleteConfirm(false);
     } else {
       setShowDeleteConfirm(true);
+    }
+  };
+
+  // 生成邀请链接
+  const generateInviteLink = async () => {
+    try {
+      // 获取聊天室信息
+      const response = await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}/info.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('获取聊天室信息失败');
+      }
+
+      const data = await response.json();
+      const roomInfo = JSON.parse(atob(data.content));
+
+      // 生成邀请链接
+      const inviteUrl = `${window.location.origin}/invite/${roomId}?name=${encodeURIComponent(roomInfo.name)}`;
+      setInviteLink(inviteUrl);
+    } catch (error) {
+      console.error('Error generating invite link:', error);
+      alert('生成邀请链接失败，请重试');
+    }
+  };
+
+  // 复制邀请链接
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setShowCopiedMessage(true);
+      setTimeout(() => setShowCopiedMessage(false), 2000);
+    } catch (error) {
+      console.error('Error copying invite link:', error);
+      alert('复制链接失败，请手动复制');
     }
   };
 
