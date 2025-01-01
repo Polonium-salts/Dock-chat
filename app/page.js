@@ -38,6 +38,7 @@ import AddFriendModal from './components/AddFriendModal'
 import FriendRequestsModal from './components/FriendRequestsModal'
 import UserProfileModal from './components/UserProfileModal'
 import FriendsPage from './components/FriendsPage'
+import SettingsPage from './components/SettingsPage'
 
 export default function Home({ username, roomId }) {
   const { data: session, status } = useSession()
@@ -871,7 +872,8 @@ export default function Home({ username, roomId }) {
   const pageTitle = {
     chat: contacts.find(c => c.id === activeChat)?.name || '聊天室',
     profile: '个人主页',
-    friends: '好友列表'
+    friends: '好友列表',
+    settings: '设置'
   }[currentView]
 
   // 修改页面 URL 的逻辑
@@ -885,6 +887,8 @@ export default function Home({ username, roomId }) {
         return session.user.login
       case 'friends':
         return `${session.user.login}/friends`
+      case 'settings':
+        return `${session.user.login}/settings`
       default:
         return session.user.login
     }
@@ -1397,7 +1401,7 @@ export default function Home({ username, roomId }) {
             <UserCircleIcon className="h-5 w-5 mx-auto" />
           </button>
           <button
-            onClick={() => setShowSettingsModal(true)}
+            onClick={() => setCurrentView('settings')}
             className="flex-1 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <Cog6ToothIcon className="h-5 w-5 mx-auto" />
@@ -1436,17 +1440,48 @@ export default function Home({ username, roomId }) {
                 </button>
               ))}
             </div>
-          ) : (
-            <div className="p-4">
-              <button
-                onClick={() => router.push('/friends')}
-                className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <UserGroupIcon className="h-5 w-5 mr-2" />
-                查看好友列表
-              </button>
+          ) : currentView === 'friends' ? (
+            <div className="flex-1 overflow-hidden">
+              <FriendsPage
+                friends={friends}
+                following={following}
+                onAddFriend={() => setShowAddFriendModal(true)}
+                onShowRequests={() => setShowFriendRequestsModal(true)}
+                onSelectUser={(user) => {
+                  setSelectedUser(user)
+                  setShowUserProfileModal(true)
+                }}
+              />
             </div>
-          )}
+          ) : currentView === 'settings' ? (
+            <div className="flex-1 overflow-hidden">
+              <SettingsPage
+                config={userConfig}
+                onSave={saveConfig}
+                onDeleteRepo={async () => {
+                  try {
+                    // 删除仓库的逻辑
+                    if (session?.accessToken && session.user?.login) {
+                      await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
+                        method: 'DELETE',
+                        headers: {
+                          'Authorization': `Bearer ${session.accessToken}`,
+                          'Content-Type': 'application/json',
+                        }
+                      })
+                      // 清除本地缓存
+                      clearUserCache(session.user.login)
+                      // 重新加载页面
+                      window.location.reload()
+                    }
+                  } catch (error) {
+                    console.error('Error deleting repository:', error)
+                    alert('删除仓库失败，请重试')
+                  }
+                }}
+              />
+            </div>
+          ) : null}
         </div>
 
         {/* 底部操作按钮 */}
@@ -1565,6 +1600,34 @@ export default function Home({ username, roomId }) {
               onSelectUser={(user) => {
                 setSelectedUser(user)
                 setShowUserProfileModal(true)
+              }}
+            />
+          </div>
+        ) : currentView === 'settings' ? (
+          <div className="flex-1 overflow-hidden">
+            <SettingsPage
+              config={userConfig}
+              onSave={saveConfig}
+              onDeleteRepo={async () => {
+                try {
+                  // 删除仓库的逻辑
+                  if (session?.accessToken && session.user?.login) {
+                    await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
+                      method: 'DELETE',
+                      headers: {
+                        'Authorization': `Bearer ${session.accessToken}`,
+                        'Content-Type': 'application/json',
+                      }
+                    })
+                    // 清除本地缓存
+                    clearUserCache(session.user.login)
+                    // 重新加载页面
+                    window.location.reload()
+                  }
+                } catch (error) {
+                  console.error('Error deleting repository:', error)
+                  alert('删除仓库失败，请重试')
+                }
               }}
             />
           </div>
