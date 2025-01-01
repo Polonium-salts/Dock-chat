@@ -606,7 +606,7 @@ export default function Home({ username, roomId }) {
         setCurrentView('chat');
         setShowJoinModal(false);
         setJoinInput('');
-        showToast('已加入聊天室', 'success');
+        showToast('已切换到该聊天室', 'info');
         return;
       }
 
@@ -626,8 +626,7 @@ export default function Home({ username, roomId }) {
 
       // 更新联系人列表
       const updatedContacts = [...contacts, newRoom];
-      setContacts(updatedContacts);
-      
+
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
@@ -640,46 +639,55 @@ export default function Home({ username, roomId }) {
           last_updated: new Date().toISOString()
         };
         
-        // 保存配置
-        await updateConfig(session.accessToken, session.user.login, updatedConfig);
-        setUserConfig(updatedConfig);
-      }
+        try {
+          // 先保存配置
+          await updateConfig(session.accessToken, session.user.login, updatedConfig);
+          
+          // 更新状态
+          setContacts(updatedContacts);
+          setUserConfig(updatedConfig);
+          setActiveChat(roomId);
+          setCurrentView('chat');
+          setShowJoinModal(false);
+          setJoinInput('');
 
-      // 切换到新聊天室
-      setActiveChat(roomId);
-      setCurrentView('chat');
-      setShowJoinModal(false);
-      setJoinInput('');
+          // 加入 Socket.IO 房间
+          if (socket?.connected) {
+            socket.emit('join', {
+              room: roomId,
+              user: {
+                id: session.user.id,
+                name: session.user.name,
+                image: session.user.image,
+                login: session.user.login
+              }
+            });
 
-      // 加入 Socket.IO 房间
-      if (socket?.connected) {
-        socket.emit('join', {
-          room: roomId,
-          user: {
-            id: session.user.id,
-            name: session.user.name,
-            image: session.user.image,
-            login: session.user.login
+            // 发送系统消息通知其他用户
+            const systemMessage = {
+              id: `sys-${Date.now()}`,
+              content: `${session.user.name} 加入了聊天室`,
+              user: {
+                name: 'System',
+                image: '/system-avatar.png',
+                id: 'system'
+              },
+              room: roomId,
+              type: 'system',
+              createdAt: new Date().toISOString()
+            };
+            socket.emit('message', systemMessage);
           }
-        });
 
-        // 发送系统消息通知其他用户
-        const systemMessage = {
-          id: `sys-${Date.now()}`,
-          content: `${session.user.name} 加入了聊天室`,
-          user: {
-            name: 'System',
-            image: '/system-avatar.png',
-            id: 'system'
-          },
-          room: roomId,
-          type: 'system',
-          createdAt: new Date().toISOString()
-        };
-        socket.emit('message', systemMessage);
+          showToast('成功加入聊天室', 'success');
+        } catch (error) {
+          console.error('Error saving config:', error);
+          showToast('加入聊天室失败，请重试', 'error');
+          // 如果保存失败，回滚状态
+          setContacts(contacts);
+          setActiveChat(activeChat);
+        }
       }
-
-      showToast('成功加入聊天室', 'success');
     } catch (error) {
       console.error('Error joining room:', error);
       showToast('加入聊天室失败，请重试', 'error');
