@@ -283,11 +283,11 @@ export default function Home({ username, roomId }) {
 
   // 修改发送消息的逻辑
   const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !session || isSending) return
+    e.preventDefault();
+    if (!newMessage.trim() || !session || isSending) return;
 
     try {
-      setIsSending(true)
+      setIsSending(true);
       const message = {
         content: newMessage,
         user: {
@@ -297,37 +297,27 @@ export default function Home({ username, roomId }) {
         },
         createdAt: new Date().toISOString(),
         isOwnMessage: true
-      }
+      };
 
-      // 添加消息到本地状态
-      setMessages(prev => [...prev, message])
-      setNewMessage('')
+      setMessages(prev => [...prev, message]);
+      setNewMessage('');
 
-      // 发送消息到 Socket.IO
       if (socket?.connected) {
         socket.emit('message', {
           ...message,
           room: activeChat
-        })
+        });
       }
 
-      // 保存消息到 GitHub
-      try {
-        await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message])
-        showToast('消息已发送', 'success')
-      } catch (error) {
-        console.error('Failed to save message:', error)
-        showToast('消息已发送，但保存失败', 'warning')
-      }
+      await saveChatHistory(session.accessToken, session.user.login, activeChat, [...messages, message]);
     } catch (error) {
-      console.error('Failed to send message:', error)
-      showToast('发送消息失败，请重试', 'error')
-      // 移除失败的消息
-      setMessages(messages)
+      console.error('Failed to send message:', error);
+      showToast('发送消息失败', 'error');
+      setMessages(messages);
     } finally {
-      setIsSending(false)
+      setIsSending(false);
     }
-  }
+  };
 
   // 修改聊天室切换的逻辑
   const handleChatChange = async (chatId) => {
@@ -608,39 +598,69 @@ export default function Home({ username, roomId }) {
     checkOnboarding()
   }, [session])
 
-  // 保存配置到 GitHub
+  // 修改配置加载逻辑
+  useEffect(() => {
+    const loadUserConfig = async () => {
+      if (!session?.user?.login || !session.accessToken) return;
+      
+      try {
+        // 尝试从缓存加载配置
+        const cachedConfig = getUserConfigCache(session.user.login);
+        if (cachedConfig) {
+          setUserConfig(cachedConfig);
+          if (cachedConfig.settings?.theme) {
+            setTheme(cachedConfig.settings.theme);
+          }
+          if (cachedConfig.contacts?.length > 0) {
+            setContacts(cachedConfig.contacts);
+            if (cachedConfig.settings?.activeChat) {
+              setActiveChat(cachedConfig.settings.activeChat);
+            }
+          }
+          return;
+        }
+
+        // 如果没有缓存，从 GitHub 加载配置
+        const config = await getConfig(session.accessToken, session.user.login);
+        if (config) {
+          setUserConfig(config);
+          updateUserConfigCache(session.user.login, config);
+          if (config.settings?.theme) {
+            setTheme(config.settings.theme);
+          }
+          if (config.contacts?.length > 0) {
+            setContacts(config.contacts);
+            if (config.settings?.activeChat) {
+              setActiveChat(config.settings.activeChat);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user config:', error);
+        showToast('加载配置失败', 'error');
+      }
+    };
+
+    loadUserConfig();
+  }, [session]);
+
+  // 修改保存配置函数
   const saveConfig = async (updatedConfig) => {
     if (!session?.user?.login || !session.accessToken) {
-      alert('请先登录')
-      return
+      showToast('请先登录', 'error');
+      return;
     }
 
     try {
-      // 更新配置
-      await updateConfig(session.accessToken, session.user.login, updatedConfig)
-      setUserConfig(updatedConfig)
-      
-      // 应用新的设置
-      if (updatedConfig.settings?.theme) {
-        setTheme(updatedConfig.settings.theme)
-      }
-
-      // 更新缓存
-      updateUserConfigCache(session.user.login, updatedConfig)
-
-      alert('设置已保存')
+      await updateConfig(session.accessToken, session.user.login, updatedConfig);
+      setUserConfig(updatedConfig);
+      updateUserConfigCache(session.user.login, updatedConfig);
+      showToast('设置已保存', 'success');
     } catch (error) {
-      console.error('Error saving config:', error)
-      alert('保存设置失败，请重试')
+      console.error('Error saving config:', error);
+      showToast('保存设置失败', 'error');
     }
-  }
-
-  // 在相关状态变化时保存配置
-  useEffect(() => {
-    if (userConfig) {
-      saveConfig(userConfig)
-    }
-  }, [kimiApiKey, contacts, activeChat])
+  };
 
   // 修改添加 Kimi AI 聊天室函数
   const addKimiAIChat = () => {
@@ -1527,7 +1547,7 @@ export default function Home({ username, roomId }) {
             className="w-full flex items-center justify-center gap-2 bg-gray-900 dark:bg-gray-800 text-white rounded-lg px-4 py-2.5 hover:bg-gray-800 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-800 focus:ring-offset-2"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+              <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
             </svg>
             使用 GitHub 登录
           </button>
