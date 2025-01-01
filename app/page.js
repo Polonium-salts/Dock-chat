@@ -90,7 +90,14 @@ export default function Home({ username, roomId }) {
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        timeout: 10000
+        timeout: 10000,
+        auth: {
+          token: session.accessToken,
+          userId: session.user.id,
+          userName: session.user.name,
+          userImage: session.user.image,
+          userLogin: session.user.login
+        }
       })
 
       socket.on('connect', () => {
@@ -99,40 +106,58 @@ export default function Home({ username, roomId }) {
         if (activeChat) {
           socket.emit('join', { 
             room: activeChat,
-            userId: session.user.id
-          })
-        }
-      })
-
-      socket.on('connect_error', (error) => {
-        console.error('Connection error:', error)
-        setIsConnected(false)
-        showToast('连接服务器失败，请检查网络连接', 'error')
-      })
-
-      socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason)
-        setIsConnected(false)
-        if (reason === 'io server disconnect') {
-          // 服务器主动断开连接，尝试重连
-          socket.connect()
-        }
-      })
-
-      socket.on('reconnect', (attemptNumber) => {
-        console.log('Socket reconnected after', attemptNumber, 'attempts')
-        setIsConnected(true)
-        if (activeChat) {
-          socket.emit('join', { 
-            room: activeChat,
-            userId: session.user.id
+            user: {
+              id: session.user.id,
+              name: session.user.name,
+              image: session.user.image,
+              login: session.user.login
+            }
           })
         }
       })
 
       socket.on('message', (message) => {
         console.log('Received message:', message)
-        setMessages(prev => [...prev, message])
+        if (message.room === activeChat) {
+          setMessages(prev => [...prev, {
+            ...message,
+            isOwnMessage: message.user.id === session.user.id
+          }])
+        }
+      })
+
+      socket.on('userJoined', (data) => {
+        if (data.room === activeChat) {
+          const systemMessage = {
+            id: `sys-${Date.now()}`,
+            content: `${data.user.name} 加入了聊天室`,
+            user: {
+              name: 'System',
+              image: '/system-avatar.png',
+              id: 'system'
+            },
+            type: 'system',
+            createdAt: new Date().toISOString()
+          }
+          setMessages(prev => [...prev, systemMessage])
+        }
+      })
+
+      socket.on('userLeft', (data) => {
+        if (data.room === activeChat) {
+          const systemMessage = {
+            id: `sys-${Date.now()}`,
+            content: `${data.user.name} 离开了聊天室`,
+            user: {
+              name: 'System',
+              image: '/system-avatar.png',
+              id: 'system'
+            },
+            type: 'system',
+            createdAt: new Date().toISOString()
+          }
+          setMessages(prev => [...prev, systemMessage])
+        }
       })
 
       setSocket(socket)
@@ -140,7 +165,15 @@ export default function Home({ username, roomId }) {
       return () => {
         console.log('Cleaning up socket connection...')
         if (socket.connected) {
-          socket.emit('leave', { room: activeChat })
+          socket.emit('leave', { 
+            room: activeChat,
+            user: {
+              id: session.user.id,
+              name: session.user.name,
+              image: session.user.image,
+              login: session.user.login
+            }
+          })
           socket.disconnect()
         }
       }
@@ -308,12 +341,15 @@ export default function Home({ username, roomId }) {
     try {
       setIsSending(true);
       const message = {
+        id: `msg-${Date.now()}`,
         content: newMessage,
         user: {
           name: session.user.name,
           image: session.user.image,
-          id: session.user.id
+          id: session.user.id,
+          login: session.user.login
         },
+        room: activeChat,
         createdAt: new Date().toISOString(),
         isOwnMessage: true
       };
@@ -325,10 +361,7 @@ export default function Home({ username, roomId }) {
 
       // 发送消息到 Socket.IO
       if (socket?.connected) {
-        socket.emit('message', {
-          ...message,
-          room: activeChat
-        });
+        socket.emit('message', message);
       }
 
       // 立即保存消息到 GitHub
@@ -557,6 +590,19 @@ export default function Home({ username, roomId }) {
         setCurrentView('chat');
         setShowJoinModal(false);
         setJoinInput('');
+        
+        // 加入 Socket.IO 房间
+        if (socket?.connected) {
+          socket.emit('join', {
+            room: roomId,
+            user: {
+              id: session.user.id,
+              name: session.user.name,
+              image: session.user.image,
+              login: session.user.login
+            }
+          });
+        }
         return;
       }
 
@@ -570,7 +616,8 @@ export default function Home({ username, roomId }) {
         lastMessage: null,
         unread: 0,
         description: '',
-        isPrivate: false
+        isPrivate: false,
+        members: [session.user.login]
       };
 
       // 更新联系人列表
@@ -608,8 +655,27 @@ export default function Home({ username, roomId }) {
       if (socket?.connected) {
         socket.emit('join', {
           room: roomId,
-          userId: session.user.id
+          user: {
+            id: session.user.id,
+            name: session.user.name,
+            image: session.user.image,
+            login: session.user.login
+          }
         });
+
+        // 发送系统消息通知其他用户
+        const systemMessage = {
+          id: `sys-${Date.now()}`,
+          content: `${session.user.name} 加入了聊天室`,
+          user: {
+            name: 'System',
+            image: '/system-avatar.png',
+            id: 'system'
+          },
+          type: 'system',
+          createdAt: new Date().toISOString()
+        };
+        socket.emit('message', systemMessage);
       }
 
       showToast('成功加入聊天室', 'success');
