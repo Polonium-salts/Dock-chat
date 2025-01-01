@@ -138,8 +138,6 @@ export default function Home({ username, roomId }) {
           console.log('Loaded config:', config)
           
           if (config) {
-            setUserConfig(config)
-            
             // 设置主题
             if (config.settings?.theme) {
               setTheme(config.settings.theme)
@@ -155,18 +153,28 @@ export default function Home({ username, roomId }) {
                 created_at: contact.created_at || new Date().toISOString(),
                 updated_at: contact.updated_at || new Date().toISOString(),
                 lastMessage: contact.lastMessage || null,
-                description: contact.description,
-                isPrivate: contact.isPrivate
+                description: contact.description || '',
+                isPrivate: contact.isPrivate || false
               }))
+              
+              // 先设置联系人列表
               setContacts(formattedContacts)
               
-              // 设置活动聊天室
+              // 再设置用户配置
+              setUserConfig({
+                ...config,
+                contacts: formattedContacts
+              })
+              
+              // 最后设置活动聊天室
               if (config.settings?.activeChat) {
                 const chatExists = formattedContacts.some(contact => contact.id === config.settings.activeChat)
                 if (chatExists) {
                   setActiveChat(config.settings.activeChat)
                 }
               }
+            } else {
+              setUserConfig(config)
             }
           }
 
@@ -497,6 +505,16 @@ export default function Home({ username, roomId }) {
 
     try {
       const roomId = joinInput.trim()
+      
+      // 检查聊天室是否已存在
+      if (contacts.some(contact => contact.id === roomId)) {
+        setActiveChat(roomId)
+        setShowJoinModal(false)
+        setJoinInput('')
+        return
+      }
+
+      // 创建新的聊天室对象
       const newRoom = {
         id: roomId,
         name: `聊天室 ${roomId}`,
@@ -504,18 +522,14 @@ export default function Home({ username, roomId }) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         lastMessage: null,
-        unread: 0
+        unread: 0,
+        description: '',
+        isPrivate: false
       }
 
       // 更新联系人列表
       const updatedContacts = [...contacts, newRoom]
-      setContacts(updatedContacts)
       
-      // 立即切换到新加入的聊天室
-      setActiveChat(roomId)
-      setShowJoinModal(false)
-      setJoinInput('')
-
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
@@ -527,13 +541,21 @@ export default function Home({ username, roomId }) {
           },
           last_updated: new Date().toISOString()
         }
+        
+        // 先保存配置，确保数据被持久化
         await updateConfig(session.accessToken, session.user.login, updatedConfig)
+        
+        // 更新状态
         setUserConfig(updatedConfig)
-      }
+        setContacts(updatedContacts)
+        setActiveChat(roomId)
+        setShowJoinModal(false)
+        setJoinInput('')
 
-      // 更新路由
-      if (typeof window !== 'undefined') {
-        router.push(`/${session.user.login}/${roomId}`)
+        // 更新路由
+        if (typeof window !== 'undefined') {
+          router.push(`/${session.user.login}/${roomId}`)
+        }
       }
     } catch (error) {
       console.error('Error joining room:', error)
