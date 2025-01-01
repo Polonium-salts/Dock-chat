@@ -119,44 +119,31 @@ export default function Home({ username, roomId }) {
       socket.on('message', (message) => {
         console.log('Received message:', message)
         if (message.room === activeChat) {
-          setMessages(prev => [...prev, {
-            ...message,
-            isOwnMessage: message.user.id === session.user.id
-          }])
-        }
-      })
+          setMessages(prev => {
+            // 检查消息是否已存在
+            const exists = prev.some(m => 
+              m.id === message.id || 
+              (m.createdAt === message.createdAt && m.user.id === message.user.id)
+            );
+            if (exists) return prev;
+            
+            return [...prev, {
+              ...message,
+              isOwnMessage: message.user.id === session.user.id
+            }];
+          });
 
-      socket.on('userJoined', (data) => {
-        if (data.room === activeChat) {
-          const systemMessage = {
-            id: `sys-${Date.now()}`,
-            content: `${data.user.name} 加入了聊天室`,
-            user: {
-              name: 'System',
-              image: '/system-avatar.png',
-              id: 'system'
-            },
-            type: 'system',
-            createdAt: new Date().toISOString()
-          }
-          setMessages(prev => [...prev, systemMessage])
-        }
-      })
-
-      socket.on('userLeft', (data) => {
-        if (data.room === activeChat) {
-          const systemMessage = {
-            id: `sys-${Date.now()}`,
-            content: `${data.user.name} 离开了聊天室`,
-            user: {
-              name: 'System',
-              image: '/system-avatar.png',
-              id: 'system'
-            },
-            type: 'system',
-            createdAt: new Date().toISOString()
-          }
-          setMessages(prev => [...prev, systemMessage])
+          // 更新联系人列表中的最后一条消息
+          setContacts(prev => prev.map(contact => {
+            if (contact.id === activeChat) {
+              return {
+                ...contact,
+                lastMessage: message.content,
+                updated_at: new Date().toISOString()
+              };
+            }
+            return contact;
+          }));
         }
       })
 
@@ -263,54 +250,81 @@ export default function Home({ username, roomId }) {
 
   // 修改加载消息的逻辑
   const loadChatMessages = async () => {
-    if (!session?.user?.login || !session.accessToken || !activeChat) return
+    if (!session?.user?.login || !session.accessToken || !activeChat) return;
 
     try {
-      setIsLoading(true)
-      setMessages([]) // 立即清空消息，避免显示上一个聊天室的消息
+      setIsLoading(true);
+      setMessages([]); // 立即清空消息，避免显示上一个聊天室的消息
 
       // 尝试从缓存加载消息
-      const cachedMessages = getChatMessagesCache(session.user.login, activeChat)
+      const cachedMessages = getChatMessagesCache(session.user.login, activeChat);
       if (cachedMessages) {
-        console.log('Using cached messages for', activeChat)
+        console.log('Using cached messages for', activeChat);
         const formattedCachedMessages = cachedMessages.map(msg => ({
           ...msg,
           isOwnMessage: msg.user?.id === session.user.id
-        }))
-        setMessages(formattedCachedMessages)
-        setIsLoading(false)
-        return
+        }));
+        setMessages(formattedCachedMessages);
+        setIsLoading(false);
+        return;
       }
 
-      console.log('Loading messages for chat:', activeChat)
+      console.log('Loading messages for chat:', activeChat);
 
-      // 从 GitHub 加载消息
-      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat)
-      console.log('Loaded messages:', messages)
+      // 从所有成员的仓库加载消息
+      let allMessages = [];
+      const members = contacts.find(c => c.id === activeChat)?.members || [];
+      
+      // 如果是公共聊天室或没有成员信息，只从当前用户的仓库加载
+      if (activeChat === 'public' || members.length === 0) {
+        const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat);
+        if (Array.isArray(messages)) {
+          allMessages = messages;
+        }
+      } else {
+        // 从每个成员的仓库加载消息
+        const messagePromises = members.map(async (member) => {
+          try {
+            const messages = await loadChatHistory(session.accessToken, member, activeChat);
+            return Array.isArray(messages) ? messages : [];
+          } catch (error) {
+            console.error(`Error loading messages from ${member}:`, error);
+            return [];
+          }
+        });
 
-      if (Array.isArray(messages) && messages.length > 0) {
-        const formattedMessages = messages.map(msg => ({
-          content: msg.content || '',
-          user: {
-            name: msg.user?.name || 'Unknown User',
-            image: msg.user?.image || '/default-avatar.png',
-            id: msg.user?.id || 'unknown'
-          },
-          createdAt: msg.createdAt || new Date().toISOString(),
-          type: msg.type || 'message',
-          isOwnMessage: msg.user?.id === session.user.id
-        }))
-
-        setMessages(formattedMessages)
-        updateChatMessagesCache(session.user.login, activeChat, formattedMessages)
+        const messagesArrays = await Promise.all(messagePromises);
+        allMessages = messagesArrays.flat();
       }
+
+      // 按时间排序并去重
+      const uniqueMessages = Array.from(
+        new Map(allMessages.map(msg => [msg.id || `${msg.createdAt}-${msg.user?.id}`, msg])).values()
+      ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+      const formattedMessages = uniqueMessages.map(msg => ({
+        id: msg.id || `${msg.createdAt}-${msg.user?.id}`,
+        content: msg.content || '',
+        user: {
+          name: msg.user?.name || 'Unknown User',
+          image: msg.user?.image || '/default-avatar.png',
+          id: msg.user?.id || 'unknown',
+          login: msg.user?.login
+        },
+        createdAt: msg.createdAt || new Date().toISOString(),
+        type: msg.type || 'message',
+        isOwnMessage: msg.user?.id === session.user.id
+      }));
+
+      setMessages(formattedMessages);
+      updateChatMessagesCache(session.user.login, activeChat, formattedMessages);
     } catch (error) {
-      console.error('Error loading messages:', error)
-      setMessages([])
+      console.error('Error loading messages:', error);
+      setMessages([]);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   // 显示消息提示的函数
   const showToast = (message, type = 'info') => {
@@ -333,15 +347,16 @@ export default function Home({ username, roomId }) {
     }
   }
 
-  // 修改发送消息的逻辑，实时保存
+  // 修改发送消息的逻辑
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !session || isSending) return;
 
     try {
       setIsSending(true);
+      const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const message = {
-        id: `msg-${Date.now()}`,
+        id: messageId,
         content: newMessage,
         user: {
           name: session.user.name,
@@ -591,19 +606,6 @@ export default function Home({ username, roomId }) {
         setCurrentView('chat');
         setShowJoinModal(false);
         setJoinInput('');
-        
-        // 加入 Socket.IO 房间
-        if (socket?.connected) {
-          socket.emit('join', {
-            room: roomId,
-            user: {
-              id: session.user.id,
-              name: session.user.name,
-              image: session.user.image,
-              login: session.user.login
-            }
-          });
-        }
         showToast('已加入聊天室', 'success');
         return;
       }
@@ -621,6 +623,25 @@ export default function Home({ username, roomId }) {
         isPrivate: false,
         members: [session.user.login]
       };
+
+      // 创建聊天记录文件
+      const initialMessages = [];
+      const encodedContent = btoa(JSON.stringify(initialMessages));
+      
+      await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `Create chat room ${roomId}`,
+            content: encodedContent
+          })
+        }
+      );
 
       // 更新联系人列表
       const updatedContacts = [...contacts, newRoom];
@@ -645,40 +666,6 @@ export default function Home({ username, roomId }) {
         // 更新缓存
         updateUserConfigCache(session.user.login, updatedConfig);
         updateChatRoomsCache(session.user.login, updatedContacts);
-      }
-
-      // 创建或加载聊天记录文件
-      try {
-        // 先尝试获取现有的聊天记录
-        const response = await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
-          {
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
-              'Accept': 'application/vnd.github.v3+json'
-            }
-          }
-        );
-
-        if (response.status === 404) {
-          // 如果文件不存在，创建新的聊天记录文件
-          await fetch(
-            `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
-            {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${session.accessToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                message: `Create chat room ${roomId}`,
-                content: btoa(JSON.stringify([])) // 创建空的消息数组
-              })
-            }
-          );
-        }
-      } catch (error) {
-        console.error('Error handling chat history file:', error);
       }
 
       // 切换到新聊天室
@@ -1540,13 +1527,50 @@ export default function Home({ username, roomId }) {
 
   // 修改删除聊天室的处理函数
   const handleDeleteChatRoom = async (roomId) => {
-    if (!session?.user?.login || !session.accessToken) return;
+    if (!session?.user?.login || !session.accessToken) {
+      showToast('请先登录', 'error');
+      return;
+    }
+    
     if (roomId === 'public' || roomId === 'kimi-ai' || roomId === 'system') {
-      alert('系统聊天室不能删除');
+      showToast('系统聊天室不能删除', 'error');
       return;
     }
 
     try {
+      setIsLoading(true);
+      
+      // 先获取文件的 SHA
+      const response = await fetch(
+        `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const fileData = await response.json();
+        
+        // 删除聊天记录文件
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Delete chat room ${roomId}`,
+              sha: fileData.sha
+            })
+          }
+        );
+      }
+
       // 从联系人列表中移除
       const updatedContacts = contacts.filter(c => c.id !== roomId);
       setContacts(updatedContacts);
@@ -1554,26 +1578,7 @@ export default function Home({ username, roomId }) {
       // 如果当前正在查看被删除的聊天室，切换到公共聊天室
       if (activeChat === roomId) {
         setActiveChat('public');
-      }
-
-      // 删除聊天记录文件
-      try {
-        await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}.json`,
-          {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              message: `Delete chat room ${roomId}`,
-              sha: await getFileSha(session.accessToken, session.user.login, `chats/${roomId}.json`)
-            })
-          }
-        );
-      } catch (error) {
-        console.error('Error deleting chat history:', error);
+        setCurrentView('chat');
       }
 
       // 更新用户配置
@@ -1596,9 +1601,12 @@ export default function Home({ username, roomId }) {
       }
 
       showToast('聊天室已删除', 'success');
+      setShowChatSettings(false);
     } catch (error) {
       console.error('Error deleting chat room:', error);
-      showToast('删除聊天室失败', 'error');
+      showToast('删除聊天室失败，请重试', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
