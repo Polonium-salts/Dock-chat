@@ -17,11 +17,13 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
 
   useEffect(() => {
     const searchUsers = async () => {
-      if (!searchQuery.trim() || !session?.accessToken) {
+      if (!searchQuery.trim() || searchQuery.length < 2 || !session?.accessToken) {
         setSearchResults([])
         setIsLoading(false)
         return
       }
+      
+      if (isLoading) return
       
       setIsLoading(true)
       setError(null)
@@ -50,6 +52,7 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
         const detailedUsers = await Promise.all(
           data.items
             .filter(user => user.login !== session.user.login)
+            .slice(0, 3) // 限制只获取前3个用户的详细信息
             .map(async user => {
               try {
                 const detailResponse = await fetch(`https://api.github.com/users/${user.login}`, {
@@ -89,8 +92,8 @@ export default function AddFriendModal({ isOpen, onClose, onSendRequest, friends
       }
     }
 
-    // 使用防抖进行搜索，增加延迟时间
-    const timeoutId = setTimeout(searchUsers, 800)
+    // 使用防抖进行搜索，增加延迟时间到1.5秒
+    const timeoutId = setTimeout(searchUsers, 1500)
     return () => clearTimeout(timeoutId)
   }, [searchQuery, session, friends])
 
