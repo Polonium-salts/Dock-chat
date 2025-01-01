@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { io } from 'socket.io-client'
 import { 
@@ -1307,8 +1307,8 @@ export default function Home({ username, roomId }) {
     loadFriendRequests()
   }, [session])
 
-  // 添加检查仓库是否存在的函数
-  const checkRepositoryExists = async () => {
+  // 修改检查仓库函数
+  const checkRepositoryExists = useCallback(async () => {
     if (!session?.user?.login || !session.accessToken) return false;
     
     try {
@@ -1319,18 +1319,39 @@ export default function Home({ username, roomId }) {
         }
       });
       
-      return response.status === 200;
+      if (response.status === 404) {
+        return false;
+      }
+      
+      if (response.status === 200) {
+        // 检查是否有必要的目录结构
+        const contentResponse = await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          }
+        );
+        
+        if (contentResponse.ok) {
+          return true;
+        }
+      }
+      
+      return false;
     } catch (error) {
       console.error('Error checking repository:', error);
       return false;
     }
-  };
+  }, [session]);
 
-  // 修改创建仓库的函数
-  const createRepository = async () => {
+  // 修改创建仓库函数
+  const createRepository = useCallback(async () => {
     if (!session?.user?.login || !session.accessToken) {
-      alert('请先登录')
-      return
+      alert('请先登录');
+      return;
     }
     
     try {
@@ -1347,17 +1368,11 @@ export default function Home({ username, roomId }) {
       document.body.appendChild(loadingMessage);
 
       // 先检查仓库是否已存在
-      const checkResponse = await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      })
-
-      if (checkResponse.status === 200) {
+      const exists = await checkRepositoryExists();
+      if (exists) {
         document.body.removeChild(loadingMessage);
-        alert('私有存储库已存在')
-        return
+        alert('私有存储库已存在');
+        return;
       }
 
       // 创建私有仓库
@@ -1374,118 +1389,181 @@ export default function Home({ username, roomId }) {
           auto_init: true,
           description: 'Private repository for Dock Chat data storage'
         })
-      })
-
-      const data = await response.json()
+      });
 
       if (!response.ok) {
         document.body.removeChild(loadingMessage);
-        // 处理具体的错误情况
+        const data = await response.json();
+        
         if (response.status === 422) {
-          alert('仓库名称已被使用，请先删除同名仓库后重试')
+          alert('仓库名称已被使用，请先删除同名仓库后重试');
         } else if (response.status === 403) {
-          alert('没有足够的权限创建仓库，请确保已授权正确的权限')
+          alert('没有足够的权限创建仓库，请确保已授权正确的权限');
         } else if (response.status === 401) {
-          alert('授权已过期，请重新登录')
-          signOut({ callbackUrl: '/' })
+          alert('授权已过期，请重新登录');
+          signOut({ callbackUrl: '/' });
         } else {
-          throw new Error(data.message || '创建仓库失败')
+          throw new Error(data.message || '创建仓库失败');
         }
-        return
+        return;
       }
 
       // 等待仓库初始化完成
-      let retries = 0
-      const maxRetries = 5
+      let retries = 0;
+      const maxRetries = 10; // 增加重试次数
       while (retries < maxRetries) {
         const initCheck = await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data`, {
           headers: {
             'Authorization': `Bearer ${session.accessToken}`,
             'Accept': 'application/vnd.github.v3+json'
           }
-        })
+        });
 
         if (initCheck.ok) {
-          // 仓库创建成功，刷新页面
+          // 创建必要的目录结构
+          const directories = ['chats', 'config', 'friend_requests'];
+          for (const dir of directories) {
+            await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/${dir}/.gitkeep`, {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                message: `Create ${dir} directory`,
+                content: 'MQ==', // Base64 encoded "1"
+              })
+            });
+          }
+
+          // 创建初始配置文件
+          const initialConfig = {
+            settings: {
+              theme: 'system',
+              activeChat: '',
+            },
+            contacts: [],
+            last_updated: new Date().toISOString()
+          };
+
+          const encodedConfig = btoa(JSON.stringify(initialConfig, null, 2));
+          await fetch(`https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/config/user.json`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: 'Create initial config',
+              content: encodedConfig
+            })
+          });
+
           document.body.removeChild(loadingMessage);
           alert('私有存储库创建成功！');
-          window.location.reload()
-          return
+          window.location.reload();
+          return;
         }
 
-        // 等待一秒后重试
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        retries++
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 增加等待时间
+        retries++;
       }
 
       document.body.removeChild(loadingMessage);
-      throw new Error('仓库初始化超时，请刷新页面重试')
+      throw new Error('仓库初始化超时，请刷新页面重试');
     } catch (error) {
-      console.error('Error creating repository:', error)
-      alert(error.message || '创建仓库失败，请重试')
+      console.error('Error creating repository:', error);
+      alert(error.message || '创建仓库失败，请重试');
     }
-  }
+  }, [session, checkRepositoryExists]);
 
-  // 添加定期检查仓库是否存在的逻辑
+  // 使用 useCallback 优化 getConfig 函数
+  const getConfigCallback = useCallback(async () => {
+    if (!session?.user?.login || !session.accessToken) return null;
+    
+    try {
+      return await getConfig(session.accessToken, session.user.login);
+    } catch (error) {
+      console.error('Error loading config:', error);
+      return null;
+    }
+  }, [session]);
+
+  // 修改登录检查逻辑
   useEffect(() => {
-    const checkRepository = async () => {
-      if (session?.user?.login && session.accessToken) {
+    const checkLoginAndRepository = async () => {
+      if (!session?.user?.login || !session.accessToken || status === 'loading') {
+        return;
+      }
+      
+      try {
+        setIsLoading(true);
         const exists = await checkRepositoryExists();
+        
         if (!exists) {
-          // 如果存储库不存在，显示初始化提示
           const shouldCreate = window.confirm(
             '检测到您还没有创建私有存储库。需要创建私有存储库来保存聊天记录和设置。是否立即创建？'
           );
           if (shouldCreate) {
             await createRepository();
           }
-        } else {
-          // 如果存储库存在，加载用户配置
-          const config = await getConfig(session.accessToken, session.user.login);
-          if (config) {
-            setUserConfig(config);
-            // 恢复用户配置
-            if (config.settings?.theme) {
-              setTheme(config.settings.theme);
-            }
-            if (config.contacts?.length > 0) {
-              const formattedContacts = config.contacts.map(contact => ({
-                id: contact.id,
-                name: contact.name,
-                type: contact.type || 'room',
-                unread: contact.unread || 0,
-                created_at: contact.created_at || new Date().toISOString(),
-                updated_at: contact.updated_at || new Date().toISOString(),
-                lastMessage: contact.lastMessage || null,
-                description: contact.description || '',
-                isPrivate: contact.isPrivate || false
-              }));
-              setContacts(formattedContacts);
-              
-              // 如果有活动聊天室，恢复它
-              if (config.settings?.activeChat) {
-                const chatExists = formattedContacts.some(contact => contact.id === config.settings.activeChat);
-                if (chatExists) {
-                  setActiveChat(config.settings.activeChat);
-                }
-              }
+          setIsLoading(false);
+          return;
+        }
+        
+        // 加载用户配置
+        const config = await getConfigCallback();
+        if (!config) {
+          console.error('Failed to load user config');
+          setIsLoading(false);
+          return;
+        }
+        
+        setUserConfig(config);
+        
+        if (config.settings?.theme) {
+          setTheme(config.settings.theme);
+        }
+        
+        if (config.contacts?.length > 0) {
+          const formattedContacts = config.contacts.map(contact => ({
+            id: contact.id,
+            name: contact.name,
+            type: contact.type || 'room',
+            unread: contact.unread || 0,
+            created_at: contact.created_at || new Date().toISOString(),
+            updated_at: contact.updated_at || new Date().toISOString(),
+            lastMessage: contact.lastMessage || null,
+            description: contact.description || '',
+            isPrivate: contact.isPrivate || false
+          }));
+          
+          setContacts(formattedContacts);
+          
+          if (config.settings?.activeChat) {
+            const chatExists = formattedContacts.some(
+              contact => contact.id === config.settings.activeChat
+            );
+            if (chatExists) {
+              setActiveChat(config.settings.activeChat);
             }
           }
         }
       } catch (error) {
         console.error('Error checking repository status:', error);
-        // 如果检查过程中出错，也提示创建
         const shouldRetry = window.confirm(
           '检查存储库状态时出错。是否尝试创建新的私有存储库？'
         );
         if (shouldRetry) {
           await createRepository();
         }
+      } finally {
+        setIsLoading(false);
       }
-    }
+    };
 
     checkLoginAndRepository();
-  }, [session, status]);
+  }, [session, status, createRepository, checkRepositoryExists, getConfigCallback]);
 
   if (status === 'loading') {
     return (
