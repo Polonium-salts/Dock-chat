@@ -621,14 +621,6 @@ export default function Home({ username, roomId }) {
       setUserConfig(updatedConfig)
       
       // 应用新的设置
-      if (updatedConfig.settings?.autoSave) {
-        setupAutoSave(updatedConfig.settings.saveInterval || 5)
-      } else if (autoSaveInterval) {
-        clearInterval(autoSaveInterval)
-        setAutoSaveInterval(null)
-      }
-
-      // 更新主题
       if (updatedConfig.settings?.theme) {
         setTheme(updatedConfig.settings.theme)
       }
@@ -680,10 +672,8 @@ export default function Home({ username, roomId }) {
       if (session?.user?.login && session.accessToken) {
         try {
           const config = await getConfig(session.accessToken, session.user.login)
-          if (config?.general_settings?.autoSaveToGitHub) {
-            // 设置自动保存间隔
-            const interval = config.general_settings.saveInterval || 5
-            setupAutoSave(interval)
+          if (config?.settings?.theme) {
+            setTheme(config.settings.theme)
           }
         } catch (error) {
           console.error('Error loading user settings:', error)
@@ -692,178 +682,7 @@ export default function Home({ username, roomId }) {
     }
 
     loadUserSettings()
-    return () => {
-      if (autoSaveInterval) {
-        clearInterval(autoSaveInterval)
-      }
-    }
   }, [session])
-
-  // 设置自动保存
-  const setupAutoSave = (interval) => {
-    if (autoSaveInterval) {
-      clearInterval(autoSaveInterval)
-    }
-
-    const newInterval = setInterval(async () => {
-      if (session?.user?.login && session.accessToken && messages.length > 0) {
-        try {
-          await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
-          console.log('Auto-saved messages to GitHub')
-        } catch (error) {
-          console.error('Error auto-saving messages:', error)
-        }
-      }
-    }, interval * 60 * 1000) // 转换为毫秒
-
-    setAutoSaveInterval(newInterval)
-  }
-
-  // 在组件卸载时清理定时器
-  useEffect(() => {
-    return () => {
-      if (autoSaveInterval) {
-        clearInterval(autoSaveInterval)
-      }
-    }
-  }, [autoSaveInterval])
-
-  // 消息变化时手动保存
-  useEffect(() => {
-    const saveMessagesToGitHub = async () => {
-      if (!session?.user?.login || !session.accessToken || !activeChat || messages.length === 0) return
-
-      try {
-        console.log('Saving messages for room:', activeChat)
-        await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
-        console.log('Successfully saved messages')
-      } catch (error) {
-        console.error('Error saving messages:', error)
-      }
-    }
-
-    // 使用防抖来避免频繁保存
-    const timeoutId = setTimeout(saveMessagesToGitHub, 1000)
-    return () => clearTimeout(timeoutId)
-  }, [messages, activeChat, session])
-
-  // 修改删除聊天室的逻辑
-  const handleDeleteChatRoom = async (roomId) => {
-    if (!session?.user?.login || !session.accessToken) return
-    if (roomId === 'public' || roomId === 'kimi-ai') {
-      alert('系统聊天室不能删除')
-      return
-    }
-
-    try {
-      // 从联系人列表中移除
-      const updatedContacts = contacts.filter(c => c.id !== roomId)
-      setContacts(updatedContacts)
-      
-      // 如果当前正在查看被删除的聊天室，切换到公共聊天室
-      if (activeChat === roomId) {
-        setActiveChat('public')
-      }
-
-      // 更新用户配置
-      if (userConfig) {
-        const updatedConfig = {
-          ...userConfig,
-          contacts: updatedContacts,
-          settings: {
-            ...userConfig.settings,
-            activeChat: activeChat === roomId ? 'public' : activeChat
-          },
-          last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-      }
-    } catch (error) {
-      console.error('Error deleting chat room:', error)
-      alert('删除聊天室失败')
-    }
-  }
-
-  // 修改登录消息发送逻辑
-  useEffect(() => {
-    const sendLoginMessage = async () => {
-      if (session?.user && socket?.connected) {
-        try {
-          const loginMessage = await generateLoginMessage(session)
-          
-          // 创建系统通知消息
-          const systemMessage = {
-            content: loginMessage,
-            user: {
-              name: 'System',
-              image: '/system-avatar.png',
-              id: 'system'
-            },
-            type: 'system',
-            createdAt: new Date().toISOString()
-          }
-
-          // 保存到系统通知聊天室
-          if (session.accessToken && session.user.login) {
-            try {
-              // 加载现有系统消息
-              const existingMessages = await loadChatHistory(session.accessToken, session.user.login, 'system')
-              const updatedMessages = [...existingMessages, systemMessage]
-              
-              // 保存更新后的消息
-              await saveChatHistory(session.accessToken, session.user.login, 'system', updatedMessages)
-
-              // 更新联系人列表中的系统通知未读数
-              const updatedContacts = contacts.map(contact => {
-                if (contact.id === 'system') {
-                  return {
-                    ...contact,
-                    unread: (contact.unread || 0) + 1,
-                    last_message: systemMessage,
-                    message_count: updatedMessages.length,
-                    updated_at: new Date().toISOString()
-                  }
-                }
-                return contact
-              })
-              setContacts(updatedContacts)
-
-              // 更新用户配置
-              if (userConfig) {
-                const updatedConfig = {
-                  ...userConfig,
-                  contacts: updatedContacts,
-                  last_updated: new Date().toISOString()
-                }
-                await updateConfig(session.accessToken, session.user.login, updatedConfig)
-              }
-            } catch (error) {
-              console.error('Error saving system notification:', error)
-            }
-          }
-
-          // 发送到公共聊天室
-          socket.emit('message', {
-            ...systemMessage,
-            room: 'public'
-          })
-
-          // 如果当前在公共聊天室，更新本地消息
-          if (activeChat === 'public') {
-            setMessages(prev => [...prev, systemMessage])
-          }
-        } catch (error) {
-          console.error('Error sending login message:', error)
-        }
-      }
-    }
-
-    // 确保只在初始连接发送一次登录消息
-    if (session?.user && socket?.connected && !socket._loginMessageSent) {
-      socket._loginMessageSent = true
-      sendLoginMessage()
-    }
-  }, [session, socket?.connected])
 
   // 修改页面标题的逻辑
   const pageTitle = {
@@ -1561,6 +1380,124 @@ export default function Home({ username, roomId }) {
 
     checkLoginAndRepository();
   }, [session, status, createRepository, checkRepositoryExists, getConfigCallback]);
+
+  // 修改删除聊天室的逻辑
+  const handleDeleteChatRoom = async (roomId) => {
+    if (!session?.user?.login || !session.accessToken) return
+    if (roomId === 'public' || roomId === 'kimi-ai') {
+      alert('系统聊天室不能删除')
+      return
+    }
+
+    try {
+      // 从联系人列表中移除
+      const updatedContacts = contacts.filter(c => c.id !== roomId)
+      setContacts(updatedContacts)
+      
+      // 如果当前正在查看被删除的聊天室，切换到公共聊天室
+      if (activeChat === roomId) {
+        setActiveChat('public')
+      }
+
+      // 更新用户配置
+      if (userConfig) {
+        const updatedConfig = {
+          ...userConfig,
+          contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: activeChat === roomId ? 'public' : activeChat
+          },
+          last_updated: new Date().toISOString()
+        }
+        await updateConfig(session.accessToken, session.user.login, updatedConfig)
+      }
+    } catch (error) {
+      console.error('Error deleting chat room:', error)
+      alert('删除聊天室失败')
+    }
+  }
+
+  // 修改登录消息发送逻辑
+  useEffect(() => {
+    const sendLoginMessage = async () => {
+      if (session?.user && socket?.connected) {
+        try {
+          const loginMessage = await generateLoginMessage(session)
+          
+          // 创建系统通知消息
+          const systemMessage = {
+            content: loginMessage,
+            user: {
+              name: 'System',
+              image: '/system-avatar.png',
+              id: 'system'
+            },
+            type: 'system',
+            createdAt: new Date().toISOString()
+          }
+
+          // 保存到系统通知聊天室
+          if (session.accessToken && session.user.login) {
+            try {
+              // 加载现有系统消息
+              const existingMessages = await loadChatHistory(session.accessToken, session.user.login, 'system')
+              const updatedMessages = [...existingMessages, systemMessage]
+              
+              // 保存更新后的消息
+              await saveChatHistory(session.accessToken, session.user.login, 'system', updatedMessages)
+
+              // 更新联系人列表中的系统通知未读数
+              const updatedContacts = contacts.map(contact => {
+                if (contact.id === 'system') {
+                  return {
+                    ...contact,
+                    unread: (contact.unread || 0) + 1,
+                    last_message: systemMessage,
+                    message_count: updatedMessages.length,
+                    updated_at: new Date().toISOString()
+                  }
+                }
+                return contact
+              })
+              setContacts(updatedContacts)
+
+              // 更新用户配置
+              if (userConfig) {
+                const updatedConfig = {
+                  ...userConfig,
+                  contacts: updatedContacts,
+                  last_updated: new Date().toISOString()
+                }
+                await updateConfig(session.accessToken, session.user.login, updatedConfig)
+              }
+            } catch (error) {
+              console.error('Error saving system notification:', error)
+            }
+          }
+
+          // 发送到公共聊天室
+          socket.emit('message', {
+            ...systemMessage,
+            room: 'public'
+          })
+
+          // 如果当前在公共聊天室，更新本地消息
+          if (activeChat === 'public') {
+            setMessages(prev => [...prev, systemMessage])
+          }
+        } catch (error) {
+          console.error('Error sending login message:', error)
+        }
+      }
+    }
+
+    // 确保只在初始连接发送一次登录消息
+    if (session?.user && socket?.connected && !socket._loginMessageSent) {
+      socket._loginMessageSent = true
+      sendLoginMessage()
+    }
+  }, [session, socket?.connected])
 
   if (status === 'loading') {
     return (
