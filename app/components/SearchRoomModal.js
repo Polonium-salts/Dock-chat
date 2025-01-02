@@ -21,9 +21,22 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
 
       // 检查是否是邀请链接
       if (roomId.includes('/invite/')) {
-        const url = new URL(roomId);
-        const pathParts = url.pathname.split('/');
-        roomId = pathParts[pathParts.length - 1];
+        try {
+          const url = new URL(roomId);
+          const pathParts = url.pathname.split('/');
+          const inviteId = pathParts[pathParts.length - 1];
+          // 从邀请 ID 中提取用户名和聊天室名称
+          const [username, timestamp] = inviteId.split('-');
+          if (!username || !timestamp) {
+            showToast('无效的邀请链接', 'error');
+            return;
+          }
+          roomId = `${username}@${inviteId}`;
+        } catch (error) {
+          console.error('Error parsing invite link:', error);
+          showToast('无效的邀请链接', 'error');
+          return;
+        }
       }
 
       // 检查聊天室是否存在
