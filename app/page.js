@@ -1135,8 +1135,9 @@ export default function Home({ username, roomId }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      const roomId = `${session.user.login}-${Date.now()}`
-      const inviteLink = `${window.location.origin}/invite/${roomId}?name=${encodeURIComponent(roomData.name)}`
+      const timestamp = Date.now();
+      const roomId = `${session.user.login}@${timestamp}`;
+      const inviteLink = `${window.location.origin}/invite/${session.user.login}-${timestamp}?name=${encodeURIComponent(roomData.name)}`;
       
       const newRoom = {
         id: roomId,
@@ -1168,12 +1169,13 @@ export default function Home({ username, roomId }) {
         // 创建聊天室信息文件
         const encodedInfo = btoa(JSON.stringify(newRoom, null, 2))
         await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}/info.json`,
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${timestamp}/info.json`,
           {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${session.accessToken}`,
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Accept': 'application/vnd.github.v3+json'
             },
             body: JSON.stringify({
               message: `Create chat room ${roomId}`,
@@ -1184,12 +1186,13 @@ export default function Home({ username, roomId }) {
 
         // 创建消息存储文件
         await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}/messages.json`,
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${timestamp}/messages.json`,
           {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${session.accessToken}`,
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Accept': 'application/vnd.github.v3+json'
             },
             body: JSON.stringify({
               message: `Initialize messages for ${roomId}`,
@@ -1200,12 +1203,13 @@ export default function Home({ username, roomId }) {
 
         // 创建加入请求目录
         await fetch(
-          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/join_requests/${roomId}/.gitkeep`,
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/join_requests/${timestamp}/.gitkeep`,
           {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${session.accessToken}`,
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Accept': 'application/vnd.github.v3+json'
             },
             body: JSON.stringify({
               message: `Create join requests directory for ${roomId}`,
@@ -1221,7 +1225,7 @@ export default function Home({ username, roomId }) {
       // 更新联系人列表
       const updatedContacts = [...contacts, newRoom]
       setContacts(updatedContacts)
-      
+
       // 立即切换到新创建的聊天室
       setActiveChat(roomId)
       setShowCreateRoomModal(false)
@@ -1254,13 +1258,13 @@ export default function Home({ username, roomId }) {
 
       // 更新路由
       if (typeof window !== 'undefined') {
-        router.push(`/${session.user.login}/${roomId}`)
+        router.push(`/${session.user.login}/${timestamp}`)
       }
     } catch (error) {
       console.error('Error creating room:', error)
       showToast('创建聊天室失败，请重试', 'error')
     }
-  }
+  };
 
   // 检查用户访问权限和初始化聊天室
   useEffect(() => {
