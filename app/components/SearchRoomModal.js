@@ -34,6 +34,8 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         return;
       }
 
+      console.log('Checking room:', roomId, 'owner:', owner); // 添加调试日志
+
       // 检查聊天室是否存在
       const response = await fetch(
         `https://api.github.com/repos/${owner}/dock-chat-data/contents/chats/${roomId}/info.json`,
@@ -45,9 +47,33 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         }
       );
 
+      console.log('Room check response:', response.status); // 添加调试日志
+
       if (!response.ok) {
         if (response.status === 404) {
-          showToast('聊天室不存在', 'error');
+          // 尝试检查另一个可能的路径
+          const altResponse = await fetch(
+            `https://api.github.com/repos/${owner}/dock-chat-data/contents/rooms/${roomId}/info.json`,
+            {
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+              }
+            }
+          );
+
+          console.log('Alt room check response:', altResponse.status); // 添加调试日志
+
+          if (!altResponse.ok) {
+            showToast('聊天室不存在', 'error');
+            return;
+          }
+
+          // 如果在另一个路径找到了聊天室
+          const data = await altResponse.json();
+          const roomInfo = JSON.parse(atob(data.content));
+          await handleJoinRoom(roomId, roomInfo);
+          return;
         } else {
           throw new Error('检查聊天室失败');
         }
@@ -57,7 +83,18 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
       // 获取聊天室信息
       const data = await response.json();
       const roomInfo = JSON.parse(atob(data.content));
+      await handleJoinRoom(roomId, roomInfo);
+    } catch (error) {
+      console.error('Error joining room:', error);
+      showToast('加入聊天室失败，请重试', 'error');
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
+  // 处理加入聊天室的具体逻辑
+  const handleJoinRoom = async (roomId, roomInfo) => {
+    try {
       // 检查是否已经是成员
       if (roomInfo.members?.some(member => member.login === session.user.login)) {
         showToast('您已经是该聊天室的成员', 'info');
@@ -70,10 +107,8 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
       onClose();
       showToast('已发送加入申请', 'success');
     } catch (error) {
-      console.error('Error joining room:', error);
-      showToast('加入聊天室失败，请重试', 'error');
-    } finally {
-      setIsSearching(false);
+      console.error('Error in handleJoinRoom:', error);
+      throw error; // 向上传播错误
     }
   };
 
