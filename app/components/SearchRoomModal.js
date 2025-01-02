@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { searchChatRoom } from '@/lib/chatRoom';
 
 export default function SearchRoomModal({ onClose, onJoin, showToast }) {
   const { data: session } = useSession();
@@ -17,7 +18,6 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
     try {
       setIsSearching(true);
       let roomId = searchTerm.trim();
-      let owner;
 
       // 检查是否是邀请链接
       if (roomId.includes('/invite/')) {
@@ -26,79 +26,16 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         roomId = pathParts[pathParts.length - 1];
       }
 
-      // 从roomId中提取owner
-      [owner] = roomId.split('-');
-      
-      if (!owner) {
-        showToast('无效的聊天室ID或邀请链接', 'error');
-        return;
-      }
-
-      console.log('Checking room:', roomId, 'owner:', owner); // 添加调试日志
-
       // 检查聊天室是否存在
-      const response = await fetch(
-        `https://api.github.com/repos/${owner}/dock-chat-data/contents/chats/${roomId}/info.json`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.accessToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-          }
-        }
-      );
-
-      console.log('Room check response:', response.status); // 添加调试日志
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          // 尝试检查另一个可能的路径
-          const altResponse = await fetch(
-            `https://api.github.com/repos/${owner}/dock-chat-data/contents/rooms/${roomId}/info.json`,
-            {
-              headers: {
-                'Authorization': `Bearer ${session.accessToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            }
-          );
-
-          console.log('Alt room check response:', altResponse.status); // 添加调试日志
-
-          if (!altResponse.ok) {
-            showToast('聊天室不存在', 'error');
-            return;
-          }
-
-          // 如果在另一个路径找到了聊天室
-          const data = await altResponse.json();
-          const roomInfo = JSON.parse(atob(data.content));
-          await handleJoinRoom(roomId, roomInfo);
-          return;
-        } else {
-          throw new Error('检查聊天室失败');
-        }
+      const result = await searchChatRoom(session, roomId);
+      
+      if (result?.error) {
+        showToast(result.error, 'error');
         return;
       }
 
-      // 获取聊天室信息
-      const data = await response.json();
-      const roomInfo = JSON.parse(atob(data.content));
-      await handleJoinRoom(roomId, roomInfo);
-    } catch (error) {
-      console.error('Error joining room:', error);
-      showToast('加入聊天室失败，请重试', 'error');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // 处理加入聊天室的具体逻辑
-  const handleJoinRoom = async (roomId, roomInfo) => {
-    try {
-      // 检查是否已经是成员
-      if (roomInfo.members?.some(member => member.login === session.user.login)) {
-        showToast('您已经是该聊天室的成员', 'info');
-        onClose();
+      if (!result) {
+        showToast('聊天室不存在或无法访问', 'error');
         return;
       }
 
@@ -107,8 +44,10 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
       onClose();
       showToast('已发送加入申请', 'success');
     } catch (error) {
-      console.error('Error in handleJoinRoom:', error);
-      throw error; // 向上传播错误
+      console.error('Error joining room:', error);
+      showToast('加入聊天室失败，请重试', 'error');
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -140,48 +79,9 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
       // 获取每个用户的聊天室列表
       for (const user of users.slice(0, 5)) { // 限制只处理前5个用户
         try {
-          // 检查用户是否有数据仓库
-          const repoResponse = await fetch(
-            `https://api.github.com/repos/${user.login}/dock-chat-data`,
-            {
-              headers: {
-                'Authorization': `Bearer ${session.accessToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            }
-          );
-
-          if (!repoResponse.ok) continue;
-
-          // 尝试获取聊天室信息
-          const roomId = `${user.login}-${searchTerm}`;
-          const roomResponse = await fetch(
-            `https://api.github.com/repos/${user.login}/dock-chat-data/contents/chats/${roomId}/info.json`,
-            {
-              headers: {
-                'Authorization': `Bearer ${session.accessToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            }
-          );
-
-          if (roomResponse.ok) {
-            const roomData = await roomResponse.json();
-            const roomInfo = JSON.parse(atob(roomData.content));
-
-            results.push({
-              id: roomId,
-              name: roomInfo.name || `${user.login}的聊天室`,
-              owner: {
-                login: user.login,
-                name: user.name || user.login,
-                avatar_url: user.avatar_url
-              },
-              members: roomInfo.members || [],
-              created_at: roomInfo.created_at,
-              description: roomInfo.description || '',
-              type: roomInfo.type || 'public'
-            });
+          const result = await searchChatRoom(session, `${user.login}@${searchTerm}`);
+          if (result && !result.error) {
+            results.push(result);
           }
         } catch (error) {
           console.error('Error checking room:', error);
@@ -204,7 +104,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (searchTerm.includes('-') || searchTerm.includes('/invite/')) {
+      if (searchTerm.includes('@') || searchTerm.includes('/invite/')) {
         handleDirectJoin();
       } else {
         handleSearch();
@@ -239,17 +139,17 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="输入关键词搜索或直接输入聊天室ID"
+                  placeholder="输入用户名@聊天室ID或邀请链接"
                   className="flex-1 px-3 py-2 border dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                 />
-                {searchTerm.includes('-') || searchTerm.includes('/invite/') ? (
+                {searchTerm.includes('@') || searchTerm.includes('/invite/') ? (
                   <button
                     onClick={handleDirectJoin}
                     disabled={!searchTerm || isSearching}
                     className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 min-w-[80px] flex items-center justify-center"
                   >
                     {isSearching ? (
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                     ) : (
                       '加入'
                     )}
@@ -261,58 +161,49 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 min-w-[80px] flex items-center justify-center"
                   >
                     {isSearching ? (
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                     ) : (
                       '搜索'
                     )}
                   </button>
                 )}
               </div>
-              <div className="mt-2 space-y-1">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  • 输入关键词搜索聊天室
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  • 或直接输入聊天室ID（格式：用户名-聊天室名称）
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  • 或粘贴邀请链接
-                </p>
-              </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                提示：输入用户名@聊天室ID直接加入，或输入关键词搜索聊天室
+              </p>
             </div>
 
             {searchResults.length > 0 && (
-              <div className="border dark:border-gray-700 rounded-lg divide-y dark:divide-gray-700 max-h-[40vh] overflow-y-auto">
-                {searchResults.map(room => (
-                  <div
-                    key={room.id}
-                    className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                    onClick={() => onJoin(room.id)}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <img
-                        src={room.owner.avatar_url}
-                        alt={room.owner.name}
-                        className="w-10 h-10 rounded-full"
-                      />
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900 dark:text-white">{room.name}</h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          创建者：{room.owner.name} (@{room.owner.login})
-                        </p>
-                        {room.description && (
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{room.description}</p>
-                        )}
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          ID: {room.id}
-                        </p>
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {room.members.length} 成员
+              <div className="mt-4">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">搜索结果</h3>
+                <div className="space-y-2">
+                  {searchResults.map((room) => (
+                    <div
+                      key={room.id}
+                      className="p-3 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="text-base font-medium text-gray-900 dark:text-white">
+                            {room.name}
+                          </h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {room.description || '暂无描述'}
+                          </p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            创建者：{room.owner.name} ({room.owner.login})
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleJoinRoom(room.id)}
+                          className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                        >
+                          加入
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>
