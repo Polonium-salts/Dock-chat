@@ -51,6 +51,32 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
     }
   };
 
+  // 处理搜索结果中的加入按钮点击
+  const handleJoinFromResults = async (roomId) => {
+    try {
+      // 检查聊天室是否存在
+      const result = await searchChatRoom(session, roomId);
+      
+      if (result?.error) {
+        showToast(result.error, 'error');
+        return;
+      }
+
+      if (!result) {
+        showToast('聊天室不存在或无法访问', 'error');
+        return;
+      }
+
+      // 调用加入聊天室函数
+      await onJoin(roomId);
+      onClose();
+      showToast('已发送加入申请', 'success');
+    } catch (error) {
+      console.error('Error joining room:', error);
+      showToast('加入聊天室失败，请重试', 'error');
+    }
+  };
+
   // 处理搜索
   const handleSearch = async () => {
     if (!searchTerm) return;
@@ -195,7 +221,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
                           </p>
                         </div>
                         <button
-                          onClick={() => handleJoinRoom(room.id)}
+                          onClick={() => handleJoinFromResults(room.id)}
                           className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
                           加入
