@@ -45,6 +45,9 @@ export default function ChatRoomSettings({
       );
 
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('聊天室信息不存在');
+        }
         throw new Error('获取聊天室信息失败');
       }
 
@@ -52,12 +55,13 @@ export default function ChatRoomSettings({
       const roomInfo = JSON.parse(atob(data.content));
 
       // 生成邀请链接
-      const inviteUrl = `${window.location.origin}/invite/${roomId}?name=${encodeURIComponent(roomInfo.name)}`;
+      const inviteUrl = `${window.location.origin}/invite/${roomId}?name=${encodeURIComponent(roomInfo.name || '聊天室')}`;
+      console.log('Generated invite URL:', inviteUrl); // 添加调试日志
       setInviteLink(inviteUrl);
       showToast('邀请链接已生成', 'success');
     } catch (error) {
       console.error('Error generating invite link:', error);
-      showToast('生成邀请链接失败，请重试', 'error');
+      showToast(error.message || '生成邀请链接失败，请重试', 'error');
     } finally {
       setIsGeneratingLink(false);
     }
@@ -65,6 +69,11 @@ export default function ChatRoomSettings({
 
   // 复制邀请链接
   const copyInviteLink = async () => {
+    if (!inviteLink) {
+      showToast('请先生成邀请链接', 'error');
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(inviteLink);
       showToast('邀请链接已复制到剪贴板', 'success');
@@ -140,14 +149,20 @@ export default function ChatRoomSettings({
                       <button
                         onClick={generateInviteLink}
                         disabled={isGeneratingLink}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 min-w-[80px]"
                       >
-                        {isGeneratingLink ? '生成中...' : '生成'}
+                        {isGeneratingLink ? (
+                          <div className="flex items-center justify-center">
+                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          </div>
+                        ) : (
+                          '生成'
+                        )}
                       </button>
                     ) : (
                       <button
                         onClick={copyInviteLink}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 min-w-[80px]"
                       >
                         复制
                       </button>

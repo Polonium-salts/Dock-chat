@@ -1135,7 +1135,9 @@ export default function Home({ username, roomId }) {
     if (!session?.user?.login || !session.accessToken) return
 
     try {
-      const roomId = `room-${Date.now()}`
+      const roomId = `${session.user.login}-${Date.now()}`
+      const inviteLink = `${window.location.origin}/invite/${roomId}?name=${encodeURIComponent(roomData.name)}`
+      
       const newRoom = {
         id: roomId,
         name: roomData.name,
@@ -1144,9 +1146,76 @@ export default function Home({ username, roomId }) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         creator: session.user.login,
+        owner: {
+          login: session.user.login,
+          name: session.user.name,
+          image: session.user.image
+        },
+        members: [{
+          login: session.user.login,
+          name: session.user.name,
+          image: session.user.image,
+          role: 'admin'
+        }],
         isPrivate: roomData.isPrivate,
+        inviteLink: inviteLink,
         lastMessage: null,
         unread: 0
+      }
+
+      // 创建聊天室目录结构
+      try {
+        // 创建聊天室信息文件
+        const encodedInfo = btoa(JSON.stringify(newRoom, null, 2))
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}/info.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Create chat room ${roomId}`,
+              content: encodedInfo
+            })
+          }
+        )
+
+        // 创建消息存储文件
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${roomId}/messages.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Initialize messages for ${roomId}`,
+              content: btoa('[]')
+            })
+          }
+        )
+
+        // 创建加入请求目录
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/join_requests/${roomId}/.gitkeep`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: `Create join requests directory for ${roomId}`,
+              content: btoa('1')
+            })
+          }
+        )
+      } catch (error) {
+        console.error('Error creating room structure:', error)
+        throw new Error('创建聊天室目录结构失败')
       }
 
       // 更新联系人列表
@@ -1172,13 +1241,24 @@ export default function Home({ username, roomId }) {
         setUserConfig(updatedConfig)
       }
 
+      // 显示成功提示和邀请链接
+      showToast('聊天室创建成功！邀请链接已生成', 'success')
+      
+      // 自动复制邀请链接到剪贴板
+      try {
+        await navigator.clipboard.writeText(inviteLink)
+        showToast('邀请链接已复制到剪贴板', 'success')
+      } catch (error) {
+        console.error('Error copying invite link:', error)
+      }
+
       // 更新路由
       if (typeof window !== 'undefined') {
         router.push(`/${session.user.login}/${roomId}`)
       }
     } catch (error) {
       console.error('Error creating room:', error)
-      alert('创建聊天室失败，请重试')
+      showToast('创建聊天室失败，请重试', 'error')
     }
   }
 

@@ -56,6 +56,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
     if (!searchTerm) return;
     
     setIsSearching(true);
+    setSearchResults([]);
     try {
       // 调用 GitHub API 搜索用户
       const response = await fetch(
@@ -80,7 +81,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         try {
           // 检查用户是否有数据仓库
           const repoResponse = await fetch(
-            `https://api.github.com/repos/${user.login}/dock-chat-data/contents/chats`,
+            `https://api.github.com/repos/${user.login}/dock-chat-data`,
             {
               headers: {
                 'Authorization': `Bearer ${session.accessToken}`,
@@ -91,49 +92,38 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
 
           if (!repoResponse.ok) continue;
 
-          const rooms = await repoResponse.json();
-          
-          // 获取每个聊天室的信息
-          for (const room of rooms) {
-            if (!room.name.endsWith('info.json')) continue;
-            
-            try {
-              const roomId = room.name.replace('info.json', '');
-              const configResponse = await fetch(room.download_url, {
-                headers: {
-                  'Authorization': `Bearer ${session.accessToken}`,
-                  'Accept': 'application/vnd.github.v3+json'
-                }
-              });
-
-              if (!configResponse.ok) continue;
-
-              const configData = await configResponse.json();
-              const config = JSON.parse(atob(configData.content));
-              
-              // 检查聊天室名称或描述是否匹配搜索词
-              if (config.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  config.description?.toLowerCase().includes(searchTerm.toLowerCase())) {
-                results.push({
-                  id: roomId,
-                  name: config.name || `${user.login}的聊天室`,
-                  owner: {
-                    login: user.login,
-                    name: user.name || user.login,
-                    avatar_url: user.avatar_url
-                  },
-                  members: config.members || [],
-                  created_at: config.created_at,
-                  description: config.description || '',
-                  type: config.type || 'public'
-                });
+          // 尝试获取聊天室信息
+          const roomId = `${user.login}-${searchTerm}`;
+          const roomResponse = await fetch(
+            `https://api.github.com/repos/${user.login}/dock-chat-data/contents/chats/${roomId}/info.json`,
+            {
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Accept': 'application/vnd.github.v3+json'
               }
-            } catch (error) {
-              console.error('Error loading room config:', error);
             }
+          );
+
+          if (roomResponse.ok) {
+            const roomData = await roomResponse.json();
+            const roomInfo = JSON.parse(atob(roomData.content));
+
+            results.push({
+              id: roomId,
+              name: roomInfo.name || `${user.login}的聊天室`,
+              owner: {
+                login: user.login,
+                name: user.name || user.login,
+                avatar_url: user.avatar_url
+              },
+              members: roomInfo.members || [],
+              created_at: roomInfo.created_at,
+              description: roomInfo.description || '',
+              type: roomInfo.type || 'public'
+            });
           }
         } catch (error) {
-          console.error('Error loading user rooms:', error);
+          console.error('Error checking room:', error);
         }
       }
 
