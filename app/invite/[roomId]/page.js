@@ -49,8 +49,12 @@ export default function InvitePage({ params }) {
         );
 
         if (!userResponse.ok) {
+          console.error('User response error:', await userResponse.text());
           throw new Error('找不到聊天室创建者');
         }
+
+        const userData = await userResponse.json();
+        console.log('Found user:', userData.login); // 调试日志
 
         // 检查数据仓库是否存在
         const repoResponse = await fetch(
@@ -64,8 +68,30 @@ export default function InvitePage({ params }) {
         );
 
         if (!repoResponse.ok) {
-          throw new Error('无法访问聊天室数据');
+          console.error('Repo response error:', await repoResponse.text());
+          if (repoResponse.status === 404) {
+            throw new Error('聊天室数据仓库不存在');
+          }
+          throw new Error('无法访问聊天室数据，请确保您有权限访问');
         }
+
+        const repoData = await repoResponse.json();
+        console.log('Found repo:', repoData.full_name); // 调试日志
+
+        // 检查仓库权限
+        const permissionResponse = await fetch(
+          `https://api.github.com/repos/${owner}/dock-chat-data/collaborators/${session.user.login}/permission`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          }
+        );
+
+        // 即使没有权限也继续，因为可能是公开聊天室
+        const permissionData = permissionResponse.ok ? await permissionResponse.json() : null;
+        console.log('Permission check:', permissionData); // 调试日志
 
         // 尝试多个可能的路径
         const possiblePaths = [
@@ -75,6 +101,8 @@ export default function InvitePage({ params }) {
         ];
 
         let roomData = null;
+        let foundPath = null;
+
         for (const path of possiblePaths) {
           console.log('Trying path:', path); // 调试日志
           try {
@@ -90,7 +118,11 @@ export default function InvitePage({ params }) {
 
             if (response.ok) {
               roomData = await response.json();
+              foundPath = path;
+              console.log('Found room data at path:', path); // 调试日志
               break;
+            } else {
+              console.log('Path not found:', path, await response.text()); // 调试日志
             }
           } catch (error) {
             console.log('Error trying path:', path, error);
@@ -99,19 +131,68 @@ export default function InvitePage({ params }) {
         }
 
         if (!roomData) {
-          throw new Error('聊天室不存在');
+          throw new Error('聊天室不存在或已被删除');
         }
 
         const roomInfo = JSON.parse(atob(roomData.content));
-        console.log('Found room info:', roomInfo); // 调试日志
+        console.log('Room info:', roomInfo); // 调试日志
+
+        // 加载成员列表
+        const membersPath = foundPath.replace('info.json', 'members.json');
+        console.log('Loading members from:', membersPath); // 调试日志
+
+        try {
+          const membersResponse = await fetch(
+            `https://api.github.com/repos/${owner}/dock-chat-data/contents/${membersPath}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+              }
+            }
+          );
+
+          if (membersResponse.ok) {
+            const membersData = await membersResponse.json();
+            const members = JSON.parse(atob(membersData.content));
+            console.log('Members data:', members); // 调试日志
+
+            // 更新房间信息中的成员列表
+            roomInfo.members = members.list || [];
+            roomInfo.total_members = members.total || 0;
+          } else {
+            console.log('Members file not found, using default members list');
+          }
+        } catch (error) {
+          console.error('Error loading members:', error);
+          // 继续使用默认的成员列表
+        }
+
+        // 检查是否是私有聊天室
+        if (roomInfo.type === 'private' && !permissionData?.permission) {
+          // 检查是否已经是成员
+          const isMember = roomInfo.members?.some(member => 
+            typeof member === 'object' ? member.login === session.user.login : member === session.user.login
+          );
+          
+          if (!isMember && owner !== session.user.login) {
+            throw new Error('这是一个私有聊天室，您需要得到邀请才能加入');
+          }
+        }
 
         setRoomInfo({
           ...roomInfo,
-          id: roomId
+          id: roomId,
+          path: foundPath,
+          owner: {
+            ...roomInfo.owner,
+            name: userData.name || userData.login,
+            avatar_url: userData.avatar_url
+          }
         });
       } catch (error) {
         console.error('Error loading room info:', error);
-        setError(error.message);
+        setError(error.message || '加载聊天室信息失败');
       } finally {
         setIsLoading(false);
       }
@@ -208,10 +289,41 @@ export default function InvitePage({ params }) {
             <h2 className="text-xl font-semibold mb-2">{roomInfo.name}</h2>
             <p className="text-gray-600 mb-4">{roomInfo.description || '暂无描述'}</p>
             <div className="text-sm text-gray-500 mb-4">
-              <p>创建者：{roomInfo.owner.name} ({roomInfo.owner.login})</p>
-              <p>成员数：{roomInfo.members?.length || 0}</p>
-              <p>创建时间：{new Date(roomInfo.created_at).toLocaleString()}</p>
-              <p>类型：{roomInfo.type === 'private' ? '私有' : '公开'}</p>
+              <p className="flex items-center mb-2">
+                <img
+                  src={roomInfo.owner.avatar_url}
+                  alt={roomInfo.owner.name}
+                  className="w-6 h-6 rounded-full mr-2"
+                />
+                <span>创建者：{roomInfo.owner.name} ({roomInfo.owner.login})</span>
+              </p>
+              <p className="mb-2">成员数：{roomInfo.total_members || roomInfo.members?.length || 0} 人</p>
+              <p className="mb-2">创建时间：{new Date(roomInfo.created_at).toLocaleString()}</p>
+              <p className="mb-2">类型：{roomInfo.type === 'private' ? '私有' : '公开'}</p>
+              
+              {/* 显示成员列表 */}
+              {roomInfo.members && roomInfo.members.length > 0 && (
+                <div className="mt-4">
+                  <p className="font-medium mb-2">成员列表：</p>
+                  <div className="max-h-40 overflow-y-auto">
+                    {roomInfo.members.map((member, index) => (
+                      <div key={member.login} className="flex items-center mb-2">
+                        <img
+                          src={member.image}
+                          alt={member.name}
+                          className="w-6 h-6 rounded-full mr-2"
+                        />
+                        <span>
+                          {member.name} ({member.login})
+                          {member.role === 'admin' && (
+                            <span className="ml-2 text-xs text-blue-600">管理员</span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
