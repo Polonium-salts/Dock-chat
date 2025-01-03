@@ -56,44 +56,52 @@ export default function InvitePage({ params }) {
         const userData = await userResponse.json();
         console.log('Found user:', userData.login); // 调试日志
 
-        // 检查数据仓库是否存在
-        const repoResponse = await fetch(
-          `https://api.github.com/repos/${owner}/dock-chat-data`,
-          {
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
-              'Accept': 'application/vnd.github.v3+json'
+        // 检查数据仓库是否存在和可访问性
+        try {
+          // 首先尝试直接访问仓库内容
+          const contentResponse = await fetch(
+            `https://api.github.com/repos/${owner}/dock-chat-data/contents/chats`,
+            {
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+              }
             }
-          }
-        );
+          );
 
-        if (!repoResponse.ok) {
-          console.error('Repo response error:', await repoResponse.text());
-          if (repoResponse.status === 404) {
-            throw new Error('聊天室数据仓库不存在');
+          if (!contentResponse.ok) {
+            // 如果无法访问内容，尝试获取仓库信息
+            const repoResponse = await fetch(
+              `https://api.github.com/repos/${owner}/dock-chat-data`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${session.accessToken}`,
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+
+            if (!repoResponse.ok) {
+              if (repoResponse.status === 404) {
+                throw new Error('聊天室数据仓库不存在，请确认创建者是否已初始化聊天室');
+              } else if (repoResponse.status === 403) {
+                throw new Error('无权访问聊天室数据，请联系创建者获取权限');
+              } else {
+                throw new Error('无法访问聊天室数据，请稍后重试');
+              }
+            }
+
+            // 如果仓库存在但无法访问内容，可能是权限问题
+            throw new Error('无法访问聊天室内容，请联系创建者获取权限');
           }
-          throw new Error('无法访问聊天室数据，请确保您有权限访问');
+
+          console.log('Repository content accessible'); // 调试日志
+        } catch (error) {
+          console.error('Repository check error:', error);
+          throw error;
         }
 
-        const repoData = await repoResponse.json();
-        console.log('Found repo:', repoData.full_name); // 调试日志
-
-        // 检查仓库权限
-        const permissionResponse = await fetch(
-          `https://api.github.com/repos/${owner}/dock-chat-data/collaborators/${session.user.login}/permission`,
-          {
-            headers: {
-              'Authorization': `Bearer ${session.accessToken}`,
-              'Accept': 'application/vnd.github.v3+json'
-            }
-          }
-        );
-
-        // 即使没有权限也继续，因为可能是公开聊天室
-        const permissionData = permissionResponse.ok ? await permissionResponse.json() : null;
-        console.log('Permission check:', permissionData); // 调试日志
-
-        // 尝试多个可能的路径
+        // 尝试多个可能的路径来查找聊天室信息
         const possiblePaths = [
           `chats/${timestamp}/info.json`,
           `chats/${owner}-${timestamp}/info.json`,
@@ -122,7 +130,8 @@ export default function InvitePage({ params }) {
               console.log('Found room data at path:', path); // 调试日志
               break;
             } else {
-              console.log('Path not found:', path, await response.text()); // 调试日志
+              const errorText = await response.text();
+              console.log('Path not found:', path, errorText); // 调试日志
             }
           } catch (error) {
             console.log('Error trying path:', path, error);
@@ -131,7 +140,7 @@ export default function InvitePage({ params }) {
         }
 
         if (!roomData) {
-          throw new Error('聊天室不存在或已被删除');
+          throw new Error('聊天室不存在或已被删除，请联系创建者确认');
         }
 
         const roomInfo = JSON.parse(atob(roomData.content));
@@ -162,22 +171,13 @@ export default function InvitePage({ params }) {
             roomInfo.total_members = members.total || 0;
           } else {
             console.log('Members file not found, using default members list');
+            // 使用 info.json 中的成员信息作为备选
+            roomInfo.total_members = roomInfo.members?.length || 0;
           }
         } catch (error) {
           console.error('Error loading members:', error);
           // 继续使用默认的成员列表
-        }
-
-        // 检查是否是私有聊天室
-        if (roomInfo.type === 'private' && !permissionData?.permission) {
-          // 检查是否已经是成员
-          const isMember = roomInfo.members?.some(member => 
-            typeof member === 'object' ? member.login === session.user.login : member === session.user.login
-          );
-          
-          if (!isMember && owner !== session.user.login) {
-            throw new Error('这是一个私有聊天室，您需要得到邀请才能加入');
-          }
+          roomInfo.total_members = roomInfo.members?.length || 0;
         }
 
         setRoomInfo({
