@@ -31,7 +31,7 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
             showToast('无效的邀请链接', 'error');
             return;
           }
-          roomId = `${username}@${inviteId}`;
+          roomId = `${username}@${timestamp}`;
         } catch (error) {
           console.error('Error parsing invite link:', error);
           showToast('无效的邀请链接', 'error');
@@ -52,10 +52,24 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         return;
       }
 
-      // 调用加入聊天室函数
-      await onJoin(roomId);
+      // 发送加入请求
+      const response = await fetch('/api/chat/join', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        showToast(data.error || '加入聊天室失败', 'error');
+        return;
+      }
+
       onClose();
-      showToast('已发送加入申请', 'success');
+      showToast(data.message || '已发送加入申请', 'success');
     } catch (error) {
       console.error('Error joining room:', error);
       showToast('加入聊天室失败，请重试', 'error');
@@ -80,10 +94,24 @@ export default function SearchRoomModal({ onClose, onJoin, showToast }) {
         return;
       }
 
-      // 调用加入聊天室函数
-      await onJoin(roomId);
+      // 发送加入请求
+      const response = await fetch('/api/chat/join', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        showToast(data.error || '加入聊天室失败', 'error');
+        return;
+      }
+
       onClose();
-      showToast('已发送加入申请', 'success');
+      showToast(data.message || '已发送加入申请', 'success');
     } catch (error) {
       console.error('Error joining room:', error);
       showToast('加入聊天室失败，请重试', 'error');

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { searchChatRoom } from '@/lib/chatRoom'
 
@@ -72,8 +72,10 @@ export default function InvitePage({ params }) {
         body: JSON.stringify({ roomId }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('加入聊天室失败');
+        throw new Error(data.error || '加入聊天室失败');
       }
 
       // 加入成功，跳转到聊天室
@@ -140,6 +142,7 @@ export default function InvitePage({ params }) {
               <p>创建者：{roomInfo.owner.name} ({roomInfo.owner.login})</p>
               <p>成员数：{roomInfo.members?.length || 0}</p>
               <p>创建时间：{new Date(roomInfo.created_at).toLocaleString()}</p>
+              <p>类型：{roomInfo.type === 'private' ? '私有' : '公开'}</p>
             </div>
           </div>
         )}
