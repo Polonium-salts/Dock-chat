@@ -19,7 +19,7 @@ import SettingsModal from './components/SettingsModal'
 import ProfilePage from './components/ProfilePage'
 import OnboardingModal from './components/OnboardingModal'
 import { sendMessageToKimi } from '@/lib/kimi'
-import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory } from '@/lib/github'
+import { checkDataRepository, getConfig, updateConfig, saveChatHistory, loadChatHistory, loadRoomMessages, saveUserChatHistory, initializeUserChatStorage } from '@/lib/github'
 import ChatRoomSettings from './components/ChatRoomSettings'
 import { generateLoginMessage } from '@/lib/userInfo'
 import { saveSystemNotification, formatSystemNotification } from '@/lib/systemNotifications'
@@ -76,6 +76,7 @@ export default function Home({ username, roomId }) {
   const [toast, setToast] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
   const [showSearchModal, setShowSearchModal] = useState(false)
+  const [error, setError] = useState(null)
 
   // 动滚动到底部
   useEffect(() => {
@@ -250,61 +251,41 @@ export default function Home({ username, roomId }) {
     initializeData()
   }, [session])
 
-  // 修改加载消息的逻辑
+  // 修改消息加载逻辑
   const loadChatMessages = async () => {
-    if (!session?.user?.login || !session.accessToken || !activeChat) return;
+    if (!session?.accessToken || !activeChat) return;
 
     try {
       setIsLoading(true);
-      setMessages([]); // 立即清空消息，避免显示上一个聊天室的消息
+      setError(null);
 
-      // 尝试从缓存加载消息
-      const cachedMessages = getChatMessagesCache(session.user.login, activeChat);
-      if (cachedMessages) {
-        console.log('Using cached messages for', activeChat);
-        const formattedCachedMessages = cachedMessages.map(msg => ({
-          ...msg,
-          isOwnMessage: msg.user?.id === session.user.id
-        }));
-        setMessages(formattedCachedMessages);
-        setIsLoading(false);
-        return;
-      }
-
-      console.log('Loading messages for chat:', activeChat);
-      const messages = await loadChatHistory(session.accessToken, session.user.login, activeChat);
-      
-      if (Array.isArray(messages)) {
-        const formattedMessages = messages.map(msg => ({
-          id: msg.id || `msg-${msg.createdAt}-${msg.user?.id}`,
-          content: msg.content || '',
-          user: {
-            name: msg.user?.name || 'Unknown User',
-            image: msg.user?.image || '/default-avatar.png',
-            id: msg.user?.id || 'unknown',
-            login: msg.user?.login
-          },
-          createdAt: msg.createdAt || new Date().toISOString(),
-          type: msg.type || 'message',
-          isOwnMessage: msg.user?.id === session.user.id
-        }));
-
-        // 按时间排序
-        const sortedMessages = formattedMessages.sort(
-          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-        );
-
-        setMessages(sortedMessages);
-        updateChatMessagesCache(session.user.login, activeChat, sortedMessages);
-      }
+      // 使用新的加载函数从所有成员的仓库中读取消息
+      const messages = await loadRoomMessages(session.accessToken, activeChat);
+      setMessages(messages);
     } catch (error) {
       console.error('Error loading messages:', error);
-      showToast('加载消息失败', 'error');
-      setMessages([]);
+      setError('加载消息失败');
     } finally {
       setIsLoading(false);
     }
   };
+
+  // 修改消息保存逻辑
+  useEffect(() => {
+    if (!activeChat || !messages.length || !session?.user?.login || !session.accessToken) return;
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        console.log('Saving messages for room:', activeChat);
+        // 使用新的保存函数将消息保存到用户自己的仓库
+        await saveUserChatHistory(session.accessToken, session.user.login, activeChat, messages);
+      } catch (error) {
+        console.error('Error saving messages:', error);
+      }
+    }, 1000); // 1秒延迟保存
+
+    return () => clearTimeout(timeoutId);
+  }, [messages, activeChat, session]);
 
   // 显示消息提示的函数
   const showToast = (message, type = 'info') => {
@@ -1012,55 +993,58 @@ export default function Home({ username, roomId }) {
 
   // 添加加入聊天室的逻辑
   const handleJoinRoom = async (roomId) => {
-    if (!session?.user?.login || !session.accessToken || !roomId) return
+    if (!session?.accessToken || !session.user?.login) return;
 
     try {
-      // 检查聊天室是否已存在于联系人列表中
-      const existingRoom = contacts.find(c => c.id === roomId)
-      if (existingRoom) {
-        setActiveChat(roomId)
-        setShowJoinModal(false)
-        return
+      // 获取聊天室信息
+      const [owner, timestamp] = roomId.split('@');
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/dock-chat-data/contents/chats/${timestamp}/info.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('获取聊天室信息失败');
       }
 
-      // 创建新的聊天室对象
-      const newRoom = {
-        id: roomId,
-        name: `聊天室 ${roomId}`,
-        type: 'room',
-        joined_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        message_count: 0,
-        unread: 0
-      }
+      const data = await response.json();
+      const roomInfo = JSON.parse(atob(data.content));
+
+      // 初始化用户的聊天室存储
+      await initializeUserChatStorage(session.accessToken, session.user.login, roomId, roomInfo);
 
       // 更新联系人列表
-      const updatedContacts = [...contacts, newRoom]
-      setContacts(updatedContacts)
-      updateChatRoomsCache(session.user.login, updatedContacts)
+      const updatedContacts = [...contacts, roomInfo];
+      setContacts(updatedContacts);
 
       // 更新用户配置
       if (userConfig) {
         const updatedConfig = {
           ...userConfig,
           contacts: updatedContacts,
+          settings: {
+            ...userConfig.settings,
+            activeChat: roomId
+          },
           last_updated: new Date().toISOString()
-        }
-        await updateConfig(session.accessToken, session.user.login, updatedConfig)
-        setUserConfig(updatedConfig)
+        };
+        await updateConfig(session.accessToken, session.user.login, updatedConfig);
+        setUserConfig(updatedConfig);
       }
 
       // 切换到新加入的聊天室
-      setActiveChat(roomId)
-      setShowJoinModal(false)
-
-      // 加载聊天记录
-      await loadChatMessages()
+      setActiveChat(roomId);
+      showToast('成功加入聊天室', 'success');
     } catch (error) {
-      console.error('Error joining room:', error)
-      alert('加入聊天室失败，请重试')
+      console.error('Error joining room:', error);
+      showToast('加入聊天室失败', 'error');
     }
-  }
+  };
 
   // 监听聊天室切换
   useEffect(() => {
@@ -1068,23 +1052,6 @@ export default function Home({ username, roomId }) {
       loadChatMessages()
     }
   }, [activeChat, session])
-
-  // 优化消息保存逻辑
-  useEffect(() => {
-    if (!activeChat || !messages.length || !session?.user?.login || !session.accessToken) return
-
-    const timeoutId = setTimeout(async () => {
-      try {
-        console.log('Saving messages for room:', activeChat)
-        await saveChatHistory(session.accessToken, session.user.login, activeChat, messages)
-        updateChatMessagesCache(session.user.login, activeChat, messages)
-      } catch (error) {
-        console.error('Error saving messages:', error)
-      }
-    }, 1000) // 1秒延迟保存
-
-    return () => clearTimeout(timeoutId)
-  }, [messages, activeChat, session])
 
   // 修改退出登录的处理
   const handleSignOut = async () => {
@@ -1143,7 +1110,7 @@ export default function Home({ username, roomId }) {
         id: roomId,
         name: roomData.name,
         description: roomData.description,
-        type: roomData.type || 'room',
+        type: roomData.type || 'public',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         creator: session.user.login,
@@ -1152,16 +1119,23 @@ export default function Home({ username, roomId }) {
           name: session.user.name,
           image: session.user.image
         },
-        members: [{
-          login: session.user.login,
-          name: session.user.name,
-          image: session.user.image,
-          role: 'admin'
-        }],
+        members: [
+          {
+            login: session.user.login,
+            name: session.user.name,
+            image: session.user.image,
+            role: 'admin',
+            joined_at: new Date().toISOString()
+          }
+        ],
         isPrivate: roomData.isPrivate,
         inviteLink: inviteLink,
         lastMessage: null,
-        unread: 0
+        unread: 0,
+        settings: {
+          notifications: true,
+          language: 'zh-CN'
+        }
       }
 
       // 创建聊天室目录结构
@@ -1214,6 +1188,37 @@ export default function Home({ username, roomId }) {
             body: JSON.stringify({
               message: `Create join requests directory for ${roomId}`,
               content: btoa('1')
+            })
+          }
+        )
+
+        // 创建成员列表文件
+        const initialMembers = {
+          total: 1,
+          list: [
+            {
+              login: session.user.login,
+              name: session.user.name,
+              image: session.user.image,
+              role: 'admin',
+              joined_at: new Date().toISOString()
+            }
+          ],
+          updated_at: new Date().toISOString()
+        };
+
+        await fetch(
+          `https://api.github.com/repos/${session.user.login}/dock-chat-data/contents/chats/${timestamp}/members.json`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/vnd.github.v3+json'
+            },
+            body: JSON.stringify({
+              message: `Initialize members for ${roomId}`,
+              content: btoa(JSON.stringify(initialMembers, null, 2))
             })
           }
         )

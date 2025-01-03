@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import JoinRequestsPanel from './JoinRequestsPanel'
 
@@ -17,6 +17,8 @@ export default function ChatRoomSettings({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+  const [membersList, setMembersList] = useState(null);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 
   const isOwner = members.length > 0 && members[0] === session?.user?.login;
 
@@ -82,6 +84,41 @@ export default function ChatRoomSettings({
       showToast('复制链接失败，请手动复制', 'error');
     }
   };
+
+  // 加载成员列表
+  useEffect(() => {
+    const loadMembers = async () => {
+      if (!session?.accessToken || !roomId) return;
+
+      try {
+        setIsLoadingMembers(true);
+        const [owner, timestamp] = roomId.split('@');
+        if (!owner || !timestamp) return;
+
+        const response = await fetch(
+          `https://api.github.com/repos/${owner}/dock-chat-data/contents/chats/${timestamp}/members.json`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.accessToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const members = JSON.parse(atob(data.content));
+          setMembersList(members);
+        }
+      } catch (error) {
+        console.error('Error loading members:', error);
+      } finally {
+        setIsLoadingMembers(false);
+      }
+    };
+
+    loadMembers();
+  }, [session, roomId]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -197,22 +234,43 @@ export default function ChatRoomSettings({
           {activeTab === 'members' && (
             <div className="p-4">
               <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">成员列表</h3>
-              <div className="space-y-3">
-                {members.map((member, index) => (
-                  <div key={member} className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className="ml-3">
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">
-                          {member}
+              {isLoadingMembers ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-500 border-t-transparent"></div>
+                </div>
+              ) : membersList ? (
+                <div className="space-y-3">
+                  <div className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    共 {membersList.total} 位成员
+                  </div>
+                  {membersList.list.map((member, index) => (
+                    <div key={member.login} className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <img
+                          src={member.image}
+                          alt={member.name}
+                          className="w-8 h-8 rounded-full"
+                        />
+                        <div className="ml-3">
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            {member.name}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            @{member.login}
+                          </div>
                         </div>
-                        {index === 0 && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400">管理员</div>
-                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {member.role === 'admin' ? '管理员' : '成员'}
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 dark:text-gray-400 py-4">
+                  无法加载成员列表
+                </div>
+              )}
             </div>
           )}
 

@@ -48,6 +48,28 @@ export async function POST(request) {
       return NextResponse.json({ message: '您已经是该聊天室的成员' }, { status: 200 });
     }
 
+    // 获取成员列表
+    const membersResponse = await fetch(
+      `https://api.github.com/repos/${username}/dock-chat-data/contents/chats/${timestamp}/members.json`,
+      {
+        headers: {
+          'Authorization': `Bearer ${session.accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      }
+    );
+
+    let members = {
+      total: 0,
+      list: [],
+      updated_at: new Date().toISOString()
+    };
+
+    if (membersResponse.ok) {
+      const membersData = await membersResponse.json();
+      members = JSON.parse(atob(membersData.content));
+    }
+
     // 创建加入申请
     const requestId = `jr-${Date.now()}`;
     const joinRequest = {
@@ -150,7 +172,10 @@ export async function POST(request) {
       // 继续执行，因为这不是关键错误
     }
 
-    return NextResponse.json({ message: '已发送加入申请' }, { status: 200 });
+    return NextResponse.json({ 
+      message: '已发送加入申请',
+      members: members.total
+    }, { status: 200 });
   } catch (error) {
     console.error('Error handling join request:', error);
     return NextResponse.json({ error: '处理加入请求时出错' }, { status: 500 });
