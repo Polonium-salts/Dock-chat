@@ -19,6 +19,13 @@ export default function ChatInterface() {
   const [aiNewMessage, setAiNewMessage] = useState('');
   const [aiChats, setAiChats] = useState([]);
   const [currentChatId, setCurrentChatId] = useState(null);
+  const [settings, setSettings] = useState({
+    theme: 'light',
+    messageSound: true,
+    desktopNotifications: false,
+    fontSize: 'medium',
+  });
+  const [activeSettingSection, setActiveSettingSection] = useState('ai');
 
   // Initialize AI chat service
   useEffect(() => {
@@ -36,6 +43,20 @@ export default function ChatInterface() {
   useEffect(() => {
     localStorage.setItem('aiChats', JSON.stringify(aiChats));
   }, [aiChats]);
+
+  // Initialize settings
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('settings');
+    if (savedSettings) {
+      setSettings(JSON.parse(savedSettings));
+    }
+  }, []);
+
+  // Save settings to localStorage
+  const handleSaveSettings = (newSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('settings', JSON.stringify(newSettings));
+  };
 
   // Create a new chat
   const createNewChat = () => {
@@ -266,6 +287,18 @@ export default function ChatInterface() {
               </svg>
             </button>
             <button
+              onClick={() => setActiveTab('ai')}
+              className={`p-2 rounded-lg transition-colors ${
+                activeTab === 'ai'
+                  ? 'bg-purple-50 text-purple-600'
+                  : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </button>
+            <button
               onClick={() => setActiveTab('rss')}
               className={`p-2 rounded-lg transition-colors ${
                 activeTab === 'rss'
@@ -278,15 +311,16 @@ export default function ChatInterface() {
               </svg>
             </button>
             <button
-              onClick={() => setActiveTab('ai')}
+              onClick={() => setActiveTab('settings')}
               className={`p-2 rounded-lg transition-colors ${
-                activeTab === 'ai'
-                  ? 'bg-purple-50 text-purple-600'
+                activeTab === 'settings'
+                  ? 'bg-gray-100 text-gray-900'
                   : 'text-gray-500 hover:bg-gray-100'
               }`}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </button>
           </div>
@@ -306,7 +340,77 @@ export default function ChatInterface() {
       {/* Left Sidebar */}
       <aside className="flex-none w-72 border-r border-gray-200 bg-white">
         <div className="h-full flex flex-col">
-          {activeTab === 'aiconfig' ? (
+          {activeTab === 'settings' ? (
+            <>
+              <div className="p-4 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900">Settings</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setActiveSettingSection('ai')}
+                    className={`w-full p-3 text-left rounded-lg transition-colors ${
+                      activeSettingSection === 'ai'
+                        ? 'bg-purple-50 text-purple-900 border border-purple-200'
+                        : 'hover:bg-gray-50 text-gray-700 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <span>AI Configuration</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setActiveSettingSection('appearance')}
+                    className={`w-full p-3 text-left rounded-lg transition-colors ${
+                      activeSettingSection === 'appearance'
+                        ? 'bg-purple-50 text-purple-900 border border-purple-200'
+                        : 'hover:bg-gray-50 text-gray-700 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                      </svg>
+                      <span>Appearance</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setActiveSettingSection('notifications')}
+                    className={`w-full p-3 text-left rounded-lg transition-colors ${
+                      activeSettingSection === 'notifications'
+                        ? 'bg-purple-50 text-purple-900 border border-purple-200'
+                        : 'hover:bg-gray-50 text-gray-700 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                      <span>Notifications</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setActiveSettingSection('about')}
+                    className={`w-full p-3 text-left rounded-lg transition-colors ${
+                      activeSettingSection === 'about'
+                        ? 'bg-purple-50 text-purple-900 border border-purple-200'
+                        : 'hover:bg-gray-50 text-gray-700 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>About</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : activeTab === 'aiconfig' ? (
             <div className="h-full p-4">
               <AIConfig onSave={handleSaveAiConfig} config={aiConfig} />
             </div>
@@ -336,7 +440,7 @@ export default function ChatInterface() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-4">
                     {aiChats.length === 0 ? (
-                      <div className="text-sm text-gray-500 text-center">No chat history</div>
+                      <div className="text-sm text-gray-600 text-center">No chat history</div>
                     ) : (
                       <div className="space-y-2">
                         {aiChats.map((chat) => (
@@ -348,12 +452,12 @@ export default function ChatInterface() {
                             }}
                             className={`w-full p-3 text-left rounded-lg transition-colors ${
                               currentChatId === chat.id
-                                ? 'bg-purple-50 text-purple-900'
-                                : 'hover:bg-gray-50 text-gray-700'
+                                ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                                : 'hover:bg-gray-50 text-gray-700 border border-transparent'
                             }`}
                           >
                             <div className="text-sm font-medium truncate">{chat.title}</div>
-                            <div className="text-xs text-gray-500 mt-1">
+                            <div className="text-xs text-gray-600 mt-1">
                               {new Date(chat.timestamp).toLocaleDateString()}
                             </div>
                           </button>
@@ -416,20 +520,109 @@ export default function ChatInterface() {
               {activeTab === 'chat' ? 'Chat Room' : 
                activeTab === 'rss' ? 'RSS Reader' :
                activeTab === 'ai' ? 'AI Chat' :
+               activeTab === 'settings' ? 'Settings' :
                'AI Configuration'}
             </h1>
-            {activeTab === 'ai' && (
-              <button
-                onClick={() => setActiveTab('aiconfig')}
-                className="px-4 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-              >
-                Configure AI
-              </button>
-            )}
           </div>
         </header>
 
-        {activeTab === 'chat' ? (
+        {activeTab === 'settings' ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto p-6">
+              <div className="bg-white rounded-lg shadow-sm">
+                {activeSettingSection === 'ai' && (
+                  <div className="p-6 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Configuration</h2>
+                    <AIConfig onSave={handleSaveAiConfig} config={aiConfig} />
+                  </div>
+                )}
+
+                {activeSettingSection === 'appearance' && (
+                  <div className="p-6 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Appearance</h2>
+                    <div className="space-y-4">
+                      {/* Theme Setting */}
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Theme</label>
+                        <select
+                          value={settings.theme}
+                          onChange={(e) => handleSaveSettings({ ...settings, theme: e.target.value })}
+                          className="ml-4 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
+                        >
+                          <option value="light">Light</option>
+                          <option value="dark">Dark</option>
+                          <option value="system">System</option>
+                        </select>
+                      </div>
+
+                      {/* Font Size Setting */}
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Font Size</label>
+                        <select
+                          value={settings.fontSize}
+                          onChange={(e) => handleSaveSettings({ ...settings, fontSize: e.target.value })}
+                          className="ml-4 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
+                        >
+                          <option value="small">Small</option>
+                          <option value="medium">Medium</option>
+                          <option value="large">Large</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingSection === 'notifications' && (
+                  <div className="p-6 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Notifications</h2>
+                    <div className="space-y-4">
+                      {/* Message Sound Setting */}
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Message Sound</label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.messageSound}
+                            onChange={(e) => handleSaveSettings({ ...settings, messageSound: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                        </label>
+                      </div>
+
+                      {/* Desktop Notifications Setting */}
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Desktop Notifications</label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.desktopNotifications}
+                            onChange={(e) => handleSaveSettings({ ...settings, desktopNotifications: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingSection === 'about' && (
+                  <div className="p-6 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">About</h2>
+                    <div className="space-y-4">
+                      <div className="text-sm text-gray-600">
+                        <p>Version: 1.0.0</p>
+                        <p className="mt-2">A modern chat application with AI integration and RSS feed support.</p>
+                        <p className="mt-4">© 2024 DockChat. All rights reserved.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'chat' ? (
           <>
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto p-6 space-y-6">
@@ -501,22 +694,24 @@ export default function ChatInterface() {
                       <img
                         src={message.user.image}
                         alt={message.user.name}
-                        className="w-8 h-8 rounded-full"
+                        className="w-8 h-8 rounded-full border border-gray-200"
                       />
                       <div>
                         <div className={`px-4 py-2 rounded-2xl ${
                           message.user.email === session.user.email
-                            ? 'bg-purple-600 text-white rounded-br-none'
+                            ? 'bg-purple-600 text-white rounded-br-none shadow-sm'
                             : message.user.email === 'ai@system'
-                            ? 'bg-green-50 border border-green-200 text-gray-900 rounded-bl-none'
-                            : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none'
+                            ? 'bg-emerald-50 border border-emerald-200 text-gray-900 rounded-bl-none shadow-sm'
+                            : message.user.email === 'system@system'
+                            ? 'bg-red-50 border border-red-200 text-gray-900 rounded-bl-none shadow-sm'
+                            : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm'
                         }`}>
                           {message.content}
                         </div>
                         <div className={`mt-1 flex items-center space-x-2 ${
                           message.user.email === session.user.email ? 'justify-end' : 'justify-start'
                         }`}>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-600">
                             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
@@ -526,9 +721,9 @@ export default function ChatInterface() {
                 ))}
                 {isAiTyping && (
                   <div className="flex justify-start">
-                    <div className="flex items-center space-x-2 bg-white rounded-lg shadow-sm p-3">
-                      <img src="/ai-avatar.svg" alt="AI" className="w-6 h-6 rounded-full" />
-                      <div className="text-gray-500">AI is typing...</div>
+                    <div className="flex items-center space-x-2 bg-white border border-gray-200 rounded-lg shadow-sm p-3">
+                      <img src="/ai-avatar.svg" alt="AI" className="w-6 h-6 rounded-full border border-gray-200" />
+                      <div className="text-gray-700">AI is typing...</div>
                     </div>
                   </div>
                 )}

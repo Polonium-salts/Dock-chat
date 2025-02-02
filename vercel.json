@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "next.config.js",
+      "use": "@vercel/next"
+    }
+  ],
+  "env": {
+    "NEXTAUTH_URL": "https://your-domain.vercel.app",
+    "NEXTAUTH_SECRET": "@nextauth_secret",
+    "GITHUB_ID": "@github_id",
+    "GITHUB_SECRET": "@github_secret"
+  }
+} 
