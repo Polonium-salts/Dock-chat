@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]/route';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { pusherServer } from '@/app/lib/pusher';
 
+export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function POST(req) {
@@ -35,12 +36,20 @@ export async function POST(req) {
         body: JSON.stringify({
           model: "gpt-3.5-turbo",
           messages: [{ role: "user", content }],
+          temperature: 0.7,
+          max_tokens: 1000,
         }),
-      }).then(res => res.json());
+      });
 
+      if (!aiResponse.ok) {
+        throw new Error(`OpenAI API error: ${aiResponse.statusText}`);
+      }
+
+      const aiData = await aiResponse.json();
+      
       const aiMessage = {
         id: Date.now() + 1,
-        content: aiResponse.choices[0].message.content,
+        content: aiData.choices[0].message.content,
         user: {
           name: 'AI Assistant',
           email: 'ai@example.com',
