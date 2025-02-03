@@ -3,7 +3,17 @@
   "builds": [
     {
       "src": "next.config.js",
-      "use": "@vercel/next"
+      "use": "@vercel/next",
+      "config": {
+        "env": {
+          "PUSHER_APP_ID": "@pusher_app_id",
+          "PUSHER_KEY": "@pusher_key",
+          "PUSHER_SECRET": "@pusher_secret",
+          "PUSHER_CLUSTER": "@pusher_cluster",
+          "NEXT_PUBLIC_PUSHER_KEY": "@pusher_key",
+          "NEXT_PUBLIC_PUSHER_CLUSTER": "@pusher_cluster"
+        }
+      }
     }
   ],
   "env": {
@@ -16,11 +26,5 @@
     "PUSHER_CLUSTER": "@pusher_cluster",
     "NEXT_PUBLIC_PUSHER_KEY": "@pusher_key",
     "NEXT_PUBLIC_PUSHER_CLUSTER": "@pusher_cluster"
-  },
-  "build": {
-    "env": {
-      "NEXT_PUBLIC_PUSHER_KEY": "@pusher_key",
-      "NEXT_PUBLIC_PUSHER_CLUSTER": "@pusher_cluster"
-    }
   }
 } 
