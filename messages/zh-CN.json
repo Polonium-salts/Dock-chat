@@ -4,7 +4,8 @@
     "ai": "AI 配置",
     "appearance": "外观",
     "notifications": "通知",
-    "about": "关于"
+    "about": "关于",
+    "music": "音乐"
   },
   "appearance": {
     "theme": "主题",
@@ -39,5 +40,13 @@
     "title": "RSS 阅读器",
     "addFeed": "添加订阅",
     "enterUrl": "输入 RSS 地址..."
+  },
+  "music": {
+    "title": "音乐播放器",
+    "sourceUrl": "音乐源地址",
+    "enterSourceUrl": "输入落雪音乐源地址...",
+    "save": "保存音源",
+    "currentSource": "当前音源",
+    "noSource": "未配置音乐源"
   }
 } 

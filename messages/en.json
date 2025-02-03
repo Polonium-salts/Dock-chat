@@ -4,7 +4,8 @@
     "ai": "AI Configuration",
     "appearance": "Appearance",
     "notifications": "Notifications",
-    "about": "About"
+    "about": "About",
+    "music": "Music"
   },
   "appearance": {
     "theme": "Theme",
@@ -39,5 +40,13 @@
     "title": "RSS Reader",
     "addFeed": "Add Feed",
     "enterUrl": "Enter RSS URL..."
+  },
+  "music": {
+    "title": "Music Player",
+    "sourceUrl": "Music Source URL",
+    "enterSourceUrl": "Enter Luo Xue Music source URL...",
+    "save": "Save Source",
+    "currentSource": "Current Source",
+    "noSource": "No music source configured"
   }
 } 

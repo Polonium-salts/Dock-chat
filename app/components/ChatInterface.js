@@ -5,6 +5,7 @@ import { useSession, signOut } from 'next-auth/react';
 import Parser from 'rss-parser';
 import { AIChat } from '../services/aiChat';
 import AIConfig from './AIConfig';
+import MusicConfig from './MusicConfig';
 import { useLanguage, useTranslation } from './LanguageProvider';
 
 export default function ChatInterface() {
@@ -414,6 +415,21 @@ export default function ChatInterface() {
                       <span>{translate('settings.about')}</span>
                     </div>
                   </button>
+                  <button
+                    onClick={() => setActiveSettingSection('music')}
+                    className={`w-full p-3 text-left rounded-lg transition-colors ${
+                      activeSettingSection === 'music'
+                        ? 'bg-purple-50 text-purple-900 border border-purple-200'
+                        : 'hover:bg-gray-50 text-gray-700 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                      </svg>
+                      <span>{translate('settings.music')}</span>
+                    </div>
+                  </button>
                 </div>
               </div>
             </>
@@ -637,6 +653,13 @@ export default function ChatInterface() {
                         <p className="mt-4">{translate('settings.copyright')}</p>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {activeSettingSection === 'music' && (
+                  <div className="p-6 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">{translate('settings.music')}</h2>
+                    <MusicConfig />
                   </div>
                 )}
               </div>
