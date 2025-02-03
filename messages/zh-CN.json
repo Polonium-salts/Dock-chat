@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "title": "设置",
+    "ai": "AI 配置",
+    "appearance": "外观",
+    "notifications": "通知",
+    "about": "关于"
+  },
+  "appearance": {
+    "theme": "主题",
+    "language": "语言",
+    "fontSize": "字体大小",
+    "themes": {
+      "light": "浅色",
+      "dark": "深色",
+      "system": "跟随系统"
+    },
+    "fontSizes": {
+      "small": "小",
+      "medium": "中",
+      "large": "大"
+    }
+  },
+  "notifications": {
+    "messageSound": "消息提示音",
+    "desktop": "桌面通知"
+  },
+  "chat": {
+    "title": "聊天室",
+    "newMessage": "输入消息...",
+    "aiTyping": "AI 正在输入..."
+  },
+  "ai": {
+    "title": "AI 聊天",
+    "newChat": "新建聊天",
+    "askAi": "向 AI 提问..."
+  },
+  "rss": {
+    "title": "RSS 阅读器",
+    "addFeed": "添加订阅",
+    "enterUrl": "输入 RSS 地址..."
+  }
+} 
