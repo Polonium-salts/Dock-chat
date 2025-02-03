@@ -7,6 +7,7 @@ import { AIChat } from '../services/aiChat';
 import AIConfig from './AIConfig';
 import MusicConfig from './MusicConfig';
 import { useLanguage, useTranslation } from './LanguageProvider';
+import MusicPlayer from './MusicPlayer';
 
 export default function ChatInterface() {
   const { data: session } = useSession();
@@ -31,6 +32,7 @@ export default function ChatInterface() {
     language: 'en',
   });
   const [activeSettingSection, setActiveSettingSection] = useState('ai');
+  const [currentLyrics, setCurrentLyrics] = useState(null);
 
   // Initialize AI chat service
   useEffect(() => {
@@ -319,6 +321,18 @@ export default function ChatInterface() {
               </svg>
             </button>
             <button
+              onClick={() => setActiveTab('music')}
+              className={`p-2 rounded-lg transition-colors ${
+                activeTab === 'music'
+                  ? 'bg-purple-50 text-purple-600'
+                  : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+              </svg>
+            </button>
+            <button
               onClick={() => setActiveTab('settings')}
               className={`p-2 rounded-lg transition-colors ${
                 activeTab === 'settings'
@@ -425,7 +439,7 @@ export default function ChatInterface() {
                   >
                     <div className="flex items-center space-x-3">
                       <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
                       </svg>
                       <span>{translate('settings.music')}</span>
                     </div>
@@ -442,8 +456,10 @@ export default function ChatInterface() {
               <div className="p-4 border-b border-gray-200">
                 <h2 className="text-lg font-semibold text-gray-900">
                   {activeTab === 'chat' ? translate('chat.title') : 
-                   activeTab === 'rss' ? translate('rss.title') :
-                   translate('ai.title')}
+                   activeTab === 'ai' ? translate('ai.title') :
+                   activeTab === 'music' ? translate('settings.music') :
+                   activeTab === 'settings' ? translate('settings.title') :
+                   translate('settings.ai')}
                 </h2>
               </div>
 
@@ -489,47 +505,23 @@ export default function ChatInterface() {
                     )}
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <form onSubmit={handleAddRssFeed} className="space-y-2">
-                    <input
-                      type="url"
-                      value={rssUrl}
-                      onChange={(e) => setRssUrl(e.target.value)}
-                      placeholder="Enter RSS URL..."
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      type="submit"
-                      className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {translate('rss.addFeed')}
-                    </button>
-                  </form>
-
-                  <div className="space-y-3">
-                    {rssFeeds.map((feed, index) => (
-                      <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                        <h4 className="font-medium text-sm mb-2">{feed.title}</h4>
-                        <ul className="space-y-1">
-                          {feed.items.map((item, itemIndex) => (
-                            <li key={itemIndex}>
-                              <a
-                                href={item.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm text-blue-600 hover:text-blue-800 hover:underline block truncate"
-                              >
-                                {item.title}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
+              ) : activeTab === 'music' ? (
+                <div className="flex-1 flex flex-col">
+                  <div className="flex-1 overflow-y-auto p-4 lyrics-container">
+                    {currentLyrics?.lrc ? (
+                      <pre className="text-sm text-gray-600 whitespace-pre-wrap text-center">
+                        {currentLyrics.lrc}
+                      </pre>
+                    ) : (
+                      <div className="h-full flex items-center justify-center">
+                        <div className="text-sm text-gray-500 text-center">
+                          {translate('music.noTrackPlaying')}
+                        </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -541,8 +533,8 @@ export default function ChatInterface() {
           <div className="h-full px-6 flex items-center justify-between">
             <h1 className="text-xl font-semibold text-gray-900">
               {activeTab === 'chat' ? translate('chat.title') : 
-               activeTab === 'rss' ? translate('rss.title') :
                activeTab === 'ai' ? translate('ai.title') :
+               activeTab === 'music' ? translate('settings.music') :
                activeTab === 'settings' ? translate('settings.title') :
                translate('settings.ai')}
             </h1>
@@ -795,6 +787,21 @@ export default function ChatInterface() {
               </form>
             </div>
           </>
+        ) : activeTab === 'music' ? (
+          <div className="flex-1 relative bg-gray-50">
+            <div className="absolute inset-0">
+              <MusicPlayer onLyricsChange={(lyrics) => {
+                setCurrentLyrics(lyrics);
+                // 确保歌词更新时立即反映在左侧边栏
+                if (lyrics?.lrc) {
+                  const lyricsDiv = document.querySelector('.lyrics-container');
+                  if (lyricsDiv) {
+                    lyricsDiv.scrollTop = 0;
+                  }
+                }
+              }} />
+            </div>
+          </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6">
             <div className="max-w-3xl mx-auto">

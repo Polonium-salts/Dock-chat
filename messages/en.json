@@ -43,10 +43,24 @@
   },
   "music": {
     "title": "Music Player",
-    "sourceUrl": "Music Source URL",
-    "enterSourceUrl": "Enter Luo Xue Music source URL...",
-    "save": "Save Source",
-    "currentSource": "Current Source",
-    "noSource": "No music source configured"
+    "sourceType": "Source Type",
+    "sourceTypeApi": "API Endpoint",
+    "sourceTypeSource": "Source URL",
+    "apiEndpoint": "API Endpoint",
+    "sourceUrl": "Source URL",
+    "enterApiEndpoint": "Enter API endpoint URL...",
+    "enterSourceUrl": "Enter source URL...",
+    "save": "Save Configuration",
+    "currentConfig": "Current Configuration",
+    "noSource": "No music source configured",
+    "noTrackPlaying": "No track playing",
+    "noTracks": "No tracks available",
+    "play": "Play",
+    "pause": "Pause",
+    "next": "Next",
+    "previous": "Previous",
+    "search": "Search",
+    "searching": "Searching...",
+    "searchPlaceholder": "Enter song name or artist..."
   }
 } 

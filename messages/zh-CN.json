@@ -42,11 +42,24 @@
     "enterUrl": "输入 RSS 地址..."
   },
   "music": {
-    "title": "音乐播放器",
+    "sourceType": "音乐源类型",
+    "sourceTypeApi": "API接口",
+    "sourceTypeSource": "直接源",
+    "apiEndpoint": "API接口地址",
     "sourceUrl": "音乐源地址",
-    "enterSourceUrl": "输入落雪音乐源地址...",
-    "save": "保存音源",
-    "currentSource": "当前音源",
-    "noSource": "未配置音乐源"
+    "enterApiEndpoint": "请输入API接口地址",
+    "enterSourceUrl": "请输入音乐源地址",
+    "save": "保存",
+    "currentConfig": "当前配置",
+    "noSource": "请先配置音乐源",
+    "configurationRequired": "请先在设置中配置音乐源",
+    "noTracks": "暂无歌曲",
+    "noTrackPlaying": "暂无播放中的歌曲",
+    "searching": "搜索中...",
+    "search": "搜索",
+    "searchPlaceholder": "输入歌曲名称或歌手...",
+    "pause": "暂停",
+    "next": "下一曲",
+    "previous": "上一曲"
   }
 } 
