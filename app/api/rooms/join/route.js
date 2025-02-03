@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { authOptions } from '@/app/auth/config';
 import { pusherServer } from '@/app/lib/pusher';
-import roomsStore from '@/app/lib/roomsStore';
+
+// 简单的内存存储，在实际应用中应该使用数据库
+const rooms = new Map();
 
 export async function POST(req) {
   try {
@@ -12,7 +14,7 @@ export async function POST(req) {
     }
 
     const { roomId } = await req.json();
-    const room = roomsStore.getRoom(roomId);
+    const room = rooms.get(roomId);
 
     if (!room) {
       return NextResponse.json({ error: 'Room not found' }, { status: 404 });
@@ -21,7 +23,7 @@ export async function POST(req) {
     // 检查用户是否已经在房间中
     if (!room.members.find(member => member.email === session.user.email)) {
       room.members.push(session.user);
-      roomsStore.updateRoom(roomId, room);
+      rooms.set(roomId, room);
 
       // 通知房间其他成员有新用户加入
       await pusherServer.trigger(`room-${roomId}`, 'member-joined', {
