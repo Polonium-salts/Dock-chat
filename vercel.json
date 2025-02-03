@@ -5,5 +5,22 @@
       "src": "next.config.js",
       "use": "@vercel/next"
     }
-  ]
+  ],
+  "env": {
+    "GITHUB_ID": "@github_id",
+    "GITHUB_SECRET": "@github_secret",
+    "NEXTAUTH_SECRET": "@nextauth_secret",
+    "PUSHER_APP_ID": "@pusher_app_id",
+    "PUSHER_KEY": "@pusher_key",
+    "PUSHER_SECRET": "@pusher_secret",
+    "PUSHER_CLUSTER": "@pusher_cluster",
+    "NEXT_PUBLIC_PUSHER_KEY": "@pusher_key",
+    "NEXT_PUBLIC_PUSHER_CLUSTER": "@pusher_cluster"
+  },
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_PUSHER_KEY": "@pusher_key",
+      "NEXT_PUBLIC_PUSHER_CLUSTER": "@pusher_cluster"
+    }
+  }
 } 
