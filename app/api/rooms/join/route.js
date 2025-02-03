@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/auth/config';
+import { authOptions } from '../../auth/[...nextauth]/route';
 import { pusherServer } from '@/app/lib/pusher';
 import roomsStore from '@/app/lib/roomsStore';
 
