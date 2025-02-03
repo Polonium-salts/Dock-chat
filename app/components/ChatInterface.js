@@ -6,7 +6,6 @@ import Parser from 'rss-parser';
 import { AIChat } from '../services/aiChat';
 import AIConfig from './AIConfig';
 import { useLanguage, useTranslation } from './LanguageProvider';
-import { pusherClient } from '../lib/pusher';
 
 export default function ChatInterface() {
   const { data: session } = useSession();
@@ -31,12 +30,6 @@ export default function ChatInterface() {
     language: 'en',
   });
   const [activeSettingSection, setActiveSettingSection] = useState('ai');
-  const [rooms, setRooms] = useState([]);
-  const [currentRoom, setCurrentRoom] = useState(null);
-  const [showCreateRoom, setShowCreateRoom] = useState(false);
-  const [showJoinRoom, setShowJoinRoom] = useState(false);
-  const [newRoomName, setNewRoomName] = useState('');
-  const [roomIdToJoin, setRoomIdToJoin] = useState('');
 
   // Initialize AI chat service
   useEffect(() => {
@@ -85,168 +78,56 @@ export default function ChatInterface() {
     setAiMessages([]);
   };
 
-  // Load rooms
-  useEffect(() => {
-    const loadRooms = async () => {
-      try {
-        const response = await fetch('/api/rooms');
-        if (response.ok) {
-          const data = await response.json();
-          setRooms(data);
-        }
-      } catch (error) {
-        console.error('Error loading rooms:', error);
-      }
-    };
-
-    if (activeTab === 'chat') {
-      loadRooms();
-    }
-  }, [activeTab]);
-
-  // Subscribe to room messages
-  useEffect(() => {
-    if (!currentRoom) return;
-
-    const channel = pusherClient.subscribe(`room-${currentRoom.id}`);
-    
-    channel.bind('new-message', (message) => {
-      if (message.user.email !== session?.user?.email) {
-        setMessages((prev) => [...prev, message]);
-      }
-    });
-
-    channel.bind('member-joined', (data) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          content: `${data.user.name} joined the room`,
-          user: { name: 'System', email: 'system@system', image: '/system-avatar.png' },
-          timestamp: data.timestamp,
-        },
-      ]);
-    });
-
-    return () => {
-      pusherClient.unsubscribe(`room-${currentRoom.id}`);
-    };
-  }, [currentRoom, session]);
-
-  const handleCreateRoom = async (e) => {
-    e.preventDefault();
-    if (!newRoomName.trim()) return;
-
-    try {
-      const response = await fetch('/api/rooms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newRoomName }),
-      });
-
-      if (response.ok) {
-        const room = await response.json();
-        setRooms((prev) => [...prev, room]);
-        setCurrentRoom(room);
-        setShowCreateRoom(false);
-        setNewRoomName('');
-        setMessages([]);
-      }
-    } catch (error) {
-      console.error('Error creating room:', error);
-    }
-  };
-
-  const handleJoinRoom = async (e) => {
-    e.preventDefault();
-    if (!roomIdToJoin.trim()) return;
-
-    try {
-      const response = await fetch('/api/rooms/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId: roomIdToJoin }),
-      });
-
-      if (response.ok) {
-        const room = await response.json();
-        if (!rooms.find(r => r.id === room.id)) {
-          setRooms((prev) => [...prev, room]);
-        }
-        setCurrentRoom(room);
-        setShowJoinRoom(false);
-        setRoomIdToJoin('');
-        setMessages([]);
-      }
-    } catch (error) {
-      console.error('Error joining room:', error);
-    }
-  };
-
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !currentRoom) return;
+    if (!newMessage.trim()) return;
 
     const userMessage = {
+      id: Date.now(),
       content: newMessage,
-      roomId: currentRoom.id,
+      user: session.user,
+      timestamp: new Date().toISOString(),
     };
 
-    try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userMessage),
-      });
+    setMessages((prev) => [...prev, userMessage]);
+    setNewMessage('');
 
-      if (!response.ok) {
-        throw new Error('Failed to send message');
+    // If AI is configured, get AI response
+    if (aiConfig && (aiConfig.deepseek.enabled || aiConfig.kimi.enabled)) {
+      setIsAiTyping(true);
+      try {
+        const aiChatService = new AIChat(aiConfig);
+        const aiResponse = await aiChatService.chat(newMessage);
+        
+        const aiMessage = {
+          id: Date.now() + 1,
+          content: aiResponse.content,
+          user: {
+            name: `AI (${aiResponse.source})`,
+            image: '/ai-avatar.png', // Add a default AI avatar image
+            email: 'ai@system',
+          },
+          timestamp: new Date().toISOString(),
+        };
+
+        setMessages((prev) => [...prev, aiMessage]);
+      } catch (error) {
+        console.error('AI chat error:', error);
+        // Show error message to user
+        const errorMessage = {
+          id: Date.now() + 1,
+          content: `AI Error: ${error.message}`,
+          user: {
+            name: 'System',
+            image: '/system-avatar.png', // Add a default system avatar image
+            email: 'system@system',
+          },
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      } finally {
+        setIsAiTyping(false);
       }
-
-      const message = await response.json();
-      setMessages((prev) => [...prev, message]);
-      setNewMessage('');
-
-      // If AI is configured, get AI response
-      if (aiConfig && (aiConfig.deepseek.enabled || aiConfig.kimi.enabled)) {
-        setIsAiTyping(true);
-        try {
-          const aiChatService = new AIChat(aiConfig);
-          const aiResponse = await aiChatService.chat(newMessage);
-          
-          const aiMessage = {
-            id: Date.now() + 1,
-            content: aiResponse.content,
-            user: {
-              name: `AI (${aiResponse.source})`,
-              image: '/ai-avatar.png',
-              email: 'ai@system',
-            },
-            timestamp: new Date().toISOString(),
-          };
-
-          setMessages((prev) => [...prev, aiMessage]);
-        } catch (error) {
-          console.error('AI chat error:', error);
-          const errorMessage = {
-            id: Date.now() + 1,
-            content: `AI Error: ${error.message}`,
-            user: {
-              name: 'System',
-              image: '/system-avatar.png',
-              email: 'system@system',
-            },
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, errorMessage]);
-        } finally {
-          setIsAiTyping(false);
-        }
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
     }
   };
 
@@ -466,115 +347,7 @@ export default function ChatInterface() {
       {/* Left Sidebar */}
       <aside className="flex-none w-72 border-r border-gray-200 bg-white">
         <div className="h-full flex flex-col">
-          {activeTab === 'chat' ? (
-            <>
-              <div className="p-4 border-b border-gray-200">
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setShowCreateRoom(true)}
-                    className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-                  >
-                    Create Room
-                  </button>
-                  <button
-                    onClick={() => setShowJoinRoom(true)}
-                    className="w-full px-4 py-2 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50"
-                  >
-                    Join Room
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                <div className="space-y-2">
-                  {rooms.map((room) => (
-                    <button
-                      key={room.id}
-                      onClick={() => {
-                        setCurrentRoom(room);
-                        setMessages([]);
-                      }}
-                      className={`w-full p-3 text-left rounded-lg transition-colors ${
-                        currentRoom?.id === room.id
-                          ? 'bg-blue-50 text-blue-900 border border-blue-200'
-                          : 'hover:bg-gray-50 text-gray-700 border border-transparent'
-                      }`}
-                    >
-                      <div className="font-medium">{room.name}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {room.members.length} members
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Create Room Modal */}
-              {showCreateRoom && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                  <div className="bg-white rounded-lg p-6 w-96">
-                    <h3 className="text-lg font-semibold mb-4">Create New Room</h3>
-                    <form onSubmit={handleCreateRoom}>
-                      <input
-                        type="text"
-                        value={newRoomName}
-                        onChange={(e) => setNewRoomName(e.target.value)}
-                        placeholder="Room Name"
-                        className="w-full px-3 py-2 border rounded-lg mb-4"
-                      />
-                      <div className="flex justify-end space-x-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowCreateRoom(false)}
-                          className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                        >
-                          Create
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {/* Join Room Modal */}
-              {showJoinRoom && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                  <div className="bg-white rounded-lg p-6 w-96">
-                    <h3 className="text-lg font-semibold mb-4">Join Room</h3>
-                    <form onSubmit={handleJoinRoom}>
-                      <input
-                        type="text"
-                        value={roomIdToJoin}
-                        onChange={(e) => setRoomIdToJoin(e.target.value)}
-                        placeholder="Room ID"
-                        className="w-full px-3 py-2 border rounded-lg mb-4"
-                      />
-                      <div className="flex justify-end space-x-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowJoinRoom(false)}
-                          className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                        >
-                          Join
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : activeTab === 'settings' ? (
+          {activeTab === 'settings' ? (
             <>
               <div className="p-4 border-b border-gray-200">
                 <h2 className="text-lg font-semibold text-gray-900">{translate('settings.title')}</h2>
@@ -750,16 +523,13 @@ export default function ChatInterface() {
       <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
         <header className="flex-none h-16 bg-white border-b border-gray-200">
           <div className="h-full px-6 flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">
-                {currentRoom ? currentRoom.name : 'Select a Room'}
-              </h1>
-              {currentRoom && (
-                <p className="text-sm text-gray-500">
-                  {currentRoom.members.length} members
-                </p>
-              )}
-            </div>
+            <h1 className="text-xl font-semibold text-gray-900">
+              {activeTab === 'chat' ? translate('chat.title') : 
+               activeTab === 'rss' ? translate('rss.title') :
+               activeTab === 'ai' ? translate('ai.title') :
+               activeTab === 'settings' ? translate('settings.title') :
+               translate('settings.ai')}
+            </h1>
           </div>
         </header>
 
