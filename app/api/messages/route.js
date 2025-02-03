@@ -2,12 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { pusherServer } from '@/app/lib/pusher';
-import { Configuration, OpenAIApi } from 'openai';
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(configuration);
+export const runtime = 'nodejs';
 
 export async function POST(req) {
   try {
@@ -25,19 +21,26 @@ export async function POST(req) {
       timestamp: new Date().toISOString(),
     };
 
-    // 发送消息到特定房间
+    // Send message to specific room
     await pusherServer.trigger(`room-${roomId}`, 'new-message', message);
 
     // AI response
     try {
-      const completion = await openai.createChatCompletion({
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content }],
-      });
+      const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [{ role: "user", content }],
+        }),
+      }).then(res => res.json());
 
-      const aiResponse = {
+      const aiMessage = {
         id: Date.now() + 1,
-        content: completion.data.choices[0].message.content,
+        content: aiResponse.choices[0].message.content,
         user: {
           name: 'AI Assistant',
           email: 'ai@example.com',
@@ -47,8 +50,8 @@ export async function POST(req) {
         timestamp: new Date().toISOString(),
       };
 
-      await pusherServer.trigger(`room-${roomId}`, 'new-message', aiResponse);
-      return NextResponse.json([message, aiResponse]);
+      await pusherServer.trigger(`room-${roomId}`, 'new-message', aiMessage);
+      return NextResponse.json([message, aiMessage]);
     } catch (error) {
       console.error('Error getting AI response:', error);
       return NextResponse.json([message]);
