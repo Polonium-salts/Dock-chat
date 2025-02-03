@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { getToken } from 'next-auth/jwt';
 import { pusherServer } from '@/app/lib/pusher';
 
 export const dynamic = 'force-dynamic';
@@ -8,8 +7,8 @@ export const runtime = 'nodejs';
 
 export async function POST(req) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
+    const token = await getToken({ req });
+    if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -17,7 +16,11 @@ export async function POST(req) {
     const message = {
       id: Date.now(),
       content,
-      user: session.user,
+      user: {
+        name: token.name,
+        email: token.email,
+        image: token.picture,
+      },
       roomId,
       timestamp: new Date().toISOString(),
     };
