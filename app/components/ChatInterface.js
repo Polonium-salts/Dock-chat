@@ -40,8 +40,6 @@ export default function ChatInterface() {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('articles');
   const [feedCategory, setFeedCategory] = useState('articles');
-  const [selectedArticle, setSelectedArticle] = useState(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Initialize AI chat service
   useEffect(() => {
@@ -697,104 +695,174 @@ export default function ChatInterface() {
                   </div>
                 </div>
               ) : activeTab === 'rss' ? (
-                <div className="flex-1 overflow-hidden flex">
-                  {/* RSS Feed List */}
-                  <div className="flex-1 overflow-y-auto p-6">
-                    <div className="max-w-3xl mx-auto">
-                      {rssFeeds.length === 0 ? (
-                        <div className="text-center text-gray-500">
-                          <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 5c7.18 0 13 5.82 13 13M6 11a7 7 0 017 7m-6 0a1 1 0 11-2 0 1 1 0 012 0z" />
-                          </svg>
-                          <p>{translate('rss.noFeeds')}</p>
-                          <p className="text-sm mt-2">{translate('rss.addFeedDescription')}</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-6">
-                          {rssFeeds.map((feed, index) => (
-                            <div key={index} className="bg-white rounded-lg shadow-sm p-6">
-                              <h3 className="text-lg font-semibold text-gray-900 mb-4">{feed.title}</h3>
-                              <div className="space-y-4">
-                                {feed.items.map((item, itemIndex) => (
-                                  <div
-                                    key={itemIndex}
-                                    className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-                                    onClick={() => {
-                                      setSelectedArticle({
-                                        title: item.title,
-                                        content: item.content || item['content:encoded'] || item.description || item.contentSnippet,
-                                        link: item.link,
-                                        date: item.date,
-                                        feedTitle: feed.title
-                                      });
-                                      setIsPreviewOpen(true);
-                                    }}
-                                  >
-                                    <h4 className="text-base font-medium text-gray-900">{item.title}</h4>
-                                    {item.contentSnippet && (
-                                      <p className="mt-1 text-sm text-gray-600 line-clamp-2">{item.contentSnippet}</p>
-                                    )}
-                                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-                                      <span>{new Date(item.date).toLocaleDateString()}</span>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          window.open(item.link, '_blank');
-                                        }}
-                                        className="px-2 py-1 text-blue-600 hover:bg-blue-50 rounded"
-                                      >
-                                        {translate('rss.openOriginal')}
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                <div className="flex-1 flex flex-col">
+                  <div className="p-4 border-b border-gray-200">
+                    <div className="flex items-center space-x-4">
+                      <button
+                        onClick={() => setSelectedCategory('articles')}
+                        className={`p-2 rounded-lg transition-colors ${
+                          selectedCategory === 'articles'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title={translate('rss.categories.articles')}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2.5 2.5 0 00-2.5-2.5H14" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setSelectedCategory('social')}
+                        className={`p-2 rounded-lg transition-colors ${
+                          selectedCategory === 'social'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title={translate('rss.categories.social')}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setSelectedCategory('images')}
+                        className={`p-2 rounded-lg transition-colors ${
+                          selectedCategory === 'images'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title={translate('rss.categories.images')}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setSelectedCategory('videos')}
+                        className={`p-2 rounded-lg transition-colors ${
+                          selectedCategory === 'videos'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title={translate('rss.categories.videos')}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setSelectedCategory('audio')}
+                        className={`p-2 rounded-lg transition-colors ${
+                          selectedCategory === 'audio'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title={translate('rss.categories.audio')}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                        </svg>
+                      </button>
                     </div>
                   </div>
-
-                  {/* Article Preview Sidebar */}
-                  {isPreviewOpen && selectedArticle && (
-                    <div className="w-1/2 border-l border-gray-200 bg-white overflow-hidden flex flex-col">
-                      <div className="flex-none p-4 border-b border-gray-200 bg-white">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h2 className="text-lg font-semibold text-gray-900">{selectedArticle.title}</h2>
-                            <p className="text-sm text-gray-500 mt-1">
-                              {selectedArticle.feedTitle} · {new Date(selectedArticle.date).toLocaleDateString()}
-                            </p>
+                  <div className="flex-1 overflow-y-auto p-4">
+                    {/* RSS Feed List */}
+                    <div className="space-y-4">
+                      {rssFeeds
+                        .filter(feed => selectedCategory === feed.category)
+                        .map((feed) => (
+                          <div
+                            key={feed.id}
+                            className="p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center space-x-2">
+                                <h3 className="font-medium text-gray-900 truncate">{feed.title}</h3>
+                                <span className="px-2 py-0.5 text-xs font-medium text-blue-800 bg-blue-100 rounded-full">
+                                  {translate(`rss.categories.${feed.category}`)}
+                                </span>
+                              </div>
+                              <div className="flex items-center space-x-1">
+                                <button
+                                  onClick={() => handleRefreshFeed(feed)}
+                                  className="p-1 text-gray-400 hover:text-blue-600 rounded-full transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => handleRemoveFeed(feed.id)}
+                                  className="p-1 text-gray-400 hover:text-red-600 rounded-full transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                            {feed.description && (
+                              <p className="text-xs text-gray-500 truncate">{feed.description}</p>
+                            )}
+                            <div className="mt-2 text-xs text-gray-400">
+                              {feed.items.length} {translate('rss.articles')}
+                            </div>
                           </div>
-                          <button
-                            onClick={() => setIsPreviewOpen(false)}
-                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                        <div className="mt-4 flex items-center space-x-4">
-                          <a
-                            href={selectedArticle.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                          >
-                            {translate('rss.readOriginal')}
-                          </a>
-                        </div>
-                      </div>
-                      <div className="flex-1 overflow-y-auto p-6">
-                        <div 
-                          className="prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{ __html: selectedArticle.content }}
-                        />
-                      </div>
+                        ))}
                     </div>
-                  )}
+
+                    {/* Add Feed Form */}
+                    <div className="mt-4">
+                  <form onSubmit={handleAddRssFeed} className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                    <input
+                      type="url"
+                      value={rssUrl}
+                      onChange={(e) => setRssUrl(e.target.value)}
+                            placeholder={translate('rss.enterUrl')}
+                            className="flex-1 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="submit"
+                            disabled={isLoadingFeed}
+                            className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
+                          >
+                            {isLoadingFeed ? (
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                              </svg>
+                            )}
+                    </button>
+                        </div>
+                        {rssError && (
+                          <div className="px-3 py-2 text-sm text-red-600 bg-red-50 rounded-lg">
+                            {rssError}
+                          </div>
+                        )}
+                  </form>
+
+                      {/* Discovered Feeds */}
+                      {discoveredFeeds.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <h4 className="text-sm font-medium text-gray-700">{translate('rss.discoveredFeeds')}</h4>
+                          <div className="space-y-2">
+                            {discoveredFeeds.map((feed, index) => (
+                              <button
+                                key={index}
+                                onClick={() => handleSelectDiscoveredFeed(feed)}
+                                className="w-full p-2 text-left bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                              >
+                                <div className="text-sm font-medium text-gray-900">{feed.title}</div>
+                                <div className="text-xs text-gray-500 truncate">{feed.url}</div>
+                              </button>
+                            ))}
+                  </div>
+                </div>
+              )}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </>
