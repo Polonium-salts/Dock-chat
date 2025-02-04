@@ -34,7 +34,10 @@
   "ai": {
     "title": "AI 聊天",
     "newChat": "新建聊天",
-    "askAi": "向 AI 提问..."
+    "askAi": "向 AI 提问...",
+    "deleteChat": "删除聊天",
+    "confirmDelete": "确定要删除这个聊天吗？",
+    "typing": "AI 正在输入..."
   },
   "rss": {
     "title": "RSS 阅读器",
