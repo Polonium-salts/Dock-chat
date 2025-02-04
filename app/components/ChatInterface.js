@@ -40,6 +40,7 @@ export default function ChatInterface() {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('articles');
   const [feedCategory, setFeedCategory] = useState('articles');
+  const [selectedImage, setSelectedImage] = useState(null);
 
   // Initialize AI chat service
   useEffect(() => {
@@ -159,59 +160,162 @@ export default function ChatInterface() {
     localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
   }, [rssFeeds]);
 
+  // 添加内容类型检测函数
+  const detectContentTypes = (item) => {
+    const content = item.content || item['content:encoded'] || item.description || '';
+    const title = item.title || '';
+    const contentLower = content.toLowerCase();
+    const titleLower = title.toLowerCase();
+
+    const types = new Set();
+
+    // 检测图片
+    if (/<img[^>]+src=["'][^"']+["'][^>]*>/i.test(content)) {
+      types.add('image');
+    }
+
+    // 检测视频
+    if (
+      /<video[^>]*>|<iframe[^>]*(youtube|vimeo|bilibili|youku)[^>]*>/i.test(content) ||
+      /(youtube.com|vimeo.com|bilibili.com|youku.com)/i.test(contentLower) ||
+      /\.(mp4|webm|ogg)(\?|$)/i.test(contentLower)
+    ) {
+      types.add('video');
+    }
+
+    // 检测音频
+    if (
+      /<audio[^>]*>|<iframe[^>]*(spotify|soundcloud)[^>]*>/i.test(content) ||
+      /(spotify.com|soundcloud.com)/i.test(contentLower) ||
+      /\.(mp3|wav|ogg)(\?|$)/i.test(contentLower) ||
+      /podcast|音乐|music|song|track/i.test(titleLower)
+    ) {
+      types.add('audio');
+    }
+
+    // 检测社交媒体
+    if (
+      /(twitter.com|facebook.com|instagram.com|weibo.com|linkedin.com)/i.test(contentLower) ||
+      /@[\w\d]+/i.test(content) ||
+      /#[\w\d]+/i.test(content)
+    ) {
+      types.add('social');
+    }
+
+    // 如果内容超过200字且没有其他类型，则归类为文章
+    const textContent = content.replace(/<[^>]+>/g, '').trim();
+    if (textContent.length > 200 || types.size === 0) {
+      types.add('article');
+    }
+
+    return Array.from(types);
+  };
+
+  // 修改提取图片URL的函数
+  const extractImageUrls = (content) => {
+    if (!content) return [];
+
+    const urls = [];
+    
+    // 提取所有 <img> 标签的 src 属性
+    const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/ig;
+    let match;
+    
+    while ((match = imgRegex.exec(content)) !== null) {
+      const imgUrl = match[1];
+      // 验证URL是否有效
+      if (imgUrl.startsWith('http') || imgUrl.startsWith('https')) {
+        urls.push(imgUrl);
+      }
+    }
+
+    // 提取内容中的直接图片链接
+    const urlRegex = /(https?:\/\/[^"\s<>]+\.(?:jpg|jpeg|png|gif|webp))(?:\?[^"\s<>]*)?/ig;
+    while ((match = urlRegex.exec(content)) !== null) {
+      if (!urls.includes(match[1])) {
+        urls.push(match[1]);
+      }
+    }
+
+    return urls;
+  };
+
+  // 修改RSS处理函数
+  const processRssFeed = (feedData) => {
+    const processedItems = feedData.items.map(item => {
+      const contentTypes = detectContentTypes(item);
+      const content = item.content || item['content:encoded'] || item.description || '';
+      const imageUrls = extractImageUrls(content);
+      
+      return {
+        id: item.guid || item.link || Date.now().toString(),
+        title: item.title || 'Untitled Item',
+        link: item.link || '',
+        date: item.pubDate || item.isoDate || new Date().toISOString(),
+        content: content,
+        contentSnippet: item.contentSnippet || item.description || '',
+        imageUrls: imageUrls,
+        contentTypes: contentTypes,
+      };
+    });
+
+    // 统计各种类型的内容数量
+    const typeCounts = processedItems.reduce((acc, item) => {
+      item.contentTypes.forEach(type => {
+        acc[type] = (acc[type] || 0) + 1;
+      });
+      return acc;
+    }, {});
+
+    return {
+      items: processedItems,
+      primaryType: Object.entries(typeCounts).sort(([,a], [,b]) => b - a)[0][0],
+      typeCounts: typeCounts
+    };
+  };
+
+  // 修改添加RSS源的函数
   const handleAddRssFeed = async (e) => {
     e.preventDefault();
-    if (!rssUrl.trim()) {
-      return;
-    }
+    if (!rssUrl.trim() || isLoadingFeed) return;
 
     setIsLoadingFeed(true);
     setRssError(null);
-    setDiscoveredFeeds([]);
 
     try {
-      // 规范化 URL
-      let normalizedUrl = rssUrl;
-      if (!normalizedUrl.startsWith('http')) {
-        normalizedUrl = 'https://' + normalizedUrl;
-      }
-
-      // 首先尝试通过后端 API 获取 feed
+      // 调用发现服务
       const response = await fetch('/api/rss/discover', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: normalizedUrl }),
-        credentials: 'same-origin'
+        body: JSON.stringify({ url: rssUrl }),
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to discover RSS feeds');
+        throw new Error('Failed to fetch RSS feed');
       }
 
       const data = await response.json();
-
-      if (!data.feeds || data.feeds.length === 0) {
-        throw new Error(translate('rss.noFeedsFound'));
-      }
-
-      // 检查是否已存在相同的订阅源
-      if (rssFeeds.some(f => data.feeds.some(newFeed => newFeed.url === f.url))) {
-        throw new Error(translate('rss.feedExists'));
-      }
-
-      // 添加第一个发现的订阅源
-      const firstFeed = data.feeds[0];
       
-      // 通过后端代理获取 feed 内容
+      // 处理发现服务返回的数据结构
+      const feedData = data.feeds && data.feeds.length > 0 ? data.feeds[0] : data;
+      
+      // 检查是否已经存在相同的订阅
+      const isExisting = rssFeeds.some(feed => feed.url === feedData.url);
+      if (isExisting) {
+        setRssError(translate('rss.alreadySubscribed'));
+        setIsLoadingFeed(false);
+        return;
+      }
+
+      // 获取完整的feed内容
       const feedResponse = await fetch('/api/rss/fetch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: firstFeed.url }),
+        body: JSON.stringify({ url: feedData.url || rssUrl }),
         credentials: 'same-origin'
       });
 
@@ -219,32 +323,80 @@ export default function ChatInterface() {
         throw new Error('Failed to fetch feed content');
       }
 
-      const feedData = await feedResponse.json();
+      const fullFeedData = await feedResponse.json();
       
-      setRssFeeds(prev => [...prev, {
+      // 确保feed数据有效
+      if (!fullFeedData || !Array.isArray(fullFeedData.items)) {
+        throw new Error('Invalid RSS feed format');
+      }
+
+      // 处理RSS内容
+      const processedFeed = processRssFeed(fullFeedData);
+      
+      const newFeed = {
         id: Date.now(),
-        title: feedData.title || firstFeed.title || 'RSS Feed',
-        description: feedData.description || '',
-        url: firstFeed.url,
-        category: 'articles',
-        items: (feedData.items || []).map(item => ({
-          id: item.guid || item.link || Date.now().toString(),
-          title: item.title,
-          link: item.link,
-          date: item.pubDate || item.isoDate,
-          content: item.contentSnippet || item.content || item['content:encoded'] || item.description || '',
-        })).slice(0, 10)
-      }]);
+        url: feedData.url || rssUrl,
+        title: fullFeedData.title || feedData.title || 'Untitled Feed',
+        description: fullFeedData.description || feedData.description || '',
+        primaryType: processedFeed.primaryType,
+        typeCounts: processedFeed.typeCounts,
+        items: processedFeed.items,
+      };
 
+      setRssFeeds(prev => [...prev, newFeed]);
       setRssUrl('');
-      setDiscoveredFeeds(data.feeds.slice(1));
-
+      setDiscoveredFeeds(data.feeds ? data.feeds.slice(1) : []);
+      
+      // 保存到本地存储
+      const updatedFeeds = [...rssFeeds, newFeed];
+      localStorage.setItem('rssFeeds', JSON.stringify(updatedFeeds));
+      
     } catch (error) {
-      console.error('Error handling RSS feed:', error);
-      setRssError(error.message || 'Failed to add RSS feed');
+      console.error('Error adding RSS feed:', error);
+      setRssError(error.message || translate('rss.fetchError'));
     } finally {
       setIsLoadingFeed(false);
     }
+  };
+
+  // 修改检测图片RSS源的函数
+  const checkIfImageFeed = (feed) => {
+    if (!feed || !feed.items || feed.items.length === 0) return false;
+
+    // 检查前5个项目（或所有项目如果少于5个）
+    const itemsToCheck = feed.items.slice(0, Math.min(5, feed.items.length));
+    let imageCount = 0;
+    let totalCount = 0;
+
+    for (const item of itemsToCheck) {
+      const content = item.content || item['content:encoded'] || item.description || '';
+      
+      // 跳过空内容
+      if (!content.trim()) continue;
+      
+      totalCount++;
+      
+      // 检查内容中是否包含 <img> 标签
+      const imgTags = content.match(/<img[^>]+src=["'][^"']+["'][^>]*>/ig);
+      if (imgTags && imgTags.length > 0) {
+        // 检查内容是否主要由图片组成
+        const textContent = content
+          .replace(/<img[^>]+>/g, '') // 移除所有img标签
+          .replace(/<[^>]+>/g, '') // 移除其他HTML标签
+          .trim();
+        
+        // 如果移除图片标签后的文本内容很少（少于100个字符），则认为这是一个图片项
+        if (textContent.length < 100) {
+          imageCount++;
+        }
+      }
+    }
+
+    // 如果没有有效内容，返回false
+    if (totalCount === 0) return false;
+    
+    // 如果超过80%的内容都是以图片为主的，才认为是图片RSS
+    return (imageCount / totalCount) >= 0.8;
   };
 
   const handleSelectDiscoveredFeed = async (feed) => {
@@ -270,20 +422,30 @@ export default function ChatInterface() {
       }
 
       const feedData = await feedResponse.json();
+
+      // 检测是否为图片RSS源
+      const isImageFeed = checkIfImageFeed(feedData);
       
       setRssFeeds(prev => [...prev, {
         id: Date.now(),
         title: feedData.title || feed.title || 'RSS Feed',
         description: feedData.description || '',
         url: feed.url,
-        category: 'articles',
+        primaryType: isImageFeed ? 'image' : 'article',
+        typeCounts: {
+          image: isImageFeed ? 1 : 0,
+          article: 1
+        },
         items: (feedData.items || []).map(item => ({
           id: item.guid || item.link || Date.now().toString(),
-          title: item.title,
-          link: item.link,
-          date: item.pubDate || item.isoDate,
-          content: item.contentSnippet || item.content || item['content:encoded'] || item.description || '',
-        })).slice(0, 10)
+          title: item.title || 'Untitled Item',
+          link: item.link || '',
+          date: item.pubDate || item.isoDate || new Date().toISOString(),
+          content: item.content || item['content:encoded'] || item.description || '',
+          contentSnippet: item.contentSnippet || item.description || '',
+          imageUrls: extractImageUrls(item.content || item['content:encoded'] || item.description || ''),
+          contentTypes: detectContentTypes(item),
+        }))
       }]);
 
       setRssUrl('');
@@ -438,6 +600,470 @@ export default function ChatInterface() {
         return chat;
       }));
     }
+  };
+
+  // 更新预览组件
+  const FeedPreview = ({ feed, initialType }) => {
+    const [activeType, setActiveType] = useState(initialType || feed.primaryType);
+    const [showPreview, setShowPreview] = useState(false);
+    const [previewContent, setPreviewContent] = useState(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [loadedImages, setLoadedImages] = useState(new Set());
+    const imagesPerPage = 12;
+
+    const handlePreview = (content, type) => {
+      setPreviewContent({ ...content, type });
+      setShowPreview(true);
+    };
+
+    const handleImageLoad = (imgUrl) => {
+      setLoadedImages(prev => new Set([...prev, imgUrl]));
+    };
+
+    const renderPreviewContent = () => {
+      if (!previewContent) return null;
+
+      switch (previewContent.type) {
+        case 'image':
+          return (
+            <div className="p-4 bg-white rounded-lg">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{previewContent.title}</h3>
+              <img
+                src={previewContent.url}
+                alt={previewContent.title}
+                className="max-w-full max-h-[80vh] object-contain rounded-lg mx-auto"
+              />
+            </div>
+          );
+        case 'article':
+          return (
+            <div className="p-6 bg-white rounded-lg max-h-[90vh] overflow-y-auto">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">{previewContent.title}</h2>
+              <div 
+                className="prose prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: previewContent.content }}
+              />
+            </div>
+          );
+        case 'video':
+          return (
+            <div className="bg-white rounded-lg overflow-hidden">
+              <div className="aspect-video">
+                {previewContent.url ? (
+                  <iframe
+                    src={previewContent.url}
+                    className="w-full h-full"
+                    allowFullScreen
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gray-900 text-white">
+                    Video not available
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        default:
+          return null;
+      }
+    };
+
+    // 计算总图片数和总页数
+    const calculateImageStats = () => {
+      let totalImages = 0;
+      const allImages = [];
+
+      filteredItems.forEach(item => {
+        if (item.imageUrls) {
+          totalImages += item.imageUrls.length;
+          allImages.push(...item.imageUrls.map(url => ({
+            url,
+            title: item.title,
+            date: item.date
+          })));
+        }
+      });
+
+      return {
+        totalImages,
+        totalPages: Math.ceil(totalImages / imagesPerPage),
+        allImages
+      };
+    };
+
+    const typeLabels = {
+      article: '文章',
+      image: '图片',
+      video: '视频',
+      audio: '音频',
+      social: '社交'
+    };
+
+    const filteredItems = feed.items.filter(item => 
+      item.contentTypes.includes(activeType)
+    );
+
+    const { totalPages, allImages } = calculateImageStats();
+    const currentImages = allImages.slice((currentPage - 1) * imagesPerPage, currentPage * imagesPerPage);
+
+    // 处理页面切换
+    const handlePageChange = (newPage) => {
+      setCurrentPage(newPage);
+      setLoadedImages(new Set());
+      // 预加载下一页的图片
+      if (newPage < totalPages) {
+        const nextPageImages = allImages.slice(newPage * imagesPerPage, (newPage + 1) * imagesPerPage);
+        nextPageImages.forEach(img => {
+          const image = new Image();
+          image.src = img.url;
+        });
+      }
+    };
+
+    return (
+      <div className="w-full">
+        {/* 内容类型切换器 */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {Object.entries(feed.typeCounts).map(([type, count]) => (
+            <button
+              key={type}
+              onClick={() => {
+                setActiveType(type);
+                setCurrentPage(1);
+                setLoadedImages(new Set());
+              }}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center space-x-1 ${
+                activeType === type
+                  ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-transparent'
+              }`}
+            >
+              <span>{typeLabels[type]}</span>
+              <span className="px-1.5 py-0.5 text-xs rounded-full bg-white text-gray-600">
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* 内容显示区域 */}
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          {activeType === 'image' ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {currentImages.map((image, index) => (
+                  <div
+                    key={index}
+                    className="relative aspect-square cursor-pointer group"
+                    onClick={() => handlePreview({ url: image.url, title: image.title }, 'image')}
+                  >
+                    <div className="absolute inset-0 bg-gray-100 rounded-lg overflow-hidden">
+                      {!loadedImages.has(image.url) && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                        </div>
+                      )}
+                      <img
+                        src={image.url}
+                        alt={image.title}
+                        className={`w-full h-full object-cover transition-transform duration-200 group-hover:scale-105 ${
+                          loadedImages.has(image.url) ? 'opacity-100' : 'opacity-0'
+                        }`}
+                        loading="lazy"
+                        onLoad={() => handleImageLoad(image.url)}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <div className="absolute bottom-0 left-0 right-0 p-3">
+                          <h4 className="text-sm font-medium text-white line-clamp-2">
+                            {image.title}
+                          </h4>
+                          <p className="text-xs text-gray-300 mt-1">
+                            {new Date(image.date).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 分页控制 */}
+              {totalPages > 1 && (
+                <div className="mt-6 flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className={`p-2 rounded-lg transition-colors ${
+                      currentPage === 1
+                        ? 'text-gray-400 cursor-not-allowed'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className={`p-2 rounded-lg transition-colors ${
+                      currentPage === totalPages
+                        ? 'text-gray-400 cursor-not-allowed'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-4">
+              {filteredItems.map((item, index) => (
+                <div
+                  key={index}
+                  className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                  onClick={() => handlePreview({
+                    title: item.title,
+                    content: item.content,
+                    url: activeType === 'video' ? item.videoUrl : null
+                  }, activeType)}
+                >
+                  <h4 className="text-base font-medium text-gray-900">{item.title}</h4>
+                  {item.contentSnippet && (
+                    <p className="mt-2 text-sm text-gray-600 line-clamp-2">{item.contentSnippet}</p>
+                  )}
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-xs text-gray-400">
+                      {new Date(item.date).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 内容预览模态框 */}
+        {showPreview && (
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm"
+            onClick={() => setShowPreview(false)}
+          >
+            <div 
+              className="relative max-w-4xl w-full mx-4"
+              onClick={e => e.stopPropagation()}
+            >
+              {renderPreviewContent()}
+              <button
+                className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+                onClick={() => setShowPreview(false)}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const ImageViewer = ({ imageUrl, onClose }) => {
+    if (!imageUrl) return null;
+
+    return (
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
+        onClick={onClose}
+      >
+        <div className="relative max-w-4xl max-h-[90vh] mx-4">
+          <img
+            src={imageUrl}
+            alt=""
+            className="max-w-full max-h-[90vh] object-contain rounded-lg"
+          />
+          <button
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+            onClick={onClose}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const RssSidebar = ({ feeds, selectedCategory, onCategoryChange, onRefresh, onRemove }) => {
+    const typeLabels = {
+      article: '文章',
+      image: '图片',
+      video: '视频',
+      audio: '音频',
+      social: '社交'
+    };
+
+    return (
+      <div className="h-full flex flex-col">
+        {/* RSS 订阅输入框 */}
+        <div className="p-4 border-b border-gray-200">
+          <form onSubmit={handleAddRssFeed} className="space-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                value={rssUrl}
+                onChange={(e) => setRssUrl(e.target.value)}
+                placeholder={translate('rss.enterUrl')}
+                className="flex-1 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isLoadingFeed}
+              />
+              <button
+                type="submit"
+                disabled={isLoadingFeed || !rssUrl.trim()}
+                className={`p-2 rounded-lg transition-colors ${
+                  isLoadingFeed 
+                    ? 'bg-blue-100 cursor-not-allowed' 
+                    : !rssUrl.trim()
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                {isLoadingFeed ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            {rssError && (
+              <div className="px-3 py-2 text-sm text-red-600 bg-red-50 rounded-lg">
+                {rssError}
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* 类别切换按钮 */}
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex flex-wrap gap-2">
+            {Object.keys(typeLabels).map(type => (
+              <button
+                key={type}
+                onClick={() => onCategoryChange(type)}
+                className={`p-2 rounded-lg transition-colors ${
+                  selectedCategory === type
+                    ? 'bg-blue-100 text-blue-800'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                title={typeLabels[type]}
+              >
+                {type === 'article' && (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2.5 2.5 0 00-2.5-2.5H14" />
+                  </svg>
+                )}
+                {type === 'image' && (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                )}
+                {type === 'video' && (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+                {type === 'audio' && (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                  </svg>
+                )}
+                {type === 'social' && (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* RSS 订阅列表 */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="space-y-2 p-4">
+            {feeds.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <svg className="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 5c7.18 0 13 5.82 13 13M6 11a7 7 0 017 7m-6 0a1 1 0 11-2 0 1 1 0 012 0z" />
+                </svg>
+                <p className="text-sm">{translate('rss.noFeeds')}</p>
+                <p className="text-xs mt-1 text-gray-400">{translate('rss.addFeedDescription')}</p>
+              </div>
+            ) : (
+              feeds.map((feed, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 bg-white rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0 mr-4">
+                    <h3 className="text-sm font-medium text-gray-900 truncate">
+                      {feed.title}
+                    </h3>
+                    <p className="text-xs text-gray-500 truncate mt-1">
+                      {feed.url}
+                    </p>
+                    <div className="flex gap-1 mt-1">
+                      {Object.entries(feed.typeCounts).map(([type, count]) => (
+                        <span
+                          key={type}
+                          className={`px-1.5 py-0.5 text-xs rounded-full ${
+                            type === selectedCategory
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {typeLabels[type]} ({count})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onRefresh(feed)}
+                      className="p-1.5 text-gray-400 hover:text-blue-600 rounded-full transition-colors"
+                      title="刷新"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => onRemove(feed)}
+                      className="p-1.5 text-gray-400 hover:text-red-600 rounded-full transition-colors"
+                      title="删除"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -695,174 +1321,32 @@ export default function ChatInterface() {
                   </div>
                 </div>
               ) : activeTab === 'rss' ? (
-                <div className="flex-1 flex flex-col">
-                  <div className="p-4 border-b border-gray-200">
-                    <div className="flex items-center space-x-4">
-                      <button
-                        onClick={() => setSelectedCategory('articles')}
-                        className={`p-2 rounded-lg transition-colors ${
-                          selectedCategory === 'articles'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={translate('rss.categories.articles')}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2.5 2.5 0 00-2.5-2.5H14" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => setSelectedCategory('social')}
-                        className={`p-2 rounded-lg transition-colors ${
-                          selectedCategory === 'social'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={translate('rss.categories.social')}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => setSelectedCategory('images')}
-                        className={`p-2 rounded-lg transition-colors ${
-                          selectedCategory === 'images'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={translate('rss.categories.images')}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => setSelectedCategory('videos')}
-                        className={`p-2 rounded-lg transition-colors ${
-                          selectedCategory === 'videos'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={translate('rss.categories.videos')}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => setSelectedCategory('audio')}
-                        className={`p-2 rounded-lg transition-colors ${
-                          selectedCategory === 'audio'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={translate('rss.categories.audio')}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4">
-                    {/* RSS Feed List */}
-                    <div className="space-y-4">
-                      {rssFeeds
-                        .filter(feed => selectedCategory === feed.category)
-                        .map((feed) => (
-                          <div
-                            key={feed.id}
-                            className="p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center space-x-2">
-                                <h3 className="font-medium text-gray-900 truncate">{feed.title}</h3>
-                                <span className="px-2 py-0.5 text-xs font-medium text-blue-800 bg-blue-100 rounded-full">
-                                  {translate(`rss.categories.${feed.category}`)}
-                                </span>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <button
-                                  onClick={() => handleRefreshFeed(feed)}
-                                  className="p-1 text-gray-400 hover:text-blue-600 rounded-full transition-colors"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                  </svg>
-                                </button>
-                                <button
-                                  onClick={() => handleRemoveFeed(feed.id)}
-                                  className="p-1 text-gray-400 hover:text-red-600 rounded-full transition-colors"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              </div>
-                            </div>
-                            {feed.description && (
-                              <p className="text-xs text-gray-500 truncate">{feed.description}</p>
-                            )}
-                            <div className="mt-2 text-xs text-gray-400">
-                              {feed.items.length} {translate('rss.articles')}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-
-                    {/* Add Feed Form */}
-                    <div className="mt-4">
-                  <form onSubmit={handleAddRssFeed} className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                    <input
-                      type="url"
-                      value={rssUrl}
-                      onChange={(e) => setRssUrl(e.target.value)}
-                            placeholder={translate('rss.enterUrl')}
-                            className="flex-1 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <div className="flex-1 flex overflow-hidden">
+                  {/* 左侧边栏 */}
+                  <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-gray-50">
+                    <RssSidebar
+                      feeds={rssFeeds}
+                      selectedCategory={selectedCategory}
+                      onCategoryChange={setSelectedCategory}
+                      onRefresh={handleRefreshFeed}
+                      onRemove={(feed) => handleRemoveFeed(feed.id)}
                     />
-                    <button
-                      type="submit"
-                            disabled={isLoadingFeed}
-                            className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
-                          >
-                            {isLoadingFeed ? (
-                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-                              </svg>
-                            )}
-                    </button>
-                        </div>
-                        {rssError && (
-                          <div className="px-3 py-2 text-sm text-red-600 bg-red-50 rounded-lg">
-                            {rssError}
-                          </div>
-                        )}
-                  </form>
+                  </aside>
 
-                      {/* Discovered Feeds */}
-                      {discoveredFeeds.length > 0 && (
-                        <div className="mt-4 space-y-2">
-                          <h4 className="text-sm font-medium text-gray-700">{translate('rss.discoveredFeeds')}</h4>
-                          <div className="space-y-2">
-                            {discoveredFeeds.map((feed, index) => (
-                              <button
-                                key={index}
-                                onClick={() => handleSelectDiscoveredFeed(feed)}
-                                className="w-full p-2 text-left bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                              >
-                                <div className="text-sm font-medium text-gray-900">{feed.title}</div>
-                                <div className="text-xs text-gray-500 truncate">{feed.url}</div>
-                              </button>
-                            ))}
-                  </div>
-                </div>
-              )}
+                  {/* 主内容区域 */}
+                  <main className="flex-1 min-w-0 overflow-y-auto">
+                    <div className="max-w-4xl w-full mx-auto p-6">
+                      <div className="space-y-6">
+                        {rssFeeds
+                          .filter(feed => feed.items.some(item => item.contentTypes.includes(selectedCategory)))
+                          .map((feed, index) => (
+                            <div key={index} className="bg-white rounded-lg shadow-sm p-6">
+                              <FeedPreview feed={feed} initialType={selectedCategory} />
+                            </div>
+                          ))}
+                      </div>
                     </div>
-                  </div>
+                  </main>
                 </div>
               ) : null}
             </>
@@ -1159,25 +1643,53 @@ export default function ChatInterface() {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {rssFeeds.map((feed, index) => (
+                  {rssFeeds
+                    .filter(feed => {
+                      // 如果 feed 中有任何项目包含所选类型，就显示这个 feed
+                      return feed.items.some(item => item.contentTypes.includes(selectedCategory));
+                    })
+                    .map((feed, index) => (
                     <div key={index} className="bg-white rounded-lg shadow-sm p-6">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">{feed.title}</h3>
-                      <div className="space-y-4">
-                        {feed.items.map((item, itemIndex) => (
-                          <a
-                            key={itemIndex}
-                            href={item.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                          >
-                            <h4 className="text-base font-medium text-gray-900">{item.title}</h4>
-                            {item.contentSnippet && (
-                              <p className="mt-1 text-sm text-gray-600 line-clamp-2">{item.contentSnippet}</p>
-                            )}
-                          </a>
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center space-x-4">
+                            <h3 className="text-lg font-semibold text-gray-900">{feed.title}</h3>
+                            <div className="flex gap-1">
+                              {Object.entries(feed.typeCounts).map(([type, count]) => (
+                                <span
+                                  key={type}
+                                  className={`px-2 py-0.5 text-xs rounded-full ${
+                                    type === selectedCategory
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : 'bg-gray-100 text-gray-600'
+                                  }`}
+                                >
+                                  {count}
+                                </span>
                         ))}
                       </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleRefreshFeed(feed)}
+                              className="p-2 text-gray-400 hover:text-blue-600 rounded-full transition-colors"
+                              title={translate('rss.refresh')}
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleRemoveFeed(feed.id)}
+                              className="p-2 text-gray-400 hover:text-red-600 rounded-full transition-colors"
+                              title={translate('rss.remove')}
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        <FeedPreview feed={feed} initialType={selectedCategory} />
                     </div>
                   ))}
                 </div>
@@ -1186,6 +1698,30 @@ export default function ChatInterface() {
           </div>
         )}
       </main>
+
+      {/* Image Viewer */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] mx-4">
+            <img
+              src={selectedImage}
+              alt=""
+              className="max-w-full max-h-[90vh] object-contain rounded-lg"
+            />
+            <button
+              className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+              onClick={() => setSelectedImage(null)}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 
