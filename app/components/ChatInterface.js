@@ -8,6 +8,7 @@ import AIConfig from './AIConfig';
 import MusicConfig from './MusicConfig';
 import { useLanguage, useTranslation } from './LanguageProvider';
 import MusicPlayer from './MusicPlayer';
+import { RssService } from '../services/rssService';
 
 export default function ChatInterface() {
   const { data: session } = useSession();
@@ -33,6 +34,14 @@ export default function ChatInterface() {
   });
   const [activeSettingSection, setActiveSettingSection] = useState('ai');
   const [currentLyrics, setCurrentLyrics] = useState(null);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+  const [rssError, setRssError] = useState(null);
+  const [discoveredFeeds, setDiscoveredFeeds] = useState([]);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('articles');
+  const [feedCategory, setFeedCategory] = useState('articles');
+  const [selectedArticle, setSelectedArticle] = useState(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Initialize AI chat service
   useEffect(() => {
@@ -108,7 +117,6 @@ export default function ChatInterface() {
           user: {
             name: `AI (${aiResponse.source})`,
             image: '/ai-avatar.png', // Add a default AI avatar image
-            email: 'ai@system',
           },
           timestamp: new Date().toISOString(),
         };
@@ -140,22 +148,188 @@ export default function ChatInterface() {
     setActiveTab('ai');  // 修改这里：保存后跳转到 AI Chat 界面
   };
 
+  // Load saved RSS feeds from localStorage
+  useEffect(() => {
+    const savedFeeds = localStorage.getItem('rssFeeds');
+    if (savedFeeds) {
+      setRssFeeds(JSON.parse(savedFeeds));
+    }
+  }, []);
+
+  // Save RSS feeds to localStorage
+  useEffect(() => {
+    localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
+  }, [rssFeeds]);
+
   const handleAddRssFeed = async (e) => {
     e.preventDefault();
-    if (!rssUrl.trim()) return;
+    if (!rssUrl.trim()) {
+      return;
+    }
+
+    setIsLoadingFeed(true);
+    setRssError(null);
+    setDiscoveredFeeds([]);
 
     try {
-      const parser = new Parser();
-      const feed = await parser.parseURL(rssUrl);
-      setRssFeeds((prev) => [...prev, {
-        title: feed.title,
-        items: feed.items.slice(0, 5),
-        url: rssUrl,
+      // 规范化 URL
+      let normalizedUrl = rssUrl;
+      if (!normalizedUrl.startsWith('http')) {
+        normalizedUrl = 'https://' + normalizedUrl;
+      }
+
+      // 首先尝试通过后端 API 获取 feed
+      const response = await fetch('/api/rss/discover', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: normalizedUrl }),
+        credentials: 'same-origin'
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to discover RSS feeds');
+      }
+
+      const data = await response.json();
+
+      if (!data.feeds || data.feeds.length === 0) {
+        throw new Error(translate('rss.noFeedsFound'));
+      }
+
+      // 检查是否已存在相同的订阅源
+      if (rssFeeds.some(f => data.feeds.some(newFeed => newFeed.url === f.url))) {
+        throw new Error(translate('rss.feedExists'));
+      }
+
+      // 添加第一个发现的订阅源
+      const firstFeed = data.feeds[0];
+      
+      // 通过后端代理获取 feed 内容
+      const feedResponse = await fetch('/api/rss/fetch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: firstFeed.url }),
+        credentials: 'same-origin'
+      });
+
+      if (!feedResponse.ok) {
+        throw new Error('Failed to fetch feed content');
+      }
+
+      const feedData = await feedResponse.json();
+      
+      setRssFeeds(prev => [...prev, {
+        id: Date.now(),
+        title: feedData.title || firstFeed.title || 'RSS Feed',
+        description: feedData.description || '',
+        url: firstFeed.url,
+        category: 'articles',
+        items: (feedData.items || []).map(item => ({
+          id: item.guid || item.link || Date.now().toString(),
+          title: item.title,
+          link: item.link,
+          date: item.pubDate || item.isoDate,
+          content: item.contentSnippet || item.content || item['content:encoded'] || item.description || '',
+        })).slice(0, 10)
       }]);
+
       setRssUrl('');
+      setDiscoveredFeeds(data.feeds.slice(1));
+
     } catch (error) {
-      console.error('Error parsing RSS feed:', error);
-      alert('Error parsing RSS feed. Please check the URL and try again.');
+      console.error('Error handling RSS feed:', error);
+      setRssError(error.message || 'Failed to add RSS feed');
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  };
+
+  const handleSelectDiscoveredFeed = async (feed) => {
+    setIsLoadingFeed(true);
+    setRssError(null);
+    try {
+      if (rssFeeds.some(f => f.url === feed.url)) {
+        throw new Error(translate('rss.feedExists'));
+      }
+
+      // 通过后端代理获取 feed 内容
+      const feedResponse = await fetch('/api/rss/fetch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: feed.url }),
+        credentials: 'same-origin'
+      });
+
+      if (!feedResponse.ok) {
+        throw new Error('Failed to fetch feed content');
+      }
+
+      const feedData = await feedResponse.json();
+      
+      setRssFeeds(prev => [...prev, {
+        id: Date.now(),
+        title: feedData.title || feed.title || 'RSS Feed',
+        description: feedData.description || '',
+        url: feed.url,
+        category: 'articles',
+        items: (feedData.items || []).map(item => ({
+          id: item.guid || item.link || Date.now().toString(),
+          title: item.title,
+          link: item.link,
+          date: item.pubDate || item.isoDate,
+          content: item.contentSnippet || item.content || item['content:encoded'] || item.description || '',
+        })).slice(0, 10)
+      }]);
+
+      setRssUrl('');
+      setDiscoveredFeeds([]);
+    } catch (error) {
+      console.error('Error adding discovered feed:', error);
+      setRssError(error.message || 'Failed to add RSS feed');
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  };
+
+  const handleRemoveFeed = (feedId) => {
+    setRssFeeds(prev => prev.filter(feed => feed.id !== feedId));
+  };
+
+  const handleRefreshFeed = async (feed) => {
+    setIsLoadingFeed(true);
+    try {
+      const parser = new Parser();
+      const updatedFeed = await parser.parseURL(feed.url);
+      
+      setRssFeeds(prev => prev.map(f => {
+        if (f.id === feed.id) {
+          return {
+            ...f,
+            title: updatedFeed.title,
+            description: updatedFeed.description,
+            items: updatedFeed.items.map(item => ({
+              id: item.guid || item.link,
+              title: item.title,
+              link: item.link,
+              date: item.pubDate || item.isoDate,
+              content: item.contentSnippet || item.content,
+            })).slice(0, 10)
+          };
+        }
+        return f;
+      }));
+    } catch (error) {
+      console.error('Error refreshing feed:', error);
+      setRssError(error.message);
+    } finally {
+      setIsLoadingFeed(false);
     }
   };
 
@@ -457,6 +631,7 @@ export default function ChatInterface() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   {activeTab === 'chat' ? translate('chat.title') : 
                    activeTab === 'ai' ? translate('ai.title') :
+                   activeTab === 'rss' ? translate('rss.title') :
                    activeTab === 'music' ? translate('settings.music') :
                    activeTab === 'settings' ? translate('settings.title') :
                    translate('settings.ai')}
@@ -521,6 +696,106 @@ export default function ChatInterface() {
                     )}
                   </div>
                 </div>
+              ) : activeTab === 'rss' ? (
+                <div className="flex-1 overflow-hidden flex">
+                  {/* RSS Feed List */}
+                  <div className="flex-1 overflow-y-auto p-6">
+                    <div className="max-w-3xl mx-auto">
+                      {rssFeeds.length === 0 ? (
+                        <div className="text-center text-gray-500">
+                          <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 5c7.18 0 13 5.82 13 13M6 11a7 7 0 017 7m-6 0a1 1 0 11-2 0 1 1 0 012 0z" />
+                          </svg>
+                          <p>{translate('rss.noFeeds')}</p>
+                          <p className="text-sm mt-2">{translate('rss.addFeedDescription')}</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {rssFeeds.map((feed, index) => (
+                            <div key={index} className="bg-white rounded-lg shadow-sm p-6">
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4">{feed.title}</h3>
+                              <div className="space-y-4">
+                                {feed.items.map((item, itemIndex) => (
+                                  <div
+                                    key={itemIndex}
+                                    className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                                    onClick={() => {
+                                      setSelectedArticle({
+                                        title: item.title,
+                                        content: item.content || item['content:encoded'] || item.description || item.contentSnippet,
+                                        link: item.link,
+                                        date: item.date,
+                                        feedTitle: feed.title
+                                      });
+                                      setIsPreviewOpen(true);
+                                    }}
+                                  >
+                                    <h4 className="text-base font-medium text-gray-900">{item.title}</h4>
+                                    {item.contentSnippet && (
+                                      <p className="mt-1 text-sm text-gray-600 line-clamp-2">{item.contentSnippet}</p>
+                                    )}
+                                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                      <span>{new Date(item.date).toLocaleDateString()}</span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(item.link, '_blank');
+                                        }}
+                                        className="px-2 py-1 text-blue-600 hover:bg-blue-50 rounded"
+                                      >
+                                        {translate('rss.openOriginal')}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Article Preview Sidebar */}
+                  {isPreviewOpen && selectedArticle && (
+                    <div className="w-1/2 border-l border-gray-200 bg-white overflow-hidden flex flex-col">
+                      <div className="flex-none p-4 border-b border-gray-200 bg-white">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h2 className="text-lg font-semibold text-gray-900">{selectedArticle.title}</h2>
+                            <p className="text-sm text-gray-500 mt-1">
+                              {selectedArticle.feedTitle} · {new Date(selectedArticle.date).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setIsPreviewOpen(false)}
+                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div className="mt-4 flex items-center space-x-4">
+                          <a
+                            href={selectedArticle.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            {translate('rss.readOriginal')}
+                          </a>
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-6">
+                        <div 
+                          className="prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{ __html: selectedArticle.content }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : null}
             </>
           )}
@@ -534,6 +809,7 @@ export default function ChatInterface() {
             <h1 className="text-xl font-semibold text-gray-900">
               {activeTab === 'chat' ? translate('chat.title') : 
                activeTab === 'ai' ? translate('ai.title') :
+               activeTab === 'rss' ? translate('rss.title') :
                activeTab === 'music' ? translate('settings.music') :
                activeTab === 'settings' ? translate('settings.title') :
                translate('settings.ai')}
