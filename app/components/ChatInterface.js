@@ -9,6 +9,7 @@ import MusicConfig from './MusicConfig';
 import { useLanguage, useTranslation } from './LanguageProvider';
 import MusicPlayer from './MusicPlayer';
 import { RssService } from '../services/rssService';
+import sanitizeHtml from 'sanitize-html';
 
 export default function ChatInterface() {
   const { data: session } = useSession();
@@ -214,64 +215,98 @@ export default function ChatInterface() {
   // 修改提取图片URL的函数
   const extractImageUrls = (content) => {
     if (!content) return [];
-
-    const urls = [];
     
-    // 提取所有 <img> 标签的 src 属性
-    const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/ig;
-    let match;
-    
-    while ((match = imgRegex.exec(content)) !== null) {
-      const imgUrl = match[1];
-      // 验证URL是否有效
-      if (imgUrl.startsWith('http') || imgUrl.startsWith('https')) {
-        urls.push(imgUrl);
-      }
-    }
+    try {
+      const urls = new Set();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(content, 'text/html');
+      
+      // 获取所有图片标签
+      doc.querySelectorAll('img').forEach(img => {
+        const src = img.getAttribute('src');
+        if (src) {
+          try {
+            const url = new URL(src, window.location.origin);
+            if (url.protocol === 'http:' || url.protocol === 'https:') {
+              urls.add(url.href);
+            }
+          } catch (e) {
+            // 忽略无效的URL
+          }
+        }
+      });
 
-    // 提取内容中的直接图片链接
-    const urlRegex = /(https?:\/\/[^"\s<>]+\.(?:jpg|jpeg|png|gif|webp))(?:\?[^"\s<>]*)?/ig;
-    while ((match = urlRegex.exec(content)) !== null) {
-      if (!urls.includes(match[1])) {
-        urls.push(match[1]);
-      }
+      return Array.from(urls);
+    } catch (error) {
+      console.error('Error extracting image URLs:', error);
+      return [];
     }
-
-    return urls;
   };
 
   // 修改RSS处理函数
   const processRssFeed = (feedData) => {
-    const processedItems = feedData.items.map(item => {
-      const contentTypes = detectContentTypes(item);
-      const content = item.content || item['content:encoded'] || item.description || '';
-      const imageUrls = extractImageUrls(content);
-      
+    try {
+      const processedItems = (feedData.items || []).map(item => {
+        try {
+          const contentTypes = detectContentTypes(item);
+          // 使用DOMParser安全解析HTML内容
+          const parser = new DOMParser();
+          const content = item.content || item['content:encoded'] || item.description || '';
+          const doc = parser.parseFromString(content, 'text/html');
+          
+          // 清理潜在的危险标签和属性
+          const sanitizedContent = sanitizeHtml(content, {
+            allowedTags: [ 'p', 'b', 'i', 'em', 'strong', 'a', 'img', 'br', 'div', 'span' ],
+            allowedAttributes: {
+              'a': [ 'href' ],
+              'img': [ 'src', 'alt' ]
+            }
+          });
+          
+          return {
+            id: item.guid || item.link || Date.now().toString(),
+            title: item.title || 'Untitled Item',
+            link: item.link || '',
+            date: item.pubDate || item.isoDate || new Date().toISOString(),
+            content: sanitizedContent,
+            contentSnippet: item.contentSnippet || item.description || '',
+            imageUrls: extractImageUrls(content).filter(url => {
+              try {
+                new URL(url);
+                return true;
+              } catch {
+                return false;
+              }
+            }),
+            contentTypes: contentTypes,
+          };
+        } catch (itemError) {
+          console.error('Error processing RSS item:', itemError);
+          return null;
+        }
+      }).filter(Boolean); // 过滤掉处理失败的项
+
+      // 统计各种类型的内容数量
+      const typeCounts = processedItems.reduce((acc, item) => {
+        item.contentTypes.forEach(type => {
+          acc[type] = (acc[type] || 0) + 1;
+        });
+        return acc;
+      }, {});
+
       return {
-        id: item.guid || item.link || Date.now().toString(),
-        title: item.title || 'Untitled Item',
-        link: item.link || '',
-        date: item.pubDate || item.isoDate || new Date().toISOString(),
-        content: content,
-        contentSnippet: item.contentSnippet || item.description || '',
-        imageUrls: imageUrls,
-        contentTypes: contentTypes,
+        items: processedItems,
+        primaryType: Object.entries(typeCounts).sort(([,a], [,b]) => b - a)[0]?.[0] || 'article',
+        typeCounts: typeCounts
       };
-    });
-
-    // 统计各种类型的内容数量
-    const typeCounts = processedItems.reduce((acc, item) => {
-      item.contentTypes.forEach(type => {
-        acc[type] = (acc[type] || 0) + 1;
-      });
-      return acc;
-    }, {});
-
-    return {
-      items: processedItems,
-      primaryType: Object.entries(typeCounts).sort(([,a], [,b]) => b - a)[0][0],
-      typeCounts: typeCounts
-    };
+    } catch (error) {
+      console.error('Error processing RSS feed:', error);
+      return {
+        items: [],
+        primaryType: 'article',
+        typeCounts: { article: 0 }
+      };
+    }
   };
 
   // 修改添加RSS源的函数
@@ -283,73 +318,103 @@ export default function ChatInterface() {
     setRssError(null);
 
     try {
-      // 调用发现服务
-      const response = await fetch('/api/rss/discover', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: rssUrl }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch RSS feed');
+      // 验证URL
+      try {
+        new URL(rssUrl);
+      } catch {
+        throw new Error(translate('rss.invalidUrl'));
       }
 
-      const data = await response.json();
-      
-      // 处理发现服务返回的数据结构
-      const feedData = data.feeds && data.feeds.length > 0 ? data.feeds[0] : data;
-      
-      // 检查是否已经存在相同的订阅
-      const isExisting = rssFeeds.some(feed => feed.url === feedData.url);
-      if (isExisting) {
-        setRssError(translate('rss.alreadySubscribed'));
-        setIsLoadingFeed(false);
-        return;
+      // 添加超时控制
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      try {
+        // 调用发现服务
+        const response = await fetch('/api/rss/discover', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: rssUrl }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          throw new Error(translate('rss.fetchError'));
+        }
+
+        const data = await response.json();
+        
+        // 处理发现服务返回的数据结构
+        const feedData = data.feeds && data.feeds.length > 0 ? data.feeds[0] : data;
+        
+        // 检查是否已经存在相同的订阅
+        const isExisting = rssFeeds.some(feed => feed.url === feedData.url);
+        if (isExisting) {
+          throw new Error(translate('rss.feedExists'));
+        }
+
+        // 获取完整的feed内容
+        const feedResponse = await fetch('/api/rss/fetch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            url: feedData.url || rssUrl,
+            timeout: 30000 // 30秒超时
+          }),
+          credentials: 'same-origin'
+        });
+
+        if (!feedResponse.ok) {
+          throw new Error(translate('rss.fetchError'));
+        }
+
+        const fullFeedData = await feedResponse.json();
+        
+        // 确保feed数据有效
+        if (!fullFeedData || !Array.isArray(fullFeedData.items)) {
+          throw new Error(translate('rss.invalidFeed'));
+        }
+
+        // 处理RSS内容
+        const processedFeed = processRssFeed(fullFeedData);
+        
+        if (processedFeed.items.length === 0) {
+          throw new Error(translate('rss.noItems'));
+        }
+
+        const newFeed = {
+          id: Date.now(),
+          url: feedData.url || rssUrl,
+          title: fullFeedData.title || feedData.title || translate('rss.untitledFeed'),
+          description: fullFeedData.description || feedData.description || '',
+          primaryType: processedFeed.primaryType,
+          typeCounts: processedFeed.typeCounts,
+          items: processedFeed.items,
+          lastUpdated: new Date().toISOString()
+        };
+
+        setRssFeeds(prev => [...prev, newFeed]);
+        setRssUrl('');
+        setDiscoveredFeeds(data.feeds ? data.feeds.slice(1) : []);
+        
+        // 保存到本地存储
+        const updatedFeeds = [...rssFeeds, newFeed];
+        try {
+          localStorage.setItem('rssFeeds', JSON.stringify(updatedFeeds));
+        } catch (storageError) {
+          console.error('Error saving to localStorage:', storageError);
+        }
+        
+      } catch (error) {
+        clearTimeout(timeout);
+        throw error;
       }
-
-      // 获取完整的feed内容
-      const feedResponse = await fetch('/api/rss/fetch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: feedData.url || rssUrl }),
-        credentials: 'same-origin'
-      });
-
-      if (!feedResponse.ok) {
-        throw new Error('Failed to fetch feed content');
-      }
-
-      const fullFeedData = await feedResponse.json();
-      
-      // 确保feed数据有效
-      if (!fullFeedData || !Array.isArray(fullFeedData.items)) {
-        throw new Error('Invalid RSS feed format');
-      }
-
-      // 处理RSS内容
-      const processedFeed = processRssFeed(fullFeedData);
-      
-      const newFeed = {
-        id: Date.now(),
-        url: feedData.url || rssUrl,
-        title: fullFeedData.title || feedData.title || 'Untitled Feed',
-        description: fullFeedData.description || feedData.description || '',
-        primaryType: processedFeed.primaryType,
-        typeCounts: processedFeed.typeCounts,
-        items: processedFeed.items,
-      };
-
-      setRssFeeds(prev => [...prev, newFeed]);
-      setRssUrl('');
-      setDiscoveredFeeds(data.feeds ? data.feeds.slice(1) : []);
-      
-      // 保存到本地存储
-      const updatedFeeds = [...rssFeeds, newFeed];
-      localStorage.setItem('rssFeeds', JSON.stringify(updatedFeeds));
       
     } catch (error) {
       console.error('Error adding RSS feed:', error);
@@ -462,32 +527,57 @@ export default function ChatInterface() {
     setRssFeeds(prev => prev.filter(feed => feed.id !== feedId));
   };
 
+  // 修改刷新feed的函数
   const handleRefreshFeed = async (feed) => {
     setIsLoadingFeed(true);
     try {
-      const parser = new Parser();
-      const updatedFeed = await parser.parseURL(feed.url);
-      
-      setRssFeeds(prev => prev.map(f => {
-        if (f.id === feed.id) {
-          return {
-            ...f,
-            title: updatedFeed.title,
-            description: updatedFeed.description,
-            items: updatedFeed.items.map(item => ({
-              id: item.guid || item.link,
-              title: item.title,
-              link: item.link,
-              date: item.pubDate || item.isoDate,
-              content: item.contentSnippet || item.content,
-            })).slice(0, 10)
-          };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      try {
+        const response = await fetch('/api/rss/fetch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            url: feed.url,
+            timeout: 30000
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          throw new Error(translate('rss.refreshError'));
         }
-        return f;
-      }));
+
+        const updatedFeed = await response.json();
+        const processedFeed = processRssFeed(updatedFeed);
+        
+        setRssFeeds(prev => prev.map(f => {
+          if (f.id === feed.id) {
+            return {
+              ...f,
+              title: updatedFeed.title || f.title,
+              description: updatedFeed.description || f.description,
+              items: processedFeed.items,
+              primaryType: processedFeed.primaryType,
+              typeCounts: processedFeed.typeCounts,
+              lastUpdated: new Date().toISOString()
+            };
+          }
+          return f;
+        }));
+
+      } catch (error) {
+        clearTimeout(timeout);
+        throw error;
+      }
     } catch (error) {
       console.error('Error refreshing feed:', error);
-      setRssError(error.message);
+      setRssError(error.message || translate('rss.refreshError'));
     } finally {
       setIsLoadingFeed(false);
     }
@@ -617,7 +707,11 @@ export default function ChatInterface() {
     };
 
     const handleImageLoad = (imgUrl) => {
-      setLoadedImages(prev => new Set([...prev, imgUrl]));
+      setLoadedImages(prev => {
+        const newSet = new Set(prev);
+        newSet.add(imgUrl);
+        return newSet;
+      });
     };
 
     const renderPreviewContent = () => {
