@@ -163,67 +163,82 @@ export default function ChatInterface() {
 
   // 添加内容类型检测函数
   const detectContentTypes = (item) => {
-    // 如果 item 为空，返回默认类型
-    if (!item) return ['article'];
+    // 如果 item 为空或不是对象类型，返回默认类型
+    if (!item || typeof item !== 'object') return ['article'];
     
     try {
-      const content = (item.content || item['content:encoded'] || item.description || '').toString();
-      const title = (item.title || '').toString();
-      const contentLower = content.toLowerCase();
-      const titleLower = title.toLowerCase();
+      // 确保所有的属性访问都有默认值
+      const content = String(item.content || item['content:encoded'] || item.description || '');
+      const title = String(item.title || '');
+      
+      // 避免在 undefined 上调用 toLowerCase
+      const contentLower = content ? content.toLowerCase() : '';
+      const titleLower = title ? title.toLowerCase() : '';
 
-      const types = new Set(['article']); // 默认添加文章类型
+      // 使用数组而不是 Set，避免潜在的兼容性问题
+      const types = ['article'];
 
       // 检测图片 - 使用更简单的检测方法
-      if (content.includes('<img') || content.includes('.jpg') || content.includes('.png') || content.includes('.gif')) {
-        types.add('image');
+      if (content && (
+        content.indexOf('<img') !== -1 || 
+        content.indexOf('.jpg') !== -1 || 
+        content.indexOf('.png') !== -1 || 
+        content.indexOf('.gif') !== -1
+      )) {
+        if (!types.includes('image')) types.push('image');
       }
 
       // 检测视频 - 使用更简单的检测方法
-      if (
-        content.includes('youtube.com') ||
-        content.includes('vimeo.com') ||
-        content.includes('bilibili.com') ||
-        content.includes('youku.com') ||
-        content.includes('<video') ||
-        content.includes('.mp4')
-      ) {
-        types.add('video');
+      if (content && (
+        content.indexOf('youtube.com') !== -1 ||
+        content.indexOf('vimeo.com') !== -1 ||
+        content.indexOf('bilibili.com') !== -1 ||
+        content.indexOf('youku.com') !== -1 ||
+        content.indexOf('<video') !== -1 ||
+        content.indexOf('.mp4') !== -1
+      )) {
+        if (!types.includes('video')) types.push('video');
       }
 
       // 检测音频 - 使用更简单的检测方法
       if (
-        content.includes('spotify.com') ||
-        content.includes('soundcloud.com') ||
-        content.includes('<audio') ||
-        content.includes('.mp3') ||
-        titleLower.includes('podcast') ||
-        titleLower.includes('音乐') ||
-        titleLower.includes('music')
+        (content && (
+          content.indexOf('spotify.com') !== -1 ||
+          content.indexOf('soundcloud.com') !== -1 ||
+          content.indexOf('<audio') !== -1 ||
+          content.indexOf('.mp3') !== -1
+        )) ||
+        (titleLower && (
+          titleLower.indexOf('podcast') !== -1 ||
+          titleLower.indexOf('音乐') !== -1 ||
+          titleLower.indexOf('music') !== -1
+        ))
       ) {
-        types.add('audio');
+        if (!types.includes('audio')) types.push('audio');
       }
 
       // 检测社交媒体 - 使用更简单的检测方法
-      if (
-        content.includes('twitter.com') ||
-        content.includes('facebook.com') ||
-        content.includes('instagram.com') ||
-        content.includes('weibo.com') ||
-        content.includes('linkedin.com') ||
-        content.includes('@') ||
-        content.includes('#')
-      ) {
-        types.add('social');
+      if (content && (
+        content.indexOf('twitter.com') !== -1 ||
+        content.indexOf('facebook.com') !== -1 ||
+        content.indexOf('instagram.com') !== -1 ||
+        content.indexOf('weibo.com') !== -1 ||
+        content.indexOf('linkedin.com') !== -1 ||
+        content.indexOf('@') !== -1 ||
+        content.indexOf('#') !== -1
+      )) {
+        if (!types.includes('social')) types.push('social');
       }
 
-      // 如果内容超过200字，添加文章类型（虽然默认已经添加了）
-      const textContent = content.replace(/<[^>]+>/g, '').trim();
-      if (textContent.length > 200) {
-        types.add('article');
+      // 如果内容超过200字，添加文章类型
+      if (content) {
+        const textContent = content.replace(/<[^>]+>/g, '').trim();
+        if (textContent.length > 200 && !types.includes('article')) {
+          types.push('article');
+        }
       }
 
-      return Array.from(types);
+      return types;
     } catch (error) {
       console.error('Error detecting content types:', error);
       return ['article']; // 发生错误时返回默认类型
@@ -265,10 +280,21 @@ export default function ChatInterface() {
   // 修改RSS处理函数
   const processRssFeed = (feedData) => {
     try {
-      const processedItems = (feedData.items || []).map(item => {
+      // 确保 feedData 和 items 是有效的
+      if (!feedData || !Array.isArray(feedData.items)) {
+        return {
+          items: [],
+          primaryType: 'article',
+          typeCounts: { article: 0 }
+        };
+      }
+
+      const processedItems = feedData.items.map(item => {
         try {
+          if (!item || typeof item !== 'object') return null;
+
           const contentTypes = detectContentTypes(item);
-          const content = item.content || item['content:encoded'] || item.description || '';
+          const content = String(item.content || item['content:encoded'] || item.description || '');
           
           // 直接使用 sanitizeHtml 清理内容
           const sanitizedContent = sanitizeHtml(content, {
@@ -280,40 +306,49 @@ export default function ChatInterface() {
           });
           
           return {
-            id: item.guid || item.link || Date.now().toString(),
-            title: item.title || 'Untitled Item',
-            link: item.link || '',
-            date: item.pubDate || item.isoDate || new Date().toISOString(),
+            id: String(item.guid || item.link || Date.now()),
+            title: String(item.title || 'Untitled Item'),
+            link: String(item.link || ''),
+            date: String(item.pubDate || item.isoDate || new Date().toISOString()),
             content: sanitizedContent,
-            contentSnippet: item.contentSnippet || item.description || '',
-            imageUrls: extractImageUrls(content).filter(url => {
-              try {
-                return url.startsWith('http');
-              } catch {
-                return false;
-              }
-            }),
+            contentSnippet: String(item.contentSnippet || item.description || ''),
+            imageUrls: extractImageUrls(content),
             contentTypes: contentTypes,
           };
         } catch (itemError) {
           console.error('Error processing RSS item:', itemError);
           return null;
         }
-      }).filter(Boolean); // 过滤掉处理失败的项
+      }).filter(Boolean);
 
       // 统计各种类型的内容数量
-      const typeCounts = processedItems.reduce((acc, item) => {
+      const typeCounts = {};
+      processedItems.forEach(item => {
         if (item.contentTypes && Array.isArray(item.contentTypes)) {
           item.contentTypes.forEach(type => {
-            acc[type] = (acc[type] || 0) + 1;
+            typeCounts[type] = (typeCounts[type] || 0) + 1;
           });
         }
-        return acc;
-      }, {});
+      });
+
+      // 确保至少有一个类型
+      if (Object.keys(typeCounts).length === 0) {
+        typeCounts.article = processedItems.length;
+      }
+
+      // 找出最常见的类型
+      let primaryType = 'article';
+      let maxCount = 0;
+      Object.entries(typeCounts).forEach(([type, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          primaryType = type;
+        }
+      });
 
       return {
         items: processedItems,
-        primaryType: Object.entries(typeCounts).sort(([,a], [,b]) => b - a)[0]?.[0] || 'article',
+        primaryType: primaryType,
         typeCounts: typeCounts
       };
     } catch (error) {
