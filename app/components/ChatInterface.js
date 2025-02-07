@@ -10,6 +10,7 @@ import { useLanguage, useTranslation } from './LanguageProvider';
 import MusicPlayer from './MusicPlayer';
 import { RssService } from '../services/rssService';
 import sanitizeHtml from 'sanitize-html';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function ChatInterface() {
   const { data: session } = useSession();
@@ -150,16 +151,34 @@ export default function ChatInterface() {
 
   // Load saved RSS feeds from localStorage
   useEffect(() => {
-    const savedFeeds = localStorage.getItem('rssFeeds');
-    if (savedFeeds) {
-      setRssFeeds(JSON.parse(savedFeeds));
+    try {
+      const savedFeeds = localStorage.getItem('rssFeeds');
+      if (savedFeeds) {
+        const parsedFeeds = JSON.parse(savedFeeds);
+        setRssFeeds(Array.isArray(parsedFeeds) ? parsedFeeds : []);
+      }
+    } catch (error) {
+      console.error('Error loading RSS feeds from localStorage:', error);
+      setRssFeeds([]);
     }
   }, []);
 
-  // Save RSS feeds to localStorage
+  // Save RSS feeds to localStorage with error handling
   useEffect(() => {
-    localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
+    try {
+      localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
+    } catch (error) {
+      console.error('Error saving RSS feeds to localStorage:', error);
+      setRssError(translate('rss.savingError'));
+    }
   }, [rssFeeds]);
+
+  // Add error recovery function
+  const handleRssError = (error) => {
+    console.error('RSS Error:', error);
+    setHasRssError(true);
+    setRssError(error.message || translate('rss.generalError'));
+  };
 
   // 添加内容类型检测函数
   const detectContentTypes = (item) => {
@@ -246,49 +265,61 @@ export default function ChatInterface() {
   // 修改RSS处理函数
   const processRssFeed = (feedData) => {
     try {
-      const processedItems = (feedData.items || []).map(item => {
-        try {
-          const contentTypes = detectContentTypes(item);
-          // 使用DOMParser安全解析HTML内容
-          const parser = new DOMParser();
-          const content = item.content || item['content:encoded'] || item.description || '';
-          const doc = parser.parseFromString(content, 'text/html');
-          
-          // 清理潜在的危险标签和属性
-          const sanitizedContent = sanitizeHtml(content, {
-            allowedTags: [ 'p', 'b', 'i', 'em', 'strong', 'a', 'img', 'br', 'div', 'span' ],
-            allowedAttributes: {
-              'a': [ 'href' ],
-              'img': [ 'src', 'alt' ]
-            }
-          });
-          
-          return {
-            id: item.guid || item.link || Date.now().toString(),
-            title: item.title || 'Untitled Item',
-            link: item.link || '',
-            date: item.pubDate || item.isoDate || new Date().toISOString(),
-            content: sanitizedContent,
-            contentSnippet: item.contentSnippet || item.description || '',
-            imageUrls: extractImageUrls(content).filter(url => {
-              try {
-                new URL(url);
-                return true;
-              } catch {
-                return false;
-              }
-            }),
-            contentTypes: contentTypes,
-          };
-        } catch (itemError) {
-          console.error('Error processing RSS item:', itemError);
-          return null;
-        }
-      }).filter(Boolean); // 过滤掉处理失败的项
+      if (!feedData || typeof feedData !== 'object') {
+        throw new Error('Invalid feed data');
+      }
 
-      // 统计各种类型的内容数量
+      const processedItems = (feedData.items || [])
+        .filter(item => item && typeof item === 'object')
+        .map(item => {
+          try {
+            const contentTypes = detectContentTypes(item);
+            const content = item.content || item['content:encoded'] || item.description || '';
+            
+            // Safely sanitize content
+            let sanitizedContent = '';
+            try {
+              sanitizedContent = sanitizeHtml(content, {
+                allowedTags: [ 'p', 'b', 'i', 'em', 'strong', 'a', 'img', 'br', 'div', 'span' ],
+                allowedAttributes: {
+                  'a': [ 'href' ],
+                  'img': [ 'src', 'alt' ]
+                }
+              });
+            } catch (sanitizeError) {
+              console.warn('Error sanitizing content:', sanitizeError);
+              sanitizedContent = content.replace(/<[^>]*>/g, '');
+            }
+            
+            return {
+              id: item.guid || item.link || `${Date.now()}-${Math.random()}`,
+              title: item.title || 'Untitled Item',
+              link: item.link || '',
+              date: item.pubDate || item.isoDate || new Date().toISOString(),
+              content: sanitizedContent,
+              contentSnippet: item.contentSnippet || item.description || '',
+              imageUrls: extractImageUrls(content).filter(url => {
+                try {
+                  new URL(url);
+                  return true;
+                } catch {
+                  return false;
+                }
+              }),
+              contentTypes: contentTypes,
+            };
+          } catch (itemError) {
+            console.warn('Error processing RSS item:', itemError);
+            return null;
+          }
+        }).filter(Boolean);
+
+      if (processedItems.length === 0) {
+        throw new Error(translate('rss.noValidItems'));
+      }
+
       const typeCounts = processedItems.reduce((acc, item) => {
-        item.contentTypes.forEach(type => {
+        (item.contentTypes || []).forEach(type => {
           acc[type] = (acc[type] || 0) + 1;
         });
         return acc;
@@ -301,11 +332,7 @@ export default function ChatInterface() {
       };
     } catch (error) {
       console.error('Error processing RSS feed:', error);
-      return {
-        items: [],
-        primaryType: 'article',
-        typeCounts: { article: 0 }
-      };
+      throw error;
     }
   };
 
@@ -1170,6 +1197,43 @@ export default function ChatInterface() {
     }
   };
 
+  // Add error boundary for RSS content
+  const RssContent = ({ feed, selectedCategory }) => {
+    if (hasRssError) {
+      return (
+        <div className="p-4 text-center">
+          <p className="text-red-600">{translate('rss.errorOccurred')}</p>
+          <button
+            onClick={() => {
+              setHasRssError(false);
+              setRssError(null);
+            }}
+            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            {translate('rss.tryAgain')}
+          </button>
+        </div>
+      );
+    }
+
+    try {
+      return (
+        <div className="space-y-6">
+          {feed.items
+            ?.filter(item => item?.contentTypes?.includes(selectedCategory))
+            .map((item, index) => (
+              <div key={item?.id || index} className="bg-white rounded-lg shadow-sm p-6">
+                <FeedPreview feed={feed} initialType={selectedCategory} />
+              </div>
+            ))}
+        </div>
+      );
+    } catch (error) {
+      handleRssError(error);
+      return null;
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-white">
       {/* Left Navigation Bar */}
@@ -1442,31 +1506,40 @@ export default function ChatInterface() {
                 </div>
               ) : activeTab === 'rss' ? (
                 <div className="flex-1 flex overflow-hidden">
-                  {/* 左侧边栏 */}
-                  <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-gray-50">
-                    <RssSidebar
-                      feeds={rssFeeds}
-                      selectedCategory={selectedCategory}
-                      onCategoryChange={setSelectedCategory}
-                      onRefresh={handleRefreshFeed}
-                      onRemove={(feed) => handleRemoveFeed(feed.id)}
-                    />
-                  </aside>
-
-                  {/* 主内容区域 */}
-                  <main className="flex-1 min-w-0 overflow-y-auto">
-                    <div className="max-w-4xl w-full mx-auto p-6">
-                      <div className="space-y-6">
-                        {rssFeeds
-                          .filter(feed => feed.items.some(item => item.contentTypes.includes(selectedCategory)))
-                          .map((feed, index) => (
-                            <div key={index} className="bg-white rounded-lg shadow-sm p-6">
-                              <FeedPreview feed={feed} initialType={selectedCategory} />
-                            </div>
-                          ))}
+                  <ErrorBoundary
+                    fallback={
+                      <div className="p-4 text-center">
+                        <p className="text-red-600">{translate('rss.errorOccurred')}</p>
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        >
+                          {translate('rss.reload')}
+                        </button>
                       </div>
-                    </div>
-                  </main>
+                    }
+                  >
+                    {/* Rest of the RSS content */}
+                    <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-gray-50">
+                      <RssSidebar
+                        feeds={rssFeeds}
+                        selectedCategory={selectedCategory}
+                        onCategoryChange={setSelectedCategory}
+                        onRefresh={handleRefreshFeed}
+                        onRemove={(feed) => handleRemoveFeed(feed.id)}
+                      />
+                    </aside>
+                    <main className="flex-1 min-w-0 overflow-y-auto">
+                      <div className="max-w-4xl w-full mx-auto p-6">
+                        <RssContent
+                          feed={rssFeeds.find(feed => feed.items.some(item => 
+                            item.contentTypes.includes(selectedCategory)
+                          ))}
+                          selectedCategory={selectedCategory}
+                        />
+                      </div>
+                    </main>
+                  </ErrorBoundary>
                 </div>
               ) : null}
             </>
