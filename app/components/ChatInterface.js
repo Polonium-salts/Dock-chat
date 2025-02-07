@@ -163,55 +163,71 @@ export default function ChatInterface() {
 
   // 添加内容类型检测函数
   const detectContentTypes = (item) => {
-    if (!item) return ['article']; // 默认返回文章类型
+    // 如果 item 为空，返回默认类型
+    if (!item) return ['article'];
     
-    const content = item.content || item['content:encoded'] || item.description || '';
-    const title = item.title || '';
-    const contentLower = (content || '').toLowerCase();
-    const titleLower = (title || '').toLowerCase();
+    try {
+      const content = (item.content || item['content:encoded'] || item.description || '').toString();
+      const title = (item.title || '').toString();
+      const contentLower = content.toLowerCase();
+      const titleLower = title.toLowerCase();
 
-    const types = new Set();
+      const types = new Set(['article']); // 默认添加文章类型
 
-    // 检测图片
-    if (/<img[^>]+src=["'][^"']+["'][^>]*>/i.test(content)) {
-      types.add('image');
+      // 检测图片 - 使用更简单的检测方法
+      if (content.includes('<img') || content.includes('.jpg') || content.includes('.png') || content.includes('.gif')) {
+        types.add('image');
+      }
+
+      // 检测视频 - 使用更简单的检测方法
+      if (
+        content.includes('youtube.com') ||
+        content.includes('vimeo.com') ||
+        content.includes('bilibili.com') ||
+        content.includes('youku.com') ||
+        content.includes('<video') ||
+        content.includes('.mp4')
+      ) {
+        types.add('video');
+      }
+
+      // 检测音频 - 使用更简单的检测方法
+      if (
+        content.includes('spotify.com') ||
+        content.includes('soundcloud.com') ||
+        content.includes('<audio') ||
+        content.includes('.mp3') ||
+        titleLower.includes('podcast') ||
+        titleLower.includes('音乐') ||
+        titleLower.includes('music')
+      ) {
+        types.add('audio');
+      }
+
+      // 检测社交媒体 - 使用更简单的检测方法
+      if (
+        content.includes('twitter.com') ||
+        content.includes('facebook.com') ||
+        content.includes('instagram.com') ||
+        content.includes('weibo.com') ||
+        content.includes('linkedin.com') ||
+        content.includes('@') ||
+        content.includes('#')
+      ) {
+        types.add('social');
+      }
+
+      // 如果内容超过200字，添加文章类型（虽然默认已经添加了）
+      const textContent = content.replace(/<[^>]+>/g, '').trim();
+      if (textContent.length > 200) {
+        types.add('article');
+      }
+
+      return Array.from(types);
+    } catch (error) {
+      console.error('Error detecting content types:', error);
+      return ['article']; // 发生错误时返回默认类型
     }
-
-    // 检测视频
-    if (
-      /<video[^>]*>|<iframe[^>]*(youtube|vimeo|bilibili|youku)[^>]*>/i.test(content) ||
-      /(youtube\.com|vimeo\.com|bilibili\.com|youku\.com)/i.test(contentLower) ||
-      /\.(mp4|webm|ogg)(\?|$)/i.test(contentLower)
-    ) {
-      types.add('video');
-    }
-
-    // 检测音频
-    if (
-      /<audio[^>]*>|<iframe[^>]*(spotify|soundcloud)[^>]*>/i.test(content) ||
-      /(spotify\.com|soundcloud\.com)/i.test(contentLower) ||
-      /\.(mp3|wav|ogg)(\?|$)/i.test(contentLower) ||
-      /podcast|音乐|music|song|track/i.test(titleLower)
-    ) {
-      types.add('audio');
-    }
-
-    // 检测社交媒体
-    if (
-      /(twitter\.com|facebook\.com|instagram\.com|weibo\.com|linkedin\.com)/i.test(contentLower) ||
-      /@[\w\d]+/i.test(content) ||
-      /#[\w\d]+/i.test(content)
-    ) {
-      types.add('social');
-    }
-
-    // 如果内容超过200字且没有其他类型，则归类为文章
-    const textContent = (content || '').replace(/<[^>]+>/g, '').trim();
-    if (textContent.length > 200 || types.size === 0) {
-      types.add('article');
-    }
-
-    return Array.from(types);
   };
 
   // 修改提取图片URL的函数
