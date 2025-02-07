@@ -10,7 +10,6 @@ import { useLanguage, useTranslation } from './LanguageProvider';
 import MusicPlayer from './MusicPlayer';
 import { RssService } from '../services/rssService';
 import sanitizeHtml from 'sanitize-html';
-import ErrorBoundary from './ErrorBoundary';
 
 export default function ChatInterface() {
   const { data: session } = useSession();
@@ -151,41 +150,25 @@ export default function ChatInterface() {
 
   // Load saved RSS feeds from localStorage
   useEffect(() => {
-    try {
-      const savedFeeds = localStorage.getItem('rssFeeds');
-      if (savedFeeds) {
-        const parsedFeeds = JSON.parse(savedFeeds);
-        setRssFeeds(Array.isArray(parsedFeeds) ? parsedFeeds : []);
-      }
-    } catch (error) {
-      console.error('Error loading RSS feeds from localStorage:', error);
-      setRssFeeds([]);
+    const savedFeeds = localStorage.getItem('rssFeeds');
+    if (savedFeeds) {
+      setRssFeeds(JSON.parse(savedFeeds));
     }
   }, []);
 
-  // Save RSS feeds to localStorage with error handling
+  // Save RSS feeds to localStorage
   useEffect(() => {
-    try {
-      localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
-    } catch (error) {
-      console.error('Error saving RSS feeds to localStorage:', error);
-      setRssError(translate('rss.savingError'));
-    }
+    localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
   }, [rssFeeds]);
-
-  // Add error recovery function
-  const handleRssError = (error) => {
-    console.error('RSS Error:', error);
-    setHasRssError(true);
-    setRssError(error.message || translate('rss.generalError'));
-  };
 
   // 添加内容类型检测函数
   const detectContentTypes = (item) => {
+    if (!item) return ['article']; // 默认返回文章类型
+    
     const content = item.content || item['content:encoded'] || item.description || '';
     const title = item.title || '';
-    const contentLower = content.toLowerCase();
-    const titleLower = title.toLowerCase();
+    const contentLower = (content || '').toLowerCase();
+    const titleLower = (title || '').toLowerCase();
 
     const types = new Set();
 
@@ -197,7 +180,7 @@ export default function ChatInterface() {
     // 检测视频
     if (
       /<video[^>]*>|<iframe[^>]*(youtube|vimeo|bilibili|youku)[^>]*>/i.test(content) ||
-      /(youtube.com|vimeo.com|bilibili.com|youku.com)/i.test(contentLower) ||
+      /(youtube\.com|vimeo\.com|bilibili\.com|youku\.com)/i.test(contentLower) ||
       /\.(mp4|webm|ogg)(\?|$)/i.test(contentLower)
     ) {
       types.add('video');
@@ -206,7 +189,7 @@ export default function ChatInterface() {
     // 检测音频
     if (
       /<audio[^>]*>|<iframe[^>]*(spotify|soundcloud)[^>]*>/i.test(content) ||
-      /(spotify.com|soundcloud.com)/i.test(contentLower) ||
+      /(spotify\.com|soundcloud\.com)/i.test(contentLower) ||
       /\.(mp3|wav|ogg)(\?|$)/i.test(contentLower) ||
       /podcast|音乐|music|song|track/i.test(titleLower)
     ) {
@@ -215,7 +198,7 @@ export default function ChatInterface() {
 
     // 检测社交媒体
     if (
-      /(twitter.com|facebook.com|instagram.com|weibo.com|linkedin.com)/i.test(contentLower) ||
+      /(twitter\.com|facebook\.com|instagram\.com|weibo\.com|linkedin\.com)/i.test(contentLower) ||
       /@[\w\d]+/i.test(content) ||
       /#[\w\d]+/i.test(content)
     ) {
@@ -223,7 +206,7 @@ export default function ChatInterface() {
     }
 
     // 如果内容超过200字且没有其他类型，则归类为文章
-    const textContent = content.replace(/<[^>]+>/g, '').trim();
+    const textContent = (content || '').replace(/<[^>]+>/g, '').trim();
     if (textContent.length > 200 || types.size === 0) {
       types.add('article');
     }
@@ -237,23 +220,24 @@ export default function ChatInterface() {
     
     try {
       const urls = new Set();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(content, 'text/html');
+      const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+      let match;
       
-      // 获取所有图片标签
-      doc.querySelectorAll('img').forEach(img => {
-        const src = img.getAttribute('src');
+      while ((match = imgRegex.exec(content)) !== null) {
+        const src = match[1];
         if (src) {
           try {
-            const url = new URL(src, window.location.origin);
-            if (url.protocol === 'http:' || url.protocol === 'https:') {
-              urls.add(url.href);
+            // 使用相对路径时添加基础URL
+            const url = src.startsWith('http') ? src : `https://${src.replace(/^\/\//, '')}`;
+            if (url.startsWith('http')) {
+              urls.add(url);
             }
           } catch (e) {
             // 忽略无效的URL
+            console.warn('Invalid image URL:', src);
           }
         }
-      });
+      }
 
       return Array.from(urls);
     } catch (error) {
@@ -265,61 +249,49 @@ export default function ChatInterface() {
   // 修改RSS处理函数
   const processRssFeed = (feedData) => {
     try {
-      if (!feedData || typeof feedData !== 'object') {
-        throw new Error('Invalid feed data');
-      }
-
-      const processedItems = (feedData.items || [])
-        .filter(item => item && typeof item === 'object')
-        .map(item => {
-          try {
-            const contentTypes = detectContentTypes(item);
-            const content = item.content || item['content:encoded'] || item.description || '';
-            
-            // Safely sanitize content
-            let sanitizedContent = '';
-            try {
-              sanitizedContent = sanitizeHtml(content, {
-                allowedTags: [ 'p', 'b', 'i', 'em', 'strong', 'a', 'img', 'br', 'div', 'span' ],
-                allowedAttributes: {
-                  'a': [ 'href' ],
-                  'img': [ 'src', 'alt' ]
-                }
-              });
-            } catch (sanitizeError) {
-              console.warn('Error sanitizing content:', sanitizeError);
-              sanitizedContent = content.replace(/<[^>]*>/g, '');
+      const processedItems = (feedData.items || []).map(item => {
+        try {
+          const contentTypes = detectContentTypes(item);
+          // 使用DOMParser安全解析HTML内容
+          const parser = new DOMParser();
+          const content = item.content || item['content:encoded'] || item.description || '';
+          const doc = parser.parseFromString(content, 'text/html');
+          
+          // 清理潜在的危险标签和属性
+          const sanitizedContent = sanitizeHtml(content, {
+            allowedTags: [ 'p', 'b', 'i', 'em', 'strong', 'a', 'img', 'br', 'div', 'span' ],
+            allowedAttributes: {
+              'a': [ 'href' ],
+              'img': [ 'src', 'alt' ]
             }
-            
-            return {
-              id: item.guid || item.link || `${Date.now()}-${Math.random()}`,
-              title: item.title || 'Untitled Item',
-              link: item.link || '',
-              date: item.pubDate || item.isoDate || new Date().toISOString(),
-              content: sanitizedContent,
-              contentSnippet: item.contentSnippet || item.description || '',
-              imageUrls: extractImageUrls(content).filter(url => {
-                try {
-                  new URL(url);
-                  return true;
-                } catch {
-                  return false;
-                }
-              }),
-              contentTypes: contentTypes,
-            };
-          } catch (itemError) {
-            console.warn('Error processing RSS item:', itemError);
-            return null;
-          }
-        }).filter(Boolean);
+          });
+          
+          return {
+            id: item.guid || item.link || Date.now().toString(),
+            title: item.title || 'Untitled Item',
+            link: item.link || '',
+            date: item.pubDate || item.isoDate || new Date().toISOString(),
+            content: sanitizedContent,
+            contentSnippet: item.contentSnippet || item.description || '',
+            imageUrls: extractImageUrls(content).filter(url => {
+              try {
+                new URL(url);
+                return true;
+              } catch {
+                return false;
+              }
+            }),
+            contentTypes: contentTypes,
+          };
+        } catch (itemError) {
+          console.error('Error processing RSS item:', itemError);
+          return null;
+        }
+      }).filter(Boolean); // 过滤掉处理失败的项
 
-      if (processedItems.length === 0) {
-        throw new Error(translate('rss.noValidItems'));
-      }
-
+      // 统计各种类型的内容数量
       const typeCounts = processedItems.reduce((acc, item) => {
-        (item.contentTypes || []).forEach(type => {
+        item.contentTypes.forEach(type => {
           acc[type] = (acc[type] || 0) + 1;
         });
         return acc;
@@ -332,7 +304,11 @@ export default function ChatInterface() {
       };
     } catch (error) {
       console.error('Error processing RSS feed:', error);
-      throw error;
+      return {
+        items: [],
+        primaryType: 'article',
+        typeCounts: { article: 0 }
+      };
     }
   };
 
@@ -1197,43 +1173,6 @@ export default function ChatInterface() {
     }
   };
 
-  // Add error boundary for RSS content
-  const RssContent = ({ feed, selectedCategory }) => {
-    if (hasRssError) {
-      return (
-        <div className="p-4 text-center">
-          <p className="text-red-600">{translate('rss.errorOccurred')}</p>
-          <button
-            onClick={() => {
-              setHasRssError(false);
-              setRssError(null);
-            }}
-            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            {translate('rss.tryAgain')}
-          </button>
-        </div>
-      );
-    }
-
-    try {
-      return (
-        <div className="space-y-6">
-          {feed.items
-            ?.filter(item => item?.contentTypes?.includes(selectedCategory))
-            .map((item, index) => (
-              <div key={item?.id || index} className="bg-white rounded-lg shadow-sm p-6">
-                <FeedPreview feed={feed} initialType={selectedCategory} />
-              </div>
-            ))}
-        </div>
-      );
-    } catch (error) {
-      handleRssError(error);
-      return null;
-    }
-  };
-
   return (
     <div className="flex h-screen w-full bg-white">
       {/* Left Navigation Bar */}
@@ -1506,40 +1445,31 @@ export default function ChatInterface() {
                 </div>
               ) : activeTab === 'rss' ? (
                 <div className="flex-1 flex overflow-hidden">
-                  <ErrorBoundary
-                    fallback={
-                      <div className="p-4 text-center">
-                        <p className="text-red-600">{translate('rss.errorOccurred')}</p>
-                        <button
-                          onClick={() => window.location.reload()}
-                          className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        >
-                          {translate('rss.reload')}
-                        </button>
-                      </div>
-                    }
-                  >
-                    {/* Rest of the RSS content */}
-                    <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-gray-50">
-                      <RssSidebar
-                        feeds={rssFeeds}
-                        selectedCategory={selectedCategory}
-                        onCategoryChange={setSelectedCategory}
-                        onRefresh={handleRefreshFeed}
-                        onRemove={(feed) => handleRemoveFeed(feed.id)}
-                      />
-                    </aside>
-                    <main className="flex-1 min-w-0 overflow-y-auto">
-                      <div className="max-w-4xl w-full mx-auto p-6">
-                        <RssContent
-                          feed={rssFeeds.find(feed => feed.items.some(item => 
-                            item.contentTypes.includes(selectedCategory)
+                  {/* 左侧边栏 */}
+                  <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-gray-50">
+                    <RssSidebar
+                      feeds={rssFeeds}
+                      selectedCategory={selectedCategory}
+                      onCategoryChange={setSelectedCategory}
+                      onRefresh={handleRefreshFeed}
+                      onRemove={(feed) => handleRemoveFeed(feed.id)}
+                    />
+                  </aside>
+
+                  {/* 主内容区域 */}
+                  <main className="flex-1 min-w-0 overflow-y-auto">
+                    <div className="max-w-4xl w-full mx-auto p-6">
+                      <div className="space-y-6">
+                        {rssFeeds
+                          .filter(feed => feed.items.some(item => item.contentTypes.includes(selectedCategory)))
+                          .map((feed, index) => (
+                            <div key={index} className="bg-white rounded-lg shadow-sm p-6">
+                              <FeedPreview feed={feed} initialType={selectedCategory} />
+                            </div>
                           ))}
-                          selectedCategory={selectedCategory}
-                        />
                       </div>
-                    </main>
-                  </ErrorBoundary>
+                    </div>
+                  </main>
                 </div>
               ) : null}
             </>
