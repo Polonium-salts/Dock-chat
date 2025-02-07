@@ -252,12 +252,9 @@ export default function ChatInterface() {
       const processedItems = (feedData.items || []).map(item => {
         try {
           const contentTypes = detectContentTypes(item);
-          // 使用DOMParser安全解析HTML内容
-          const parser = new DOMParser();
           const content = item.content || item['content:encoded'] || item.description || '';
-          const doc = parser.parseFromString(content, 'text/html');
           
-          // 清理潜在的危险标签和属性
+          // 直接使用 sanitizeHtml 清理内容
           const sanitizedContent = sanitizeHtml(content, {
             allowedTags: [ 'p', 'b', 'i', 'em', 'strong', 'a', 'img', 'br', 'div', 'span' ],
             allowedAttributes: {
@@ -275,8 +272,7 @@ export default function ChatInterface() {
             contentSnippet: item.contentSnippet || item.description || '',
             imageUrls: extractImageUrls(content).filter(url => {
               try {
-                new URL(url);
-                return true;
+                return url.startsWith('http');
               } catch {
                 return false;
               }
@@ -291,9 +287,11 @@ export default function ChatInterface() {
 
       // 统计各种类型的内容数量
       const typeCounts = processedItems.reduce((acc, item) => {
-        item.contentTypes.forEach(type => {
-          acc[type] = (acc[type] || 0) + 1;
-        });
+        if (item.contentTypes && Array.isArray(item.contentTypes)) {
+          item.contentTypes.forEach(type => {
+            acc[type] = (acc[type] || 0) + 1;
+          });
+        }
         return acc;
       }, {});
 
