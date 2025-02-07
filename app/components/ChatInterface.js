@@ -365,6 +365,11 @@ export default function ChatInterface() {
 
         const data = await response.json();
         
+        // 验证返回的数据结构
+        if (!data || (!data.feeds && !data.items)) {
+          throw new Error(translate('rss.invalidFeed'));
+        }
+        
         // 处理发现服务返回的数据结构
         const feedData = data.feeds && data.feeds.length > 0 ? data.feeds[0] : data;
         
@@ -382,7 +387,7 @@ export default function ChatInterface() {
           },
           body: JSON.stringify({ 
             url: feedData.url || rssUrl,
-            timeout: 30000 // 30秒超时
+            timeout: 30000
           }),
           credentials: 'same-origin'
         });
@@ -397,6 +402,18 @@ export default function ChatInterface() {
         if (!fullFeedData || !Array.isArray(fullFeedData.items)) {
           throw new Error(translate('rss.invalidFeed'));
         }
+
+        // 确保每个item都有基本的必要属性
+        const validatedItems = fullFeedData.items.map(item => ({
+          ...item,
+          content: item.content || item['content:encoded'] || item.description || '',
+          title: item.title || 'Untitled Item',
+          link: item.link || '',
+          pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
+          contentSnippet: item.contentSnippet || item.description || ''
+        }));
+
+        fullFeedData.items = validatedItems;
 
         // 处理RSS内容
         const processedFeed = processRssFeed(fullFeedData);
@@ -419,14 +436,6 @@ export default function ChatInterface() {
         setRssFeeds(prev => [...prev, newFeed]);
         setRssUrl('');
         setDiscoveredFeeds(data.feeds ? data.feeds.slice(1) : []);
-        
-        // 保存到本地存储
-        const updatedFeeds = [...rssFeeds, newFeed];
-        try {
-          localStorage.setItem('rssFeeds', JSON.stringify(updatedFeeds));
-        } catch (storageError) {
-          console.error('Error saving to localStorage:', storageError);
-        }
         
       } catch (error) {
         clearTimeout(timeout);
@@ -485,6 +494,10 @@ export default function ChatInterface() {
     setIsLoadingFeed(true);
     setRssError(null);
     try {
+      if (!feed || !feed.url) {
+        throw new Error('Invalid feed data');
+      }
+
       if (rssFeeds.some(f => f.url === feed.url)) {
         throw new Error(translate('rss.feedExists'));
       }
@@ -505,27 +518,38 @@ export default function ChatInterface() {
 
       const feedData = await feedResponse.json();
 
-      // 检测是否为图片RSS源
-      const isImageFeed = checkIfImageFeed(feedData);
+      // 验证和规范化 feed 数据
+      if (!feedData || !Array.isArray(feedData.items)) {
+        throw new Error('Invalid feed data structure');
+      }
+
+      // 确保每个item都有基本的必要属性
+      const validatedItems = feedData.items.map(item => ({
+        ...item,
+        content: item.content || item['content:encoded'] || item.description || '',
+        title: item.title || 'Untitled Item',
+        link: item.link || '',
+        pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
+        contentSnippet: item.contentSnippet || item.description || ''
+      }));
+
+      feedData.items = validatedItems;
       
       setRssFeeds(prev => [...prev, {
         id: Date.now(),
         title: feedData.title || feed.title || 'RSS Feed',
         description: feedData.description || '',
         url: feed.url,
-        primaryType: isImageFeed ? 'image' : 'article',
-        typeCounts: {
-          image: isImageFeed ? 1 : 0,
-          article: 1
-        },
-        items: (feedData.items || []).map(item => ({
+        primaryType: 'article',
+        typeCounts: { article: 1 },
+        items: validatedItems.map(item => ({
           id: item.guid || item.link || Date.now().toString(),
-          title: item.title || 'Untitled Item',
-          link: item.link || '',
-          date: item.pubDate || item.isoDate || new Date().toISOString(),
-          content: item.content || item['content:encoded'] || item.description || '',
-          contentSnippet: item.contentSnippet || item.description || '',
-          imageUrls: extractImageUrls(item.content || item['content:encoded'] || item.description || ''),
+          title: item.title,
+          link: item.link,
+          date: item.pubDate,
+          content: item.content,
+          contentSnippet: item.contentSnippet,
+          imageUrls: extractImageUrls(item.content),
           contentTypes: detectContentTypes(item),
         }))
       }]);
