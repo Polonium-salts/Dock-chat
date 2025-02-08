@@ -1,11 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 启用样式优化
-  optimizeFonts: true,
-  // 确保在生产环境中正确加载样式
-  poweredByHeader: false,
-  reactStrictMode: true,
-  swcMinify: true,
-}
+  webpack: (config) => {
+    config.externals.push({
+      'utf-8-validate': 'commonjs utf-8-validate',
+      'bufferutil': 'commonjs bufferutil',
+    });
+    return config;
+  },
+};
 
 export default nextConfig;
