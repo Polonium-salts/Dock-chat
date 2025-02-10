@@ -30,6 +30,7 @@ export default function MusicPlayer({ onLyricsChange }) {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [currentLyrics, setCurrentLyrics] = useState({ lrc: '', tlyric: '' });
+  const [isSearchMode, setIsSearchMode] = useState(false);
   const audioRef = useRef(null);
   const musicServiceRef = useRef(null);
 
@@ -248,14 +249,30 @@ export default function MusicPlayer({ onLyricsChange }) {
     <div className="h-full flex flex-col md:flex-row bg-white">
       <audio ref={audioRef} className="hidden" onLoadedMetadata={(e) => setDuration(e.target.duration)} />
       
+      {/* Mobile Search Mode Toggle Button */}
+      <div className="md:hidden fixed bottom-20 right-4 z-50">
+        <button
+          onClick={() => setIsSearchMode(!isSearchMode)}
+          className="w-12 h-12 bg-purple-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-purple-700 active:bg-purple-800 transform active:scale-95 transition-all"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {isSearchMode ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            )}
+          </svg>
+        </button>
+      </div>
+      
       {/* Left Panel - Fixed Player */}
-      <div className="w-full md:w-80 flex-none flex flex-col border-b md:border-b-0 md:border-r border-gray-100">
+      <div className={`w-full md:w-80 flex-none flex flex-col border-b md:border-b-0 md:border-r border-gray-100 ${isSearchMode ? 'hidden md:flex' : 'flex'}`}>
         {/* Now Playing */}
         <div className="flex-1 p-4 overflow-hidden">
           <div className="h-full flex flex-col">
             {currentTrack ? (
               <div className="space-y-4 flex-none">
-                <div className="relative aspect-square w-full max-w-[240px] mx-auto rounded-2xl overflow-hidden shadow-lg group">
+                <div className="relative aspect-square w-full max-w-[200px] mx-auto rounded-2xl overflow-hidden shadow-lg group">
                   {currentTrack.cover ? (
                     <img
                       src={currentTrack.cover}
@@ -264,7 +281,7 @@ export default function MusicPlayer({ onLyricsChange }) {
                     />
                   ) : (
                     <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                      <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-12 h-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                       </svg>
                     </div>
@@ -272,7 +289,7 @@ export default function MusicPlayer({ onLyricsChange }) {
                 </div>
                 
                 <div className="space-y-1 text-center">
-                  <h3 className="font-medium text-gray-900 line-clamp-1">
+                  <h3 className="font-medium text-gray-900 line-clamp-1 text-base">
                     {currentTrack.title}
                   </h3>
                   <p className="text-sm text-gray-500 line-clamp-1">
@@ -297,21 +314,21 @@ export default function MusicPlayer({ onLyricsChange }) {
                 </div>
 
                 {/* Controls */}
-                <div className="flex items-center justify-between px-4">
+                <div className="flex items-center justify-between px-2 md:px-4">
                   <button
                     onClick={handlePrevTrack}
-                    className="p-3 text-gray-400 hover:text-gray-600 rounded-full active:bg-gray-100"
+                    className="p-2 md:p-3 text-gray-400 hover:text-gray-600 rounded-full active:bg-gray-100"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
                     </svg>
                   </button>
                   
                   <button
                     onClick={handlePlayPause}
-                    className="p-4 bg-purple-600 text-white rounded-full hover:bg-purple-700 active:bg-purple-800 transform active:scale-95 transition-all"
+                    className="p-3 md:p-4 bg-purple-600 text-white rounded-full hover:bg-purple-700 active:bg-purple-800 transform active:scale-95 transition-all"
                   >
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 md:w-8 md:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       {isPlaying ? (
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       ) : (
@@ -322,9 +339,9 @@ export default function MusicPlayer({ onLyricsChange }) {
 
                   <button
                     onClick={handleNextTrack}
-                    className="p-3 text-gray-400 hover:text-gray-600 rounded-full active:bg-gray-100"
+                    className="p-2 md:p-3 text-gray-400 hover:text-gray-600 rounded-full active:bg-gray-100"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                     </svg>
                   </button>
@@ -334,9 +351,9 @@ export default function MusicPlayer({ onLyricsChange }) {
                 <div className="flex items-center space-x-2 px-1">
                   <button
                     onClick={() => setVolume(volume === 0 ? 80 : 0)}
-                    className="p-2 text-gray-400 hover:text-gray-600 rounded-full active:bg-gray-100"
+                    className="p-1.5 md:p-2 text-gray-400 hover:text-gray-600 rounded-full active:bg-gray-100"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       {volume === 0 ? (
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                       ) : volume < 50 ? (
@@ -352,14 +369,14 @@ export default function MusicPlayer({ onLyricsChange }) {
                     max="100"
                     value={volume}
                     onChange={handleVolumeChange}
-                    className="flex-1 h-2 bg-gray-100 rounded-full appearance-none cursor-pointer accent-purple-600 touch-pan-x"
+                    className="flex-1 h-1.5 md:h-2 bg-gray-100 rounded-full appearance-none cursor-pointer accent-purple-600 touch-pan-x"
                   />
                 </div>
               </div>
             ) : (
               <div className="h-full flex items-center justify-center text-gray-400">
                 <div className="text-center">
-                  <svg className="w-16 h-16 mx-auto mb-4 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                   </svg>
                   <p className="text-sm">
@@ -371,9 +388,9 @@ export default function MusicPlayer({ onLyricsChange }) {
           </div>
         </div>
 
-        {/* Lyrics Panel */}
+        {/* Lyrics Panel - Only show on desktop */}
         {currentLyrics.lrc && (
-          <div className="flex-none h-24 md:h-32 p-2 border-t border-gray-100">
+          <div className="hidden md:block flex-none h-24 md:h-32 p-2 border-t border-gray-100">
             <div className="h-full overflow-y-auto lyrics-container hover:scrollbar-thin hover:scrollbar-thumb-gray-300 hover:scrollbar-track-gray-100">
               <pre className="text-xs text-gray-500 whitespace-pre-wrap text-center">
                 {currentLyrics.lrc}
@@ -384,9 +401,9 @@ export default function MusicPlayer({ onLyricsChange }) {
       </div>
 
       {/* Right Panel - Search and Playlist */}
-      <div className="flex-1 flex flex-col min-w-0 h-[calc(100vh-24rem)] md:h-full">
+      <div className={`flex-1 flex flex-col min-w-0 h-[calc(100vh-24rem)] md:h-full ${isSearchMode ? 'flex' : 'hidden md:flex'}`}>
         {/* Search Bar */}
-        <div className="flex-none p-3 border-b border-gray-100">
+        <div className="flex-none p-2 md:p-3 border-b border-gray-100">
           {!musicSource ? (
             <div className="text-center text-red-500 py-1.5 px-3 bg-red-50 rounded-lg text-sm">
               {translate('music.configurationRequired')}
@@ -398,13 +415,13 @@ export default function MusicPlayer({ onLyricsChange }) {
                 value={searchKeyword}
                 onChange={handleSearchInput}
                 placeholder={translate('music.searchPlaceholder')}
-                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                className="w-full pl-9 pr-4 py-2.5 md:py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
               />
-              <svg className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="absolute left-3 top-3 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               {isSearching && (
-                <div className="absolute right-3 top-3.5">
+                <div className="absolute right-3 top-3">
                   <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
                 </div>
               )}
@@ -421,7 +438,7 @@ export default function MusicPlayer({ onLyricsChange }) {
                   <button
                     key={track.id}
                     onClick={() => handleTrackSelect(track)}
-                    className={`w-full px-4 py-3 flex items-center space-x-3 hover:bg-gray-50 active:bg-gray-100 transition-colors ${
+                    className={`w-full px-3 md:px-4 py-2.5 md:py-3 flex items-center space-x-3 hover:bg-gray-50 active:bg-gray-100 transition-colors ${
                       currentTrack?.id === track.id ? 'bg-purple-50' : ''
                     }`}
                   >
@@ -430,11 +447,11 @@ export default function MusicPlayer({ onLyricsChange }) {
                         <img
                           src={track.cover}
                           alt={track.title}
-                          className="w-12 h-12 rounded-lg object-cover"
+                          className="w-10 h-10 md:w-12 md:h-12 rounded-lg object-cover"
                         />
                       ) : (
-                        <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
-                          <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-gray-100 flex items-center justify-center">
+                          <svg className="w-5 h-5 md:w-6 md:h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                           </svg>
                         </div>
@@ -447,10 +464,10 @@ export default function MusicPlayer({ onLyricsChange }) {
                       )}
                     </div>
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="font-medium text-gray-900 truncate">
+                      <div className="font-medium text-gray-900 truncate text-sm md:text-base">
                         {track.title}
                       </div>
-                      <div className="text-sm text-gray-500 truncate">
+                      <div className="text-xs md:text-sm text-gray-500 truncate">
                         {track.artist}
                       </div>
                     </div>
@@ -463,7 +480,7 @@ export default function MusicPlayer({ onLyricsChange }) {
             ) : (
               <div className="h-full flex items-center justify-center text-gray-400">
                 <div className="text-center">
-                  <svg className="w-12 h-12 mx-auto mb-2 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                   </svg>
                   <p className="text-sm">
