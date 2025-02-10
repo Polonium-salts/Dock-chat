@@ -5,7 +5,13 @@ import SessionProvider from './components/SessionProvider';
 import LanguageProvider from './components/LanguageProvider';
 import { authOptions } from './auth/config';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  adjustFontFallback: false,
+  preload: true,
+  weight: ['400', '500', '600', '700'],
+});
 
 export const metadata = {
   title: 'DockChat - Chat & RSS Platform',
@@ -16,8 +22,8 @@ export default async function RootLayout({ children }) {
   const session = await getServerSession(authOptions);
 
   return (
-    <html lang="en" data-theme="light">
-      <body className={inter.className}>
+    <html lang="en" data-theme="light" className={inter.className}>
+      <body>
         <SessionProvider session={session}>
           <LanguageProvider>
             {children}

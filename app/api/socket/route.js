@@ -15,6 +15,8 @@ if (!global.io) {
       methods: ['GET', 'POST'],
     },
     transports: ['websocket', 'polling'],
+    pingTimeout: 60000,
+    pingInterval: 25000,
   });
 
   io.on('connection', (socket) => {
@@ -31,13 +33,20 @@ if (!global.io) {
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);
     });
+
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+    });
   });
 
-  // 启动HTTP服务器
-  const PORT = parseInt(process.env.SOCKET_PORT || '3001', 10);
-  httpServer.listen(PORT, () => {
-    console.log(`Socket.IO server running on port ${PORT}`);
-  });
+  const PORT = parseInt(process.env.SOCKET_PORT || '3002', 10);
+  try {
+    httpServer.listen(PORT, () => {
+      console.log(`Socket.IO server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start Socket.IO server:', error);
+  }
 
   global.io = io;
 }
