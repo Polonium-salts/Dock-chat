@@ -1,0 +1,66 @@
+{
+  "settings": {
+    "title": "Settings",
+    "ai": "AI Configuration",
+    "appearance": "Appearance",
+    "notifications": "Notifications",
+    "about": "About",
+    "music": "Music"
+  },
+  "appearance": {
+    "theme": "Theme",
+    "language": "Language",
+    "fontSize": "Font Size",
+    "themes": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "fontSizes": {
+      "small": "Small",
+      "medium": "Medium",
+      "large": "Large"
+    }
+  },
+  "notifications": {
+    "messageSound": "Message Sound",
+    "desktop": "Desktop Notifications"
+  },
+  "chat": {
+    "title": "Chat Room",
+    "newMessage": "Type a message...",
+    "aiTyping": "AI is typing..."
+  },
+  "ai": {
+    "title": "AI Chat",
+    "newChat": "New Chat",
+    "askAi": "Ask AI anything..."
+  },
+  "rss": {
+    "title": "RSS Reader",
+    "addFeed": "Add Feed",
+    "enterUrl": "Enter RSS URL..."
+  },
+  "music": {
+    "title": "Music Player",
+    "sourceType": "Source Type",
+    "sourceTypeApi": "API Endpoint",
+    "sourceTypeSource": "Source URL",
+    "apiEndpoint": "API Endpoint",
+    "sourceUrl": "Source URL",
+    "enterApiEndpoint": "Enter API endpoint URL...",
+    "enterSourceUrl": "Enter source URL...",
+    "save": "Save Configuration",
+    "currentConfig": "Current Configuration",
+    "noSource": "No music source configured",
+    "noTrackPlaying": "No track playing",
+    "noTracks": "No tracks available",
+    "play": "Play",
+    "pause": "Pause",
+    "next": "Next",
+    "previous": "Previous",
+    "search": "Search",
+    "searching": "Searching...",
+    "searchPlaceholder": "Enter song name or artist..."
+  }
+} 
