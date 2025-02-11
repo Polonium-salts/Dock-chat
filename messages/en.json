@@ -11,6 +11,18 @@
     "theme": "Theme",
     "language": "Language",
     "fontSize": "Font Size",
+    "background": "Background",
+    "backgroundImage": "Background Image",
+    "backgroundImageUrl": "Enter image URL",
+    "backgroundOpacity": "Background Opacity",
+    "backgroundBlur": "Background Blur",
+    "backgroundPosition": "Background Position",
+    "backgroundPositionX": "X Position",
+    "backgroundPositionY": "Y Position",
+    "dragToAdjust": "Drag to adjust position",
+    "backgroundSize": "Background Size",
+    "backgroundImageError": "Failed to load image. Please check the URL and try again.",
+    "removeBackground": "Remove",
     "themes": {
       "light": "Light",
       "dark": "Dark",
@@ -20,6 +32,18 @@
       "small": "Small",
       "medium": "Medium",
       "large": "Large"
+    },
+    "positions": {
+      "center": "Center",
+      "top": "Top",
+      "bottom": "Bottom",
+      "left": "Left",
+      "right": "Right"
+    },
+    "sizes": {
+      "cover": "Cover",
+      "contain": "Contain",
+      "auto": "Auto"
     }
   },
   "notifications": {
@@ -27,7 +51,7 @@
     "desktop": "Desktop Notifications"
   },
   "chat": {
-    "title": "Chat Room",
+    "title": "",
     "newMessage": "Type a message...",
     "aiTyping": "AI is typing..."
   },

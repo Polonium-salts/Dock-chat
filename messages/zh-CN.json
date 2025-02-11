@@ -11,6 +11,18 @@
     "theme": "主题",
     "language": "语言",
     "fontSize": "字体大小",
+    "background": "背景",
+    "backgroundImage": "背景图片",
+    "backgroundImageUrl": "输入图片链接",
+    "backgroundOpacity": "背景透明度",
+    "removeBackground": "移除",
+    "backgroundBlur": "背景模糊",
+    "backgroundPosition": "背景位置",
+    "backgroundPositionX": "X 坐标",
+    "backgroundPositionY": "Y 坐标",
+    "dragToAdjust": "拖动调整位置",
+    "backgroundSize": "背景大小",
+    "backgroundImageError": "图片加载失败，请检查链接后重试。",
     "themes": {
       "light": "浅色",
       "dark": "深色",
@@ -20,6 +32,18 @@
       "small": "小",
       "medium": "中",
       "large": "大"
+    },
+    "positions": {
+      "center": "居中",
+      "top": "顶部",
+      "bottom": "底部",
+      "left": "左侧",
+      "right": "右侧"
+    },
+    "sizes": {
+      "cover": "填充",
+      "contain": "适应",
+      "auto": "原始"
     }
   },
   "notifications": {
@@ -27,7 +51,7 @@
     "desktop": "桌面通知"
   },
   "chat": {
-    "title": "聊天室",
+    "title": "",
     "newMessage": "输入消息...",
     "aiTyping": "AI 正在输入..."
   },
