@@ -30,13 +30,10 @@ export function useSocket(onMessageReceived) {
         reconnectionDelay: 3000,
         reconnectionDelayMax: 10000,
         timeout: 20000,
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'],
         forceNew: true,
         autoConnect: false,
-        withCredentials: true,
-        extraHeaders: {
-          'Access-Control-Allow-Origin': '*'
-        }
+        withCredentials: true
       });
 
       socketRef.current.on('connect', () => {
@@ -51,21 +48,35 @@ export function useSocket(onMessageReceived) {
         }
       });
 
+      socketRef.current.on('message', (message) => {
+        console.log('Received message:', message);
+        if (onMessageReceived && typeof onMessageReceived === 'function') {
+          onMessageReceived(message);
+        }
+      });
+
+      socketRef.current.on('room_list', (rooms) => {
+        console.log('Received room list:', rooms);
+        // 可以在这里处理房间列表更新
+      });
+
+      socketRef.current.on('room_history', ({ roomId, messages }) => {
+        console.log('Received room history:', roomId, messages);
+        // 可以在这里处理房间历史消息
+        if (onMessageReceived && typeof onMessageReceived === 'function') {
+          messages.forEach(message => onMessageReceived(message));
+        }
+      });
+
       socketRef.current.on('connect_error', (error) => {
         console.error('Socket.IO connection error:', error);
         setConnected(false);
         
-        // 尝试切换到轮询传输
-        if (socketRef.current.io.opts.transports.indexOf('polling') === -1) {
-          console.log('Falling back to polling transport');
-          socketRef.current.io.opts.transports = ['polling', 'websocket'];
-          
-          if (!reconnectTimeoutRef.current) {
-            reconnectTimeoutRef.current = setTimeout(() => {
-              reconnectTimeoutRef.current = null;
-              connect();
-            }, 3000);
-          }
+        if (!reconnectTimeoutRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            connect();
+          }, 3000);
         }
       });
 
@@ -98,7 +109,7 @@ export function useSocket(onMessageReceived) {
         }, 3000);
       }
     }
-  }, []);
+  }, [onMessageReceived]);
 
   useEffect(() => {
     connect();
@@ -152,8 +163,16 @@ export function useSocket(onMessageReceived) {
     }
   }, [connect]);
 
+  const setUserInfo = useCallback((userInfo) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('set_user_info', userInfo);
+    }
+  }, []);
+
   return {
     connected,
     sendMessage,
+    setUserInfo,
+    socket: socketRef.current,
   };
 } 
