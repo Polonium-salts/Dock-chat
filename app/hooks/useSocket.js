@@ -26,13 +26,17 @@ export function useSocket(onMessageReceived) {
       socketRef.current = io(SOCKET_URL, {
         path: '/api/socket',
         reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 3000,
+        reconnectionDelayMax: 10000,
         timeout: 20000,
-        transports: ['websocket', 'polling'],
+        transports: ['websocket'],
         forceNew: true,
-        autoConnect: true,
+        autoConnect: false,
+        withCredentials: true,
+        extraHeaders: {
+          'Access-Control-Allow-Origin': '*'
+        }
       });
 
       socketRef.current.on('connect', () => {
@@ -47,10 +51,21 @@ export function useSocket(onMessageReceived) {
         }
       });
 
-      socketRef.current.on('message', (message) => {
-        console.log('Received message:', message);
-        if (onMessageReceived && typeof onMessageReceived === 'function') {
-          onMessageReceived(message);
+      socketRef.current.on('connect_error', (error) => {
+        console.error('Socket.IO connection error:', error);
+        setConnected(false);
+        
+        // 尝试切换到轮询传输
+        if (socketRef.current.io.opts.transports.indexOf('polling') === -1) {
+          console.log('Falling back to polling transport');
+          socketRef.current.io.opts.transports = ['polling', 'websocket'];
+          
+          if (!reconnectTimeoutRef.current) {
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectTimeoutRef.current = null;
+              connect();
+            }, 3000);
+          }
         }
       });
 
@@ -58,10 +73,9 @@ export function useSocket(onMessageReceived) {
         console.log('Socket.IO disconnected:', reason);
         setConnected(false);
         
-        // 特定情况下的重连逻辑
         if (reason === 'io server disconnect' || reason === 'transport close') {
           console.log('Attempting to reconnect...');
-          setTimeout(() => connect(), 1000);
+          setTimeout(() => connect(), 3000);
         }
       });
 
@@ -70,23 +84,8 @@ export function useSocket(onMessageReceived) {
         setConnected(false);
       });
 
-      socketRef.current.on('connect_error', (error) => {
-        console.error('Socket.IO connection error:', error);
-        setConnected(false);
-        
-        if (!reconnectTimeoutRef.current) {
-          console.log('Scheduling reconnection attempt...');
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectTimeoutRef.current = null;
-            connect();
-          }, 3000);
-        }
-      });
-
       // 强制连接
-      if (!socketRef.current.connected) {
-        socketRef.current.connect();
-      }
+      socketRef.current.connect();
 
     } catch (error) {
       console.error('Failed to initialize Socket.IO:', error);
@@ -99,7 +98,7 @@ export function useSocket(onMessageReceived) {
         }, 3000);
       }
     }
-  }, [onMessageReceived]);
+  }, []);
 
   useEffect(() => {
     connect();

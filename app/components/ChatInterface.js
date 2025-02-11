@@ -712,6 +712,17 @@ export default function ChatInterface() {
     );
   };
 
+  // Add delete chat handler
+  const handleDeleteChat = (chatId) => {
+    if (window.confirm(translate('ai.confirmDelete'))) {
+      setAiChats(prev => prev.filter(chat => chat.id !== chatId));
+      if (currentChatId === chatId) {
+        setCurrentChatId(null);
+        setAiMessages([]);
+      }
+    }
+  };
+
   return (
     <div 
       className="flex h-screen w-full bg-white flex-col md:flex-row relative"
@@ -1044,27 +1055,43 @@ export default function ChatInterface() {
                     </div>
                     <div className="flex-1 overflow-y-auto p-4">
                       {aiChats.length === 0 ? (
-                        <div className="text-sm text-gray-600 text-center">No chat history</div>
+                        <div className="text-sm text-gray-600 text-center">{translate('ai.noChats')}</div>
                       ) : (
                         <div className="space-y-2">
                           {aiChats.map((chat) => (
-                            <button
+                            <div
                               key={chat.id}
-                              onClick={() => {
-                                setCurrentChatId(chat.id);
-                                setAiMessages(chat.messages);
-                              }}
-                              className={`w-full p-3 text-left rounded-lg transition-colors ${
+                              className={`group relative p-3 text-left rounded-lg transition-colors ${
                                 currentChatId === chat.id
                                   ? 'bg-purple-100 text-purple-900 border border-purple-200'
                                   : 'hover:bg-gray-50 text-gray-700 border border-transparent'
                               }`}
                             >
-                              <div className="text-sm font-medium truncate">{chat.title}</div>
-                              <div className="text-xs text-gray-600 mt-1">
-                                {new Date(chat.timestamp).toLocaleDateString()}
-                              </div>
-                            </button>
+                              <button
+                                onClick={() => {
+                                  setCurrentChatId(chat.id);
+                                  setAiMessages(chat.messages);
+                                }}
+                                className="w-full text-left"
+                              >
+                                <div className="text-sm font-medium truncate pr-8">{chat.title}</div>
+                                <div className="text-xs text-gray-600 mt-1">
+                                  {new Date(chat.timestamp).toLocaleDateString()}
+                                </div>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteChat(chat.id);
+                                }}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-red-50"
+                                title={translate('ai.deleteChat')}
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
                           ))}
                         </div>
                       )}
@@ -1476,7 +1503,7 @@ export default function ChatInterface() {
             </div>
           ) : activeTab === 'chat' ? (
             <>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto pb-16 md:pb-0">
                 <div className="max-w-3xl mx-auto p-6 space-y-6">
                   {(messagesByRoom[currentRoom] || []).map((message, index) => (
                     <div
@@ -1512,18 +1539,18 @@ export default function ChatInterface() {
                 </div>
               </div>
 
-              <div className="flex-none bg-white border-t border-gray-200 p-4">
+              <div className="flex-none bg-white/80 border-t border-gray-200 p-4 fixed bottom-16 md:bottom-0 left-0 right-0 md:relative">
                 <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex items-center space-x-4">
                   <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder={translate('chat.typeMessage')}
-                    className="flex-1 px-4 py-2 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={translate('chat.newMessage')}
+                    className="flex-1 px-4 py-2 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/90"
                   />
                   <button
                     type="submit"
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/90"
                   >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1534,7 +1561,7 @@ export default function ChatInterface() {
             </>
           ) : activeTab === 'ai' ? (
             <>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto pb-16 md:pb-0">
                 <div className="max-w-3xl mx-auto p-6 space-y-6">
                   {aiMessages.map((message) => (
                     <div
@@ -1582,20 +1609,20 @@ export default function ChatInterface() {
                 </div>
               </div>
 
-              <div className="flex-none bg-white border-t border-gray-200 p-4">
+              <div className="flex-none bg-white/80 border-t border-gray-200 p-4 fixed bottom-16 md:bottom-0 left-0 right-0 md:relative">
                 <form onSubmit={handleSendAiMessage} className="max-w-3xl mx-auto flex items-center space-x-4">
                   <input
                     type="text"
                     value={aiNewMessage}
                     onChange={(e) => setAiNewMessage(e.target.value)}
-                    placeholder={isAiTyping ? "AI is typing..." : "Ask AI anything..."}
+                    placeholder={isAiTyping ? translate('chat.aiTyping') : translate('ai.askAi')}
                     disabled={isAiTyping}
-                    className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+                    className="flex-1 px-4 py-2 bg-white/90 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
                   />
                   <button
                     type="submit"
                     disabled={isAiTyping}
-                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 bg-white/90"
                   >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

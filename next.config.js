@@ -24,11 +24,16 @@ const nextConfig = {
       {
         source: '/api/socket/:path*',
         destination: 'http://localhost:3001/api/socket/:path*',
+        basePath: false,
       },
     ];
   },
   experimental: {
     serverActions: true,
+  },
+  webSocketConfig: {
+    path: '/api/socket',
+    timeout: 45000,
   },
 }
 

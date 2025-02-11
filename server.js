@@ -13,11 +13,15 @@ const io = new Server(httpServer, {
     origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true,
+    allowedHeaders: ["*"]
   },
   path: '/api/socket',
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,
+  maxHttpBufferSize: 1e8,
+  allowEIO3: true,
+  connectTimeout: 45000
 });
 
 // 存储连接的客户端和房间信息
@@ -184,13 +188,17 @@ io.on('connection', (socket) => {
   });
 });
 
-// 错误处理
-io.on('connect_error', (error) => {
-  console.error('Connection error:', error);
+// 增强错误处理
+io.engine.on('connection_error', (err) => {
+  console.error('Connection error:', err);
 });
 
-io.on('error', (error) => {
-  console.error('IO server error:', error);
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection:', err);
 });
 
 const PORT = process.env.SOCKET_PORT || 3001;
