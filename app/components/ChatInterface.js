@@ -46,10 +46,57 @@ export default function ChatInterface() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isNavVisible, setIsNavVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const [chatRooms, setChatRooms] = useState([
+    { id: 'general', name: '通用聊天室', unread: 0 },
+    { id: 'tech', name: '技术交流', unread: 2 },
+    { id: 'casual', name: '休闲娱乐', unread: 0 }
+  ]);
+  const [currentRoom, setCurrentRoom] = useState('general');
+  const [messagesByRoom, setMessagesByRoom] = useState({});
   
-  const { messages: socketMessages, connected, sendMessage: sendSocketMessage } = useSocket();
+  const { connected, sendMessage: sendSocketMessage } = useSocket((message) => {
+    console.log('Message received in ChatInterface:', message);
+    
+    // 确保消息有房间ID
+    const roomId = message.roomId || currentRoom;
+    
+    setMessagesByRoom(prev => {
+      const roomMessages = prev[roomId] || [];
+      
+      // 检查消息是否已存在
+      const messageExists = roomMessages.some(
+        m => 
+          m.timestamp === message.timestamp && 
+          m.user.email === message.user.email &&
+          m.content === message.content
+      );
+      
+      if (messageExists) {
+        console.log('Duplicate message detected, skipping');
+        return prev;
+      }
 
-  // 处理滚动隐藏/显示底部导航
+      console.log('Adding new message to room:', roomId);
+      const newMessages = [...roomMessages, message];
+      
+      return {
+        ...prev,
+        [roomId]: newMessages
+      };
+    });
+
+    // 更新未读消息计数
+    if (message.user.email !== session?.user?.email) {
+      setChatRooms(rooms =>
+        rooms.map(room =>
+          room.id === roomId
+            ? room
+            : { ...room, unread: (room.unread || 0) + 1 }
+        )
+      );
+    }
+  });
+
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
@@ -61,14 +108,12 @@ export default function ChatInterface() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [lastScrollY]);
 
-  // 如果未登录，重定向到登录页面
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
     }
   }, [status, router]);
 
-  // 如果正在加载或未登录，显示加载状态
   if (status === 'loading' || !session) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
@@ -80,7 +125,6 @@ export default function ChatInterface() {
     );
   }
 
-  // Initialize AI chat service
   useEffect(() => {
     const savedChats = localStorage.getItem('aiChats');
     if (savedChats) {
@@ -92,12 +136,10 @@ export default function ChatInterface() {
     }
   }, []);
 
-  // Save chat history to localStorage
   useEffect(() => {
     localStorage.setItem('aiChats', JSON.stringify(aiChats));
   }, [aiChats]);
 
-  // Initialize settings
   useEffect(() => {
     const savedSettings = localStorage.getItem('settings');
     if (savedSettings) {
@@ -105,7 +147,6 @@ export default function ChatInterface() {
     }
   }, []);
 
-  // Save settings to localStorage
   const handleSaveSettings = (newSettings) => {
     setSettings(newSettings);
     localStorage.setItem('settings', JSON.stringify(newSettings));
@@ -114,7 +155,6 @@ export default function ChatInterface() {
     }
   };
 
-  // Create a new chat
   const createNewChat = () => {
     const newChat = {
       id: Date.now(),
@@ -131,20 +171,38 @@ export default function ChatInterface() {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    // 如果是在聊天室标签页
     if (activeTab === 'chat') {
       const userMessage = {
-        content: newMessage,
-        user: session.user,
+        content: newMessage.trim(),
+        user: {
+          name: session.user.name,
+          email: session.user.email,
+          image: session.user.image || '/default-avatar.png'
+        },
         timestamp: new Date().toISOString(),
+        roomId: currentRoom,
       };
 
-      // 发送消息到Socket.IO服务器
-      sendSocketMessage(userMessage);
+      console.log('Sending message:', userMessage);
+      
+      // 立即添加消息到本地状态
+      setMessagesByRoom(prev => ({
+        ...prev,
+        [currentRoom]: [...(prev[currentRoom] || []), userMessage]
+      }));
+
+      // 发送消息
+      try {
+        await sendSocketMessage(userMessage);
+        console.log('Message sent successfully');
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        // 可以在这里添加错误提示
+      }
+
+      // 清空输入框
       setNewMessage('');
-    } 
-    // 如果是在AI聊天标签页
-    else if (activeTab === 'ai') {
+    } else if (activeTab === 'ai') {
       const userMessage = {
         id: Date.now(),
         content: newMessage,
@@ -155,7 +213,6 @@ export default function ChatInterface() {
       setMessages((prev) => [...prev, userMessage]);
       setNewMessage('');
 
-      // 如果AI配置启用，保持原有的AI响应逻辑
       if (aiConfig && (aiConfig.deepseek.enabled || aiConfig.kimi.enabled)) {
         setIsAiTyping(true);
         try {
@@ -194,10 +251,9 @@ export default function ChatInterface() {
   const handleSaveAiConfig = (config) => {
     setAiConfig(config);
     localStorage.setItem('aiConfig', JSON.stringify(config));
-    setActiveTab('ai');  // 修改这里：保存后跳转到 AI Chat 界面
+    setActiveTab('ai');
   };
 
-  // Load saved RSS feeds from localStorage
   useEffect(() => {
     const savedFeeds = localStorage.getItem('rssFeeds');
     if (savedFeeds) {
@@ -205,7 +261,6 @@ export default function ChatInterface() {
     }
   }, []);
 
-  // Save RSS feeds to localStorage
   useEffect(() => {
     localStorage.setItem('rssFeeds', JSON.stringify(rssFeeds));
   }, [rssFeeds]);
@@ -221,13 +276,11 @@ export default function ChatInterface() {
     setDiscoveredFeeds([]);
 
     try {
-      // 规范化 URL
       let normalizedUrl = rssUrl;
       if (!normalizedUrl.startsWith('http')) {
         normalizedUrl = 'https://' + normalizedUrl;
       }
 
-      // 首先尝试通过后端 API 获取 feed
       const response = await fetch('/api/rss/discover', {
         method: 'POST',
         headers: {
@@ -248,15 +301,12 @@ export default function ChatInterface() {
         throw new Error(translate('rss.noFeedsFound'));
       }
 
-      // 检查是否已存在相同的订阅源
       if (rssFeeds.some(f => data.feeds.some(newFeed => newFeed.url === f.url))) {
         throw new Error(translate('rss.feedExists'));
       }
 
-      // 添加第一个发现的订阅源
       const firstFeed = data.feeds[0];
       
-      // 通过后端代理获取 feed 内容
       const feedResponse = await fetch('/api/rss/fetch', {
         method: 'POST',
         headers: {
@@ -306,7 +356,6 @@ export default function ChatInterface() {
         throw new Error(translate('rss.feedExists'));
       }
 
-      // 通过后端代理获取 feed 内容
       const feedResponse = await fetch('/api/rss/fetch', {
         method: 'POST',
         headers: {
@@ -386,7 +435,6 @@ export default function ChatInterface() {
     e.preventDefault();
     if (!aiNewMessage.trim()) return;
 
-    // If no current chat, create a new one
     if (!currentChatId) {
       createNewChat();
     }
@@ -398,11 +446,9 @@ export default function ChatInterface() {
       timestamp: new Date().toISOString(),
     };
 
-    // Update current message list and chat history
     setAiMessages(prev => [...prev, userMessage]);
     setAiChats(prev => prev.map(chat => {
       if (chat.id === currentChatId) {
-        // Update chat title to first message's first 20 characters
         const newTitle = chat.messages.length === 0 ? aiNewMessage.slice(0, 20) + '...' : chat.title;
         return {
           ...chat,
@@ -491,15 +537,35 @@ export default function ChatInterface() {
     }
   };
 
-  // 切换侧边栏时关闭抽屉
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setIsSidebarOpen(false);
   };
 
+  const handleRoomChange = (roomId) => {
+    setCurrentRoom(roomId);
+    setChatRooms(rooms => 
+      rooms.map(room => 
+        room.id === roomId ? { ...room, unread: 0 } : room
+      )
+    );
+  };
+
+  const handleCreateRoom = () => {
+    const roomName = prompt(translate('chat.enterRoomName'));
+    if (roomName) {
+      const newRoom = {
+        id: Date.now().toString(),
+        name: roomName,
+        unread: 0
+      };
+      setChatRooms([...chatRooms, newRoom]);
+      setCurrentRoom(newRoom.id);
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-white flex-col md:flex-row">
-      {/* 移动端顶部导航栏 */}
       <header className="md:hidden flex-none h-16 bg-white border-b border-gray-200 fixed top-0 left-0 right-0 z-50">
         <div className="h-full px-4 flex items-center justify-between">
           <button
@@ -532,12 +598,10 @@ export default function ChatInterface() {
         </div>
       </header>
 
-      {/* 左侧导航栏 - 在移动端变成底部导航 */}
       <nav className={`flex-none md:w-16 h-16 md:h-full bg-white border-t md:border-t-0 md:border-r border-gray-200 fixed bottom-0 md:relative w-full z-50 transition-transform duration-300 ${
         isNavVisible ? 'translate-y-0' : 'translate-y-full md:translate-y-0'
       }`}>
         <div className="h-full flex md:flex-col items-center justify-around md:justify-start md:py-4">
-          {/* User Avatar */}
           <div className="hidden md:block mb-8">
             <img
               src={session.user.image}
@@ -546,7 +610,6 @@ export default function ChatInterface() {
             />
           </div>
 
-          {/* Navigation Buttons */}
           <div className="flex md:flex-col gap-2 items-center justify-around w-full md:w-auto">
             <button
               onClick={() => handleTabChange('chat')}
@@ -612,7 +675,6 @@ export default function ChatInterface() {
             </button>
           </div>
 
-          {/* Sign Out Button */}
           <button
             onClick={() => signOut()}
             className="hidden md:block mt-auto p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -624,7 +686,6 @@ export default function ChatInterface() {
         </div>
       </nav>
 
-      {/* 左侧边栏 - 在移动端可滑动显示 */}
       <aside className={`flex-none w-full md:w-72 border-r border-gray-200 bg-white fixed md:relative z-40 transition-transform duration-300 transform ${
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
       } h-[calc(100vh-4rem)] md:h-full top-16 md:top-0`}>
@@ -732,46 +793,61 @@ export default function ChatInterface() {
               </div>
 
               {activeTab === 'chat' ? (
-                <div className="flex-1 overflow-y-auto p-4">
-                  <div className="connection-status mb-2">
-                    {connected ? (
-                      <span className="text-green-500">在线</span>
-                    ) : (
-                      <span className="text-red-500">离线</span>
-                    )}
-                  </div>
-                  
-                  {socketMessages.map((msg, index) => (
-                    <div
-                      key={index}
-                      className={`flex ${
-                        msg.user.email === session?.user?.email ? 'justify-end' : 'justify-start'
-                      } mb-4`}
-                    >
-                      <div
-                        className={`max-w-[70%] rounded-lg p-3 ${
-                          msg.user.email === session?.user?.email
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-200 text-gray-800'
-                        }`}
+                <>
+                  <div className="p-4 border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold text-gray-900">{translate('chat.title')}</h2>
+                      <button
+                        onClick={handleCreateRoom}
+                        className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                        title={translate('chat.createRoom')}
                       >
-                        <div className="font-bold text-sm mb-1">{msg.user.name}</div>
-                        <div>{msg.content}</div>
-                        <div className="text-xs mt-1 opacity-70">
-                          {new Date(msg.timestamp).toLocaleTimeString()}
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-2">
+                    <div className="space-y-1">
+                      {chatRooms.map(room => (
+                        <button
+                          key={room.id}
+                          onClick={() => handleRoomChange(room.id)}
+                          className={`w-full px-3 py-2 flex items-center justify-between rounded-lg transition-colors ${
+                            currentRoom === room.id
+                              ? 'bg-purple-50 text-purple-900'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center">
+                            <span className="text-sm font-medium">{room.name}</span>
+                          </div>
+                          {room.unread > 0 && (
+                            <span className="flex-none ml-2 px-2 py-0.5 text-xs font-medium text-white bg-purple-600 rounded-full">
+                              {room.unread}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex-none p-4 border-t border-gray-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex-none">
+                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 truncate">
+                          {session.user.name || session.user.email}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {connected ? translate('chat.online') : translate('chat.offline')}
                         </div>
                       </div>
                     </div>
-                  ))}
-                  
-                  {isAiTyping && (
-                    <div className="flex justify-start mb-4">
-                      <div className="bg-gray-200 rounded-lg p-3">
-                        <div className="typing-indicator">AI正在输入...</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                </>
               ) : activeTab === 'ai' ? (
                 <div className="flex-1 flex flex-col">
                   <div className="p-4 border-b border-gray-200">
@@ -866,7 +942,7 @@ export default function ChatInterface() {
                         title={translate('rss.categories.images')}
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                       </button>
                       <button
@@ -898,7 +974,6 @@ export default function ChatInterface() {
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4">
-                    {/* RSS Feed List */}
                     <div className="space-y-4">
                       {rssFeeds
                         .filter(feed => selectedCategory === feed.category)
@@ -943,7 +1018,6 @@ export default function ChatInterface() {
                         ))}
                     </div>
 
-                    {/* Add Feed Form */}
                     <div className="mt-4">
                       <form onSubmit={handleAddRssFeed} className="space-y-2">
                         <div className="flex items-center space-x-2">
@@ -975,7 +1049,6 @@ export default function ChatInterface() {
                         )}
                       </form>
 
-                      {/* Discovered Feeds */}
                       {discoveredFeeds.length > 0 && (
                         <div className="mt-4 space-y-2">
                           <h4 className="text-sm font-medium text-gray-700">{translate('rss.discoveredFeeds')}</h4>
@@ -986,10 +1059,10 @@ export default function ChatInterface() {
                                 onClick={() => handleSelectDiscoveredFeed(feed)}
                                 className="w-full p-2 text-left bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                               >
-                                <div className="text-sm font-medium text-gray-900">{feed.title}</div>
-                                <div className="text-xs text-gray-500 truncate">{feed.url}</div>
-                              </button>
-                            ))}
+                                  <div className="text-sm font-medium text-gray-900">{feed.title}</div>
+                                  <div className="text-xs text-gray-500 truncate">{feed.url}</div>
+                                </button>
+                              ))}
                           </div>
                         </div>
                       )}
@@ -1002,7 +1075,6 @@ export default function ChatInterface() {
         </div>
       </aside>
 
-      {/* 遮罩层 - 移动端侧边栏打开时显示 */}
       {isSidebarOpen && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
@@ -1010,7 +1082,6 @@ export default function ChatInterface() {
         />
       )}
 
-      {/* 主内容区域 */}
       <main className="flex-1 flex flex-col h-[calc(100vh-8rem)] md:h-screen overflow-hidden mt-16 md:mt-0 mb-16 md:mb-0">
         <header className="flex-none h-16 bg-white border-b border-gray-200">
           <div className="h-full px-6 flex items-center justify-between">
@@ -1040,7 +1111,6 @@ export default function ChatInterface() {
                   <div className="p-6 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900 mb-4">{translate('settings.appearance')}</h2>
                     <div className="space-y-4">
-                      {/* Theme Setting */}
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-700">{translate('appearance.theme')}</label>
                         <select
@@ -1054,7 +1124,6 @@ export default function ChatInterface() {
                         </select>
                       </div>
 
-                      {/* Language Setting */}
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-700">{translate('appearance.language')}</label>
                         <select
@@ -1067,7 +1136,6 @@ export default function ChatInterface() {
                         </select>
                       </div>
 
-                      {/* Font Size Setting */}
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-700">{translate('appearance.fontSize')}</label>
                         <select
@@ -1088,7 +1156,6 @@ export default function ChatInterface() {
                   <div className="p-6 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900 mb-4">{translate('settings.notifications')}</h2>
                     <div className="space-y-4">
-                      {/* Message Sound Setting */}
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-700">{translate('settings.messageSound')}</label>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -1102,7 +1169,6 @@ export default function ChatInterface() {
                         </label>
                       </div>
 
-                      {/* Desktop Notifications Setting */}
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-700">{translate('settings.desktopNotifications')}</label>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -1145,34 +1211,35 @@ export default function ChatInterface() {
           <>
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto p-6 space-y-6">
-                {socketMessages.map((message, index) => (
+                <div className="text-center text-sm text-gray-500 pb-4 border-b border-gray-200">
+                  {chatRooms.find(room => room.id === currentRoom)?.name}
+                </div>
+                {(messagesByRoom[currentRoom] || []).map((message, index) => (
                   <div
-                    key={index}
+                    key={`${currentRoom}-${index}`}
                     className={`flex ${
                       message.user.email === session?.user?.email ? 'justify-end' : 'justify-start'
-                    }`}
+                    } mb-4 max-w-[85%] w-full ${message.user.email === session?.user?.email ? 'ml-auto' : 'mr-auto'}`}
                   >
-                    <div className={`flex max-w-[70%] ${
-                      message.user.email === session?.user?.email ? 'flex-row-reverse' : 'flex-row'
-                    } items-end space-x-2`}>
+                    <div className={`flex ${message.user.email === session?.user?.email ? 'flex-row-reverse' : 'flex-row'} items-end space-x-4 ${message.user.email === session?.user?.email ? 'space-x-reverse' : ''}`}>
                       <img
                         src={message.user.image || '/default-avatar.png'}
                         alt={message.user.name}
-                        className="w-8 h-8 rounded-full"
+                        className="w-10 h-10 rounded-full border border-gray-200 flex-shrink-0"
                       />
-                      <div>
-                        <div className={`px-4 py-2 rounded-2xl ${
-                          message.user.email === session?.user?.email
-                            ? 'bg-blue-600 text-white rounded-br-none'
-                            : 'bg-gray-100 text-gray-900 rounded-bl-none'
-                        }`}>
-                          <div className="font-semibold text-sm mb-1">{message.user.name}</div>
-                          {message.content}
-                        </div>
-                        <div className={`mt-1 text-xs text-gray-500 ${
-                          message.user.email === session?.user?.email ? 'text-right' : 'text-left'
-                        }`}>
-                          {new Date(message.timestamp).toLocaleTimeString()}
+                      <div className="min-w-0 max-w-full">
+                        <div
+                          className={`px-4 py-2 rounded-2xl ${
+                            message.user.email === session?.user?.email
+                              ? 'bg-blue-500 text-white rounded-br-none'
+                              : 'bg-gray-200 text-gray-800 rounded-bl-none'
+                          } break-words`}
+                        >
+                          <div className="font-bold text-sm mb-1">{message.user.name}</div>
+                          <div className="whitespace-pre-wrap">{message.content}</div>
+                          <div className="text-xs mt-1 opacity-70">
+                            {new Date(message.timestamp).toLocaleTimeString()}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1181,7 +1248,6 @@ export default function ChatInterface() {
               </div>
             </div>
 
-            {/* 聊天输入框 */}
             <div className="flex-none bg-white border-t border-gray-200 p-4">
               <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex items-center space-x-4">
                 <input
@@ -1209,32 +1275,33 @@ export default function ChatInterface() {
                 {aiMessages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${message.user.email === session.user.email ? 'justify-end' : 'justify-start'}`}
+                    className={`flex ${
+                      message.user.email === session.user.email ? 'justify-end' : 'justify-start'
+                    } mb-4 max-w-[85%] w-full ${message.user.email === session.user.email ? 'ml-auto' : 'mr-auto'}`}
                   >
-                    <div className={`flex max-w-[70%] ${message.user.email === session.user.email ? 'flex-row-reverse' : 'flex-row'} items-end space-x-2`}>
+                    <div className={`flex ${message.user.email === session.user.email ? 'flex-row-reverse' : 'flex-row'} items-end space-x-4 ${message.user.email === session.user.email ? 'space-x-reverse' : ''}`}>
                       <img
-                        src={message.user.image}
+                        src={message.user.image || '/default-avatar.png'}
                         alt={message.user.name}
-                        className="w-8 h-8 rounded-full border border-gray-200"
+                        className="w-10 h-10 rounded-full border border-gray-200 flex-shrink-0"
                       />
-                      <div>
-                        <div className={`px-4 py-2 rounded-2xl ${
-                          message.user.email === session.user.email
-                            ? 'bg-purple-600 text-white rounded-br-none shadow-sm'
-                            : message.user.email === 'ai@system'
-                            ? 'bg-emerald-50 border border-emerald-200 text-gray-900 rounded-bl-none shadow-sm'
-                            : message.user.email === 'system@system'
-                            ? 'bg-red-50 border border-red-200 text-gray-900 rounded-bl-none shadow-sm'
-                            : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm'
-                        }`}>
-                          {message.content}
-                        </div>
-                        <div className={`mt-1 flex items-center space-x-2 ${
-                          message.user.email === session.user.email ? 'justify-end' : 'justify-start'
-                        }`}>
-                          <span className="text-xs text-gray-600">
-                            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                      <div className="min-w-0 max-w-full">
+                        <div
+                          className={`px-4 py-2 rounded-2xl ${
+                            message.user.email === session.user.email
+                              ? 'bg-purple-600 text-white rounded-br-none'
+                              : message.user.email === 'ai@system'
+                              ? 'bg-emerald-50 border border-emerald-200 text-gray-900 rounded-bl-none'
+                              : message.user.email === 'system@system'
+                              ? 'bg-red-50 border border-red-200 text-gray-900 rounded-bl-none'
+                              : 'bg-gray-200 text-gray-800 rounded-bl-none'
+                          } break-words`}
+                        >
+                          <div className="font-bold text-sm mb-1">{message.user.name}</div>
+                          <div className="whitespace-pre-wrap">{message.content}</div>
+                          <div className="text-xs mt-1 opacity-70">
+                            {new Date(message.timestamp).toLocaleTimeString()}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1278,7 +1345,6 @@ export default function ChatInterface() {
             <div className="absolute inset-0">
               <MusicPlayer onLyricsChange={(lyrics) => {
                 setCurrentLyrics(lyrics);
-                // 确保歌词更新时立即反映在左侧边栏
                 if (lyrics?.lrc) {
                   const lyricsDiv = document.querySelector('.lyrics-container');
                   if (lyricsDiv) {

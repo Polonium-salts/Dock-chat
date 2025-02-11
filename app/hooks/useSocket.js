@@ -3,107 +3,157 @@ import io from 'socket.io-client';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
 
-export function useSocket() {
-  const [messages, setMessages] = useState([]);
+export function useSocket(onMessageReceived) {
   const [connected, setConnected] = useState(false);
   const socketRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const messageQueueRef = useRef([]);
+
+  const connect = useCallback(() => {
+    try {
+      if (socketRef.current?.connected) {
+        return;
+      }
+
+      // 清理现有连接
+      if (socketRef.current) {
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+      }
+
+      console.log('Connecting to Socket.IO server:', SOCKET_URL);
+      
+      socketRef.current = io(SOCKET_URL, {
+        path: '/api/socket',
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        transports: ['websocket', 'polling'],
+        forceNew: true,
+        autoConnect: true,
+      });
+
+      socketRef.current.on('connect', () => {
+        console.log('Socket.IO connected with ID:', socketRef.current.id);
+        setConnected(true);
+        
+        // Send queued messages
+        while (messageQueueRef.current.length > 0) {
+          const queuedMessage = messageQueueRef.current.shift();
+          console.log('Sending queued message:', queuedMessage);
+          socketRef.current.emit('message', queuedMessage);
+        }
+      });
+
+      socketRef.current.on('message', (message) => {
+        console.log('Received message:', message);
+        if (onMessageReceived && typeof onMessageReceived === 'function') {
+          onMessageReceived(message);
+        }
+      });
+
+      socketRef.current.on('disconnect', (reason) => {
+        console.log('Socket.IO disconnected:', reason);
+        setConnected(false);
+        
+        // 特定情况下的重连逻辑
+        if (reason === 'io server disconnect' || reason === 'transport close') {
+          console.log('Attempting to reconnect...');
+          setTimeout(() => connect(), 1000);
+        }
+      });
+
+      socketRef.current.on('error', (error) => {
+        console.error('Socket.IO error:', error);
+        setConnected(false);
+      });
+
+      socketRef.current.on('connect_error', (error) => {
+        console.error('Socket.IO connection error:', error);
+        setConnected(false);
+        
+        if (!reconnectTimeoutRef.current) {
+          console.log('Scheduling reconnection attempt...');
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            connect();
+          }, 3000);
+        }
+      });
+
+      // 强制连接
+      if (!socketRef.current.connected) {
+        socketRef.current.connect();
+      }
+
+    } catch (error) {
+      console.error('Failed to initialize Socket.IO:', error);
+      setConnected(false);
+      
+      if (!reconnectTimeoutRef.current) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          connect();
+        }, 3000);
+      }
+    }
+  }, [onMessageReceived]);
 
   useEffect(() => {
-    const initSocket = async () => {
-      try {
-        if (socketRef.current) {
-          socketRef.current.disconnect();
-        }
-
-        // 初始化Socket.IO连接
-        const response = await fetch('/api/socket');
-        if (!response.ok) {
-          throw new Error('Failed to initialize socket connection');
-        }
-        
-        socketRef.current = io(SOCKET_URL, {
-          path: '/api/socket',
-          addTrailingSlash: false,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000,
-          reconnectionDelayMax: 5000,
-          transports: ['websocket', 'polling'],
-        });
-
-        socketRef.current.on('connect', () => {
-          console.log('Connected to socket server');
-          setConnected(true);
-        });
-
-        socketRef.current.on('connect_error', (error) => {
-          console.error('Socket connection error:', error.message);
-          setConnected(false);
-        });
-
-        socketRef.current.on('message', (message) => {
-          console.log('Received message:', message);
-          if (message && typeof message === 'object') {
-            setMessages((prev) => {
-              const messageExists = prev.some(
-                (m) => 
-                  m.timestamp === message.timestamp && 
-                  m.user.email === message.user.email &&
-                  m.content === message.content
-              );
-              if (messageExists) {
-                return prev;
-              }
-              return [...prev, message];
-            });
-          }
-        });
-
-        socketRef.current.on('disconnect', (reason) => {
-          console.log('Disconnected from socket server:', reason);
-          setConnected(false);
-        });
-
-        socketRef.current.on('error', (error) => {
-          console.error('Socket error:', error);
-          setConnected(false);
-        });
-      } catch (error) {
-        console.error('Failed to initialize socket:', error.message);
-        setConnected(false);
-      }
-    };
-
-    initSocket();
+    connect();
 
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
       if (socketRef.current) {
+        console.log('Cleaning up socket connection');
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }
     };
-  }, []);
+  }, [connect]);
 
   const sendMessage = useCallback((message) => {
-    if (!socketRef.current) {
-      console.warn('Socket not initialized');
+    if (!message) {
+      console.warn('Attempted to send empty message');
       return;
     }
-    
-    if (!connected) {
-      console.warn('Socket not connected');
-      return;
-    }
+
+    const messageWithTimestamp = {
+      ...message,
+      timestamp: message.timestamp || new Date().toISOString(),
+    };
+
+    console.log('Attempting to send message:', messageWithTimestamp);
 
     try {
-      console.log('Sending message:', message);
-      socketRef.current.emit('message', message);
+      if (socketRef.current?.connected) {
+        console.log('Socket is connected, sending message directly');
+        socketRef.current.emit('message', messageWithTimestamp);
+      } else {
+        console.log('Socket not connected, queueing message');
+        messageQueueRef.current.push(messageWithTimestamp);
+        
+        // 尝试重新连接
+        console.log('Attempting to reconnect...');
+        connect();
+      }
     } catch (error) {
-      console.error('Error sending message:', error.message);
+      console.error('Error sending message:', error);
+      messageQueueRef.current.push(messageWithTimestamp);
+      
+      // 尝试重新连接
+      connect();
     }
-  }, [connected]);
+  }, [connect]);
 
   return {
-    messages,
     connected,
     sendMessage,
   };
