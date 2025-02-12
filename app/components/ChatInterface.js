@@ -62,7 +62,7 @@ export default function ChatInterface() {
   const [currentRoom, setCurrentRoom] = useState('general');
   const [messagesByRoom, setMessagesByRoom] = useState({});
   
-  const { connected, sendMessage: sendSocketMessage } = useSocket((message) => {
+  const { connected, sendMessage: sendSocketMessage, socket, setUserInfo } = useSocket((message) => {
     console.log('Message received in ChatInterface:', message);
     
     // 确保消息有房间ID
@@ -98,12 +98,56 @@ export default function ChatInterface() {
       setChatRooms(rooms =>
         rooms.map(room =>
           room.id === roomId
-            ? room
+            ? { ...room, unread: 0 }
             : { ...room, unread: (room.unread || 0) + 1 }
         )
       );
     }
   });
+
+  // 添加用户信息设置
+  useEffect(() => {
+    if (connected && session?.user) {
+      setUserInfo({
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image
+      });
+    }
+  }, [connected, session, setUserInfo]);
+
+  // 监听房间相关事件
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('room_list', (rooms) => {
+      console.log('Received room list:', rooms);
+      setChatRooms(rooms.map(room => ({
+        ...room,
+        unread: 0
+      })));
+    });
+
+    socket.on('room_created', (room) => {
+      console.log('Room created:', room);
+      setChatRooms(prev => [...prev, { ...room, unread: 0 }]);
+    });
+
+    socket.on('room_joined', ({ roomId, messages = [] }) => {
+      console.log('Joined room:', roomId);
+      setCurrentRoom(roomId);
+      setMessagesByRoom(prev => ({
+        ...prev,
+        [roomId]: messages
+      }));
+    });
+
+    return () => {
+      socket.off('room_list');
+      socket.off('room_created');
+      socket.off('room_joined');
+    };
+  }, [socket]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -551,12 +595,14 @@ export default function ChatInterface() {
   };
 
   const handleRoomChange = (roomId) => {
-    setCurrentRoom(roomId);
-    setChatRooms(rooms => 
-      rooms.map(room => 
-        room.id === roomId ? { ...room, unread: 0 } : room
-      )
-    );
+    if (socket?.connected) {
+      socket.emit('join_room', roomId);
+      setChatRooms(rooms => 
+        rooms.map(room => 
+          room.id === roomId ? { ...room, unread: 0 } : room
+        )
+      );
+    }
   };
 
   const handleCreateRoom = () => {
@@ -570,36 +616,17 @@ export default function ChatInterface() {
         isPublic: isPublic,
         createdBy: session.user.email
       };
-      setChatRooms(prev => [...prev, newRoom]);
-      setCurrentRoom(newRoom.id);
       
-      // Join the new room via socket
-      if (socketRef.current?.connected) {
-        socketRef.current.emit('create_room', newRoom);
+      if (socket?.connected) {
+        socket.emit('create_room', newRoom);
       }
     }
   };
 
   const handleJoinRoom = () => {
     const roomId = prompt(translate('chat.enterRoomId'));
-    if (roomId) {
-      // Check if room exists
-      const room = chatRooms.find(r => r.id === roomId);
-      if (!room) {
-        alert(translate('chat.roomNotFound'));
-        return;
-      }
-      
-      // Join the room via socket
-      if (socketRef.current?.connected) {
-        socketRef.current.emit('join_room', roomId);
-        setCurrentRoom(roomId);
-        setChatRooms(rooms => 
-          rooms.map(room => 
-            room.id === roomId ? { ...room, unread: 0 } : room
-          )
-        );
-      }
+    if (roomId && socket?.connected) {
+      socket.emit('join_room', roomId);
     }
   };
 

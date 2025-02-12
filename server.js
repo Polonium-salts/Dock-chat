@@ -52,60 +52,26 @@ io.on('connection', (socket) => {
       rooms: new Set(['general']),
       userInfo: info
     });
-  });
 
-  // 加入默认房间
-  socket.join('general');
-  rooms.get('general').members.add(socket.id);
-  console.log(`Socket ${socket.id} joined room: general`);
+    // 发送房间列表
+    socket.emit('room_list', Array.from(rooms.entries()).map(([id, room]) => ({
+      id,
+      name: room.name,
+      isPublic: room.isPublic,
+      memberCount: room.members.size
+    })));
 
-  // 发送房间列表
-  socket.emit('room_list', Array.from(rooms.entries()).map(([id, room]) => ({
-    id,
-    name: room.name,
-    isPublic: room.isPublic,
-    memberCount: room.members.size
-  })));
-
-  // 处理创建房间请求
-  socket.on('create_room', (roomData) => {
-    try {
-      console.log(`Creating new room:`, roomData);
-      
-      if (!roomData.name || !roomData.id) {
-        throw new Error('Invalid room data');
-      }
-
-      // 创建新房间
-      rooms.set(roomData.id, {
-        ...roomData,
-        members: new Set([socket.id]),
-        messages: []
-      });
-      messagesByRoom.set(roomData.id, []);
-
-      // 将创建者加入房间
-      socket.join(roomData.id);
-      connectedClients.get(socket.id).rooms.add(roomData.id);
-
-      // 广播新房间创建消息
-      if (roomData.isPublic) {
-        io.emit('room_created', roomData);
-      }
-
-      socket.emit('room_joined', { 
-        roomId: roomData.id,
-        messages: messagesByRoom.get(roomData.id) || []
-      });
-      
-      console.log(`Room created: ${roomData.id}`);
-    } catch (error) {
-      console.error('Error creating room:', error);
-      socket.emit('error', { 
-        message: 'Failed to create room',
-        error: error.message 
-      });
-    }
+    // 加入默认房间
+    socket.join('general');
+    rooms.get('general').members.add(socket.id);
+    
+    // 发送默认房间的历史消息
+    socket.emit('room_joined', {
+      roomId: 'general',
+      messages: messagesByRoom.get('general') || []
+    });
+    
+    console.log(`Socket ${socket.id} joined room: general`);
   });
 
   socket.on('join_room', (roomId) => {
@@ -122,17 +88,22 @@ io.on('connection', (socket) => {
       }
       
       console.log(`Socket ${socket.id} joining room: ${roomId}`);
+      
+      // 加入房间
       socket.join(roomId);
       room.members.add(socket.id);
-      connectedClients.get(socket.id).rooms.add(roomId);
+      
+      // 更新客户端房间列表
+      if (connectedClients.has(socket.id)) {
+        connectedClients.get(socket.id).rooms.add(roomId);
+      }
       
       // 发送房间历史消息
-      socket.emit('room_history', { 
-        roomId, 
+      socket.emit('room_joined', {
+        roomId,
         messages: messagesByRoom.get(roomId) || []
       });
       
-      socket.emit('room_joined', { roomId });
       console.log(`Socket ${socket.id} joined room: ${roomId}`);
     } catch (error) {
       console.error(`Error joining room: ${error.message}`);
