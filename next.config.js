@@ -24,16 +24,13 @@ const nextConfig = {
       {
         source: '/api/socket/:path*',
         destination: 'http://localhost:3001/api/socket/:path*',
+        basePath: false,
       },
-      {
-        source: '/socket.io/:path*',
-        destination: 'http://localhost:3001/socket.io/:path*',
-      }
     ];
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: '2mb',
+      allowedOrigins: ['localhost:3000', 'localhost:3001'],
     },
   },
 }

@@ -62,7 +62,7 @@ export default function ChatInterface() {
   const [currentRoom, setCurrentRoom] = useState('general');
   const [messagesByRoom, setMessagesByRoom] = useState({});
   
-  const { connected, sendMessage: sendSocketMessage, socket, setUserInfo } = useSocket((message) => {
+  const { connected, sendMessage: sendSocketMessage, setUserInfo, socket } = useSocket((message) => {
     console.log('Message received in ChatInterface:', message);
     
     // 确保消息有房间ID
@@ -105,49 +105,12 @@ export default function ChatInterface() {
     }
   });
 
-  // 添加用户信息设置
+  // 设置用户信息
   useEffect(() => {
     if (connected && session?.user) {
-      setUserInfo({
-        name: session.user.name,
-        email: session.user.email,
-        image: session.user.image
-      });
+      setUserInfo(session.user);
     }
-  }, [connected, session, setUserInfo]);
-
-  // 监听房间相关事件
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.on('room_list', (rooms) => {
-      console.log('Received room list:', rooms);
-      setChatRooms(rooms.map(room => ({
-        ...room,
-        unread: 0
-      })));
-    });
-
-    socket.on('room_created', (room) => {
-      console.log('Room created:', room);
-      setChatRooms(prev => [...prev, { ...room, unread: 0 }]);
-    });
-
-    socket.on('room_joined', ({ roomId, messages = [] }) => {
-      console.log('Joined room:', roomId);
-      setCurrentRoom(roomId);
-      setMessagesByRoom(prev => ({
-        ...prev,
-        [roomId]: messages
-      }));
-    });
-
-    return () => {
-      socket.off('room_list');
-      socket.off('room_created');
-      socket.off('room_joined');
-    };
-  }, [socket]);
+  }, [connected, session?.user, setUserInfo]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -595,14 +558,12 @@ export default function ChatInterface() {
   };
 
   const handleRoomChange = (roomId) => {
-    if (socket?.connected) {
-      socket.emit('join_room', roomId);
-      setChatRooms(rooms => 
-        rooms.map(room => 
-          room.id === roomId ? { ...room, unread: 0 } : room
-        )
-      );
-    }
+    setCurrentRoom(roomId);
+    setChatRooms(rooms => 
+      rooms.map(room => 
+        room.id === roomId ? { ...room, unread: 0 } : room
+      )
+    );
   };
 
   const handleCreateRoom = () => {
@@ -617,16 +578,23 @@ export default function ChatInterface() {
         createdBy: session.user.email
       };
       
+      // 发送创建房间请求
       if (socket?.connected) {
         socket.emit('create_room', newRoom);
+        setChatRooms(prev => [...prev, newRoom]);
+        setCurrentRoom(newRoom.id);
       }
     }
   };
 
   const handleJoinRoom = () => {
     const roomId = prompt(translate('chat.enterRoomId'));
-    if (roomId && socket?.connected) {
-      socket.emit('join_room', roomId);
+    if (roomId) {
+      // 发送加入房间请求
+      if (socket?.connected) {
+        socket.emit('join_room', roomId);
+        setCurrentRoom(roomId);
+      }
     }
   };
 
@@ -749,6 +717,45 @@ export default function ChatInterface() {
       }
     }
   };
+
+  // 监听房间相关事件
+  useEffect(() => {
+    if (socket) {
+      socket.on('room_list', (rooms) => {
+        console.log('Received room list:', rooms);
+        setChatRooms(rooms.map(room => ({
+          ...room,
+          unread: 0
+        })));
+      });
+
+      socket.on('room_created', (room) => {
+        console.log('Room created:', room);
+        setChatRooms(prev => [...prev, { ...room, unread: 0 }]);
+      });
+
+      socket.on('room_joined', ({ roomId, messages = [] }) => {
+        console.log('Joined room:', roomId);
+        setCurrentRoom(roomId);
+        setMessagesByRoom(prev => ({
+          ...prev,
+          [roomId]: messages
+        }));
+      });
+
+      socket.on('error', (error) => {
+        console.error('Socket error:', error);
+        alert(error.message || translate('chat.error'));
+      });
+
+      return () => {
+        socket.off('room_list');
+        socket.off('room_created');
+        socket.off('room_joined');
+        socket.off('error');
+      };
+    }
+  }, [socket, translate]);
 
   return (
     <div 

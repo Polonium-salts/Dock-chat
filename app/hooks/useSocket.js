@@ -24,14 +24,18 @@ export function useSocket(onMessageReceived) {
       console.log('Connecting to Socket.IO server:', SOCKET_URL);
       
       socketRef.current = io(SOCKET_URL, {
-        transports: ['websocket', 'polling'],
+        path: '/api/socket',
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 3000,
         reconnectionDelayMax: 10000,
         timeout: 20000,
+        transports: ['polling', 'websocket'],
+        forceNew: true,
         autoConnect: false,
-        withCredentials: true
+        withCredentials: true,
+        upgrade: true,
+        rememberUpgrade: true
       });
 
       socketRef.current.on('connect', () => {
@@ -55,16 +59,14 @@ export function useSocket(onMessageReceived) {
 
       socketRef.current.on('room_list', (rooms) => {
         console.log('Received room list:', rooms);
+        // 可以在这里处理房间列表更新
       });
 
-      socketRef.current.on('room_joined', ({ roomId, messages }) => {
-        console.log('Joined room:', roomId, 'with messages:', messages);
-        if (messages && messages.length > 0) {
-          messages.forEach(message => {
-            if (onMessageReceived && typeof onMessageReceived === 'function') {
-              onMessageReceived(message);
-            }
-          });
+      socketRef.current.on('room_history', ({ roomId, messages }) => {
+        console.log('Received room history:', roomId, messages);
+        // 可以在这里处理房间历史消息
+        if (onMessageReceived && typeof onMessageReceived === 'function') {
+          messages.forEach(message => onMessageReceived(message));
         }
       });
 
@@ -109,7 +111,7 @@ export function useSocket(onMessageReceived) {
         }, 3000);
       }
     }
-  }, [onMessageReceived]);
+  }, []);
 
   useEffect(() => {
     connect();
@@ -165,20 +167,7 @@ export function useSocket(onMessageReceived) {
 
   const setUserInfo = useCallback((userInfo) => {
     if (socketRef.current?.connected) {
-      console.log('Setting user info:', userInfo);
       socketRef.current.emit('set_user_info', userInfo);
-    } else {
-      console.log('Socket not connected, will set user info after connection');
-      const checkConnection = setInterval(() => {
-        if (socketRef.current?.connected) {
-          console.log('Socket now connected, setting user info');
-          socketRef.current.emit('set_user_info', userInfo);
-          clearInterval(checkConnection);
-        }
-      }, 1000);
-
-      // 5秒后清除检查
-      setTimeout(() => clearInterval(checkConnection), 5000);
     }
   }, []);
 
