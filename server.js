@@ -52,19 +52,6 @@ io.on('connection', (socket) => {
       rooms: new Set(['general']),
       userInfo: info
     });
-
-    // 发送当前可用房间列表
-    const availableRooms = Array.from(rooms.entries())
-      .filter(([_, room]) => room.isPublic || room.createdBy === info.email)
-      .map(([id, room]) => ({
-        id,
-        name: room.name,
-        isPublic: room.isPublic,
-        memberCount: room.members.size,
-        createdBy: room.createdBy
-      }));
-    
-    socket.emit('room_list', availableRooms);
   });
 
   // 加入默认房间
@@ -72,11 +59,13 @@ io.on('connection', (socket) => {
   rooms.get('general').members.add(socket.id);
   console.log(`Socket ${socket.id} joined room: general`);
 
-  // 发送默认房间的历史消息
-  socket.emit('room_history', {
-    roomId: 'general',
-    messages: messagesByRoom.get('general') || []
-  });
+  // 发送房间列表
+  socket.emit('room_list', Array.from(rooms.entries()).map(([id, room]) => ({
+    id,
+    name: room.name,
+    isPublic: room.isPublic,
+    memberCount: room.members.size
+  })));
 
   // 处理创建房间请求
   socket.on('create_room', (roomData) => {
@@ -87,24 +76,12 @@ io.on('connection', (socket) => {
         throw new Error('Invalid room data');
       }
 
-      if (!userInfo) {
-        throw new Error('User info not set');
-      }
-
-      // 检查房间ID是否已存在
-      if (rooms.has(roomData.id)) {
-        throw new Error('Room ID already exists');
-      }
-
       // 创建新房间
-      const newRoom = {
+      rooms.set(roomData.id, {
         ...roomData,
         members: new Set([socket.id]),
-        messages: [],
-        createdBy: userInfo.email
-      };
-      
-      rooms.set(roomData.id, newRoom);
+        messages: []
+      });
       messagesByRoom.set(roomData.id, []);
 
       // 将创建者加入房间
@@ -113,18 +90,12 @@ io.on('connection', (socket) => {
 
       // 广播新房间创建消息
       if (roomData.isPublic) {
-        io.emit('room_created', {
-          id: roomData.id,
-          name: roomData.name,
-          isPublic: roomData.isPublic,
-          memberCount: 1,
-          createdBy: userInfo.email
-        });
+        io.emit('room_created', roomData);
       }
 
       socket.emit('room_joined', { 
         roomId: roomData.id,
-        messages: []
+        messages: messagesByRoom.get(roomData.id) || []
       });
       
       console.log(`Room created: ${roomData.id}`);
@@ -141,16 +112,12 @@ io.on('connection', (socket) => {
     try {
       if (!roomId) throw new Error('Room ID is required');
       
-      if (!userInfo) {
-        throw new Error('User info not set');
-      }
-
       const room = rooms.get(roomId);
       if (!room) {
         throw new Error('Room not found');
       }
 
-      if (!room.isPublic && room.createdBy !== userInfo.email) {
+      if (!room.isPublic && room.createdBy !== userInfo?.email) {
         throw new Error('Cannot join private room');
       }
       
@@ -160,11 +127,12 @@ io.on('connection', (socket) => {
       connectedClients.get(socket.id).rooms.add(roomId);
       
       // 发送房间历史消息
-      socket.emit('room_joined', { 
+      socket.emit('room_history', { 
         roomId, 
         messages: messagesByRoom.get(roomId) || []
       });
       
+      socket.emit('room_joined', { roomId });
       console.log(`Socket ${socket.id} joined room: ${roomId}`);
     } catch (error) {
       console.error(`Error joining room: ${error.message}`);

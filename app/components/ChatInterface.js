@@ -62,8 +62,13 @@ export default function ChatInterface() {
   const [currentRoom, setCurrentRoom] = useState('general');
   const [messagesByRoom, setMessagesByRoom] = useState({});
   
-  const { connected, sendMessage: sendSocketMessage, setUserInfo, socket } = useSocket((message) => {
+  const { connected, sendMessage: sendSocketMessage, createRoom, joinRoom, socket } = useSocket((message) => {
     console.log('Message received in ChatInterface:', message);
+    
+    if (!message || typeof message !== 'object') {
+      console.error('Invalid message format received:', message);
+      return;
+    }
     
     // 确保消息有房间ID
     const roomId = message.roomId || currentRoom;
@@ -75,7 +80,7 @@ export default function ChatInterface() {
       const messageExists = roomMessages.some(
         m => 
           m.timestamp === message.timestamp && 
-          m.user.email === message.user.email &&
+          m.user?.email === message.user?.email &&
           m.content === message.content
       );
       
@@ -94,23 +99,16 @@ export default function ChatInterface() {
     });
 
     // 更新未读消息计数
-    if (message.user.email !== session?.user?.email) {
+    if (message.user?.email !== session?.user?.email) {
       setChatRooms(rooms =>
         rooms.map(room =>
           room.id === roomId
-            ? { ...room, unread: 0 }
-            : { ...room, unread: (room.unread || 0) + 1 }
+            ? { ...room, unread: (room.unread || 0) + 1 }
+            : room
         )
       );
     }
   });
-
-  // 设置用户信息
-  useEffect(() => {
-    if (connected && session?.user) {
-      setUserInfo(session.user);
-    }
-  }, [connected, session?.user, setUserInfo]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -128,6 +126,53 @@ export default function ChatInterface() {
       router.push('/login');
     }
   }, [status, router]);
+
+  useEffect(() => {
+    if (socket?.connected) {
+      // 获取可用的聊天室列表
+      socket.emit('get_rooms');
+      
+      // 监听聊天室列表更新
+      socket.on('rooms_list', (rooms) => {
+        setChatRooms(rooms);
+      });
+      
+      // 监听新创建的聊天室
+      socket.on('room_created', (room) => {
+        setChatRooms(prev => [...prev, room]);
+      });
+      
+      // 监听聊天室更新
+      socket.on('room_updated', (updatedRoom) => {
+        setChatRooms(prev =>
+          prev.map(room =>
+            room.id === updatedRoom.id ? updatedRoom : room
+          )
+        );
+      });
+    }
+    
+    return () => {
+      if (socket) {
+        socket.off('rooms_list');
+        socket.off('room_created');
+        socket.off('room_updated');
+      }
+    };
+  }, [socket]);
+
+  // 当用户会话改变时重新连接
+  useEffect(() => {
+    if (session?.user && socket) {
+      socket.auth = { user: session.user };
+      socket.connect();
+    }
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [session, socket]);
 
   if (status === 'loading' || !session) {
     return (
@@ -184,82 +229,32 @@ export default function ChatInterface() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!currentRoom || !session?.user || !newMessage.trim()) return;
 
-    if (activeTab === 'chat') {
-      const userMessage = {
-        content: newMessage.trim(),
-        user: {
-          name: session.user.name,
-          email: session.user.email,
-          image: session.user.image || '/default-avatar.png'
-        },
-        timestamp: new Date().toISOString(),
-        roomId: currentRoom,
-      };
-
-      console.log('Sending message:', userMessage);
-      
-      // 立即添加消息到本地状态
-      setMessagesByRoom(prev => ({
-        ...prev,
-        [currentRoom]: [...(prev[currentRoom] || []), userMessage]
-      }));
-
-      // 发送消息
-      try {
-        await sendSocketMessage(userMessage);
-        console.log('Message sent successfully');
-      } catch (error) {
-        console.error('Failed to send message:', error);
-        // 可以在这里添加错误提示
+    const message = {
+      id: Date.now().toString(),
+      content: newMessage.trim(),
+      timestamp: new Date().toISOString(),
+      roomId: currentRoom,
+      user: {
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image
       }
+    };
 
-      // 清空输入框
-      setNewMessage('');
-    } else if (activeTab === 'ai') {
-      const userMessage = {
-        id: Date.now(),
-        content: newMessage,
-        user: session.user,
-        timestamp: new Date().toISOString(),
-      };
+    // 立即添加消息到本地状态
+    setMessagesByRoom(prev => ({
+      ...prev,
+      [currentRoom]: [...(prev[currentRoom] || []), message]
+    }));
 
-      setMessages((prev) => [...prev, userMessage]);
-      setNewMessage('');
+    // 清空输入框
+    setNewMessage('');
 
-      if (aiConfig && (aiConfig.deepseek.enabled || aiConfig.kimi.enabled)) {
-        setIsAiTyping(true);
-        try {
-          const aiChatService = new AIChat(aiConfig);
-          const aiResponse = await aiChatService.chat(newMessage);
-          
-          const aiMessage = {
-            content: aiResponse.content,
-            user: {
-              name: `AI (${aiResponse.source})`,
-              image: '/ai-avatar.png',
-            },
-            timestamp: new Date().toISOString(),
-          };
-
-          setMessages((prev) => [...prev, aiMessage]);
-        } catch (error) {
-          console.error('AI chat error:', error);
-          const errorMessage = {
-            content: `AI Error: ${error.message}`,
-            user: {
-              name: 'System',
-              image: '/system-avatar.png',
-              email: 'system@system',
-            },
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, errorMessage]);
-        } finally {
-          setIsAiTyping(false);
-        }
-      }
+    // 通过 socket 发送消息
+    if (socket?.connected) {
+      socket.emit('message', message);
     }
   };
 
@@ -566,7 +561,7 @@ export default function ChatInterface() {
     );
   };
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
     const roomName = prompt(translate('chat.enterRoomName'));
     if (roomName) {
       const isPublic = confirm(translate('chat.makeRoomPublic'));
@@ -577,25 +572,42 @@ export default function ChatInterface() {
         isPublic: isPublic,
         createdBy: session.user.email
       };
-      
-      // 发送创建房间请求
-      if (socket?.connected) {
-        socket.emit('create_room', newRoom);
+
+      try {
+        await createRoom(newRoom);
         setChatRooms(prev => [...prev, newRoom]);
         setCurrentRoom(newRoom.id);
+      } catch (error) {
+        console.error('Failed to create room:', error);
+        alert(translate('chat.createRoomError'));
       }
     }
   };
 
-  const handleJoinRoom = () => {
-    const roomId = prompt(translate('chat.enterRoomId'));
-    if (roomId) {
-      // 发送加入房间请求
-      if (socket?.connected) {
-        socket.emit('join_room', roomId);
-        setCurrentRoom(roomId);
-      }
+  const handleJoinRoom = async (roomId) => {
+    try {
+      await joinRoom(roomId);
+      setCurrentRoom(roomId);
+      
+      // 重置未读消息计数
+      setChatRooms(rooms =>
+        rooms.map(room =>
+          room.id === roomId
+            ? { ...room, unread: 0 }
+            : room
+        )
+      );
+    } catch (error) {
+      console.error('Failed to join room:', error);
+      alert(translate('chat.joinRoomError'));
     }
+  };
+
+  const handleLeaveRoom = () => {
+    if (currentRoom && socket?.connected) {
+      socket.emit('leave_room', currentRoom);
+    }
+    setCurrentRoom(null);
   };
 
   // Add background image preload function
@@ -717,45 +729,6 @@ export default function ChatInterface() {
       }
     }
   };
-
-  // 监听房间相关事件
-  useEffect(() => {
-    if (socket) {
-      socket.on('room_list', (rooms) => {
-        console.log('Received room list:', rooms);
-        setChatRooms(rooms.map(room => ({
-          ...room,
-          unread: 0
-        })));
-      });
-
-      socket.on('room_created', (room) => {
-        console.log('Room created:', room);
-        setChatRooms(prev => [...prev, { ...room, unread: 0 }]);
-      });
-
-      socket.on('room_joined', ({ roomId, messages = [] }) => {
-        console.log('Joined room:', roomId);
-        setCurrentRoom(roomId);
-        setMessagesByRoom(prev => ({
-          ...prev,
-          [roomId]: messages
-        }));
-      });
-
-      socket.on('error', (error) => {
-        console.error('Socket error:', error);
-        alert(error.message || translate('chat.error'));
-      });
-
-      return () => {
-        socket.off('room_list');
-        socket.off('room_created');
-        socket.off('room_joined');
-        socket.off('error');
-      };
-    }
-  }, [socket, translate]);
 
   return (
     <div 
@@ -1584,7 +1557,8 @@ export default function ChatInterface() {
                   />
                   <button
                     type="submit"
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/90"
+                    disabled={!newMessage.trim()}
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/90 disabled:opacity-50"
                   >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

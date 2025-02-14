@@ -12,26 +12,8 @@ const nextConfig = {
       },
     ];
   },
-  webpack: (config) => {
-    config.externals.push({
-      'utf-8-validate': 'commonjs utf-8-validate',
-      'bufferutil': 'commonjs bufferutil',
-    });
-    return config;
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/socket/:path*',
-        destination: 'http://localhost:3001/api/socket/:path*',
-        basePath: false,
-      },
-    ];
-  },
   experimental: {
-    serverActions: {
-      allowedOrigins: ['localhost:3000', 'localhost:3001'],
-    },
+    serverActions: true,
   },
 }
 

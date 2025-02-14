@@ -1,137 +1,57 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import io from 'socket.io-client';
-
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+import { useEffect, useState, useCallback } from 'react';
+import { pusherClient } from '../lib/pusher';
 
 export function useSocket(onMessageReceived) {
   const [connected, setConnected] = useState(false);
-  const socketRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const messageQueueRef = useRef([]);
+  const [currentRoom, setCurrentRoom] = useState(null);
 
-  const connect = useCallback(() => {
+  const joinRoom = useCallback(async (roomId) => {
+    if (currentRoom) {
+      pusherClient.unsubscribe(`presence-room-${currentRoom}`);
+    }
+
+    const roomChannel = pusherClient.subscribe(`presence-room-${roomId}`);
+    setCurrentRoom(roomId);
+
+    roomChannel.bind('message', (message) => {
+      if (onMessageReceived && typeof onMessageReceived === 'function') {
+        onMessageReceived(message);
+      }
+    });
+
     try {
-      if (socketRef.current?.connected) {
-        return;
-      }
-
-      // 清理现有连接
-      if (socketRef.current) {
-        socketRef.current.removeAllListeners();
-        socketRef.current.disconnect();
-      }
-
-      console.log('Connecting to Socket.IO server:', SOCKET_URL);
-      
-      socketRef.current = io(SOCKET_URL, {
-        path: '/api/socket',
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 3000,
-        reconnectionDelayMax: 10000,
-        timeout: 20000,
-        transports: ['polling', 'websocket'],
-        forceNew: true,
-        autoConnect: false,
-        withCredentials: true,
-        upgrade: true,
-        rememberUpgrade: true
+      await fetch(`/api/rooms/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId }),
       });
-
-      socketRef.current.on('connect', () => {
-        console.log('Socket.IO connected with ID:', socketRef.current.id);
-        setConnected(true);
-        
-        // Send queued messages
-        while (messageQueueRef.current.length > 0) {
-          const queuedMessage = messageQueueRef.current.shift();
-          console.log('Sending queued message:', queuedMessage);
-          socketRef.current.emit('message', queuedMessage);
-        }
-      });
-
-      socketRef.current.on('message', (message) => {
-        console.log('Received message:', message);
-        if (onMessageReceived && typeof onMessageReceived === 'function') {
-          onMessageReceived(message);
-        }
-      });
-
-      socketRef.current.on('room_list', (rooms) => {
-        console.log('Received room list:', rooms);
-        // 可以在这里处理房间列表更新
-      });
-
-      socketRef.current.on('room_history', ({ roomId, messages }) => {
-        console.log('Received room history:', roomId, messages);
-        // 可以在这里处理房间历史消息
-        if (onMessageReceived && typeof onMessageReceived === 'function') {
-          messages.forEach(message => onMessageReceived(message));
-        }
-      });
-
-      socketRef.current.on('connect_error', (error) => {
-        console.error('Socket.IO connection error:', error);
-        setConnected(false);
-        
-        if (!reconnectTimeoutRef.current) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectTimeoutRef.current = null;
-            connect();
-          }, 3000);
-        }
-      });
-
-      socketRef.current.on('disconnect', (reason) => {
-        console.log('Socket.IO disconnected:', reason);
-        setConnected(false);
-        
-        if (reason === 'io server disconnect' || reason === 'transport close') {
-          console.log('Attempting to reconnect...');
-          setTimeout(() => connect(), 3000);
-        }
-      });
-
-      socketRef.current.on('error', (error) => {
-        console.error('Socket.IO error:', error);
-        setConnected(false);
-      });
-
-      // 强制连接
-      socketRef.current.connect();
-
     } catch (error) {
-      console.error('Failed to initialize Socket.IO:', error);
-      setConnected(false);
-      
-      if (!reconnectTimeoutRef.current) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectTimeoutRef.current = null;
-          connect();
-        }, 3000);
+      console.error('Error joining room:', error);
+    }
+  }, [currentRoom, onMessageReceived]);
+
+  const leaveRoom = useCallback(async (roomId) => {
+    if (roomId) {
+      pusherClient.unsubscribe(`presence-room-${roomId}`);
+      setCurrentRoom(null);
+
+      try {
+        await fetch(`/api/rooms/leave`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ roomId }),
+        });
+      } catch (error) {
+        console.error('Error leaving room:', error);
       }
     }
   }, []);
 
-  useEffect(() => {
-    connect();
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      
-      if (socketRef.current) {
-        console.log('Cleaning up socket connection');
-        socketRef.current.removeAllListeners();
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-    };
-  }, [connect]);
-
-  const sendMessage = useCallback((message) => {
+  const sendMessage = useCallback(async (message) => {
     if (!message) {
       console.warn('Attempted to send empty message');
       return;
@@ -142,39 +62,78 @@ export function useSocket(onMessageReceived) {
       timestamp: message.timestamp || new Date().toISOString(),
     };
 
-    console.log('Attempting to send message:', messageWithTimestamp);
-
     try {
-      if (socketRef.current?.connected) {
-        console.log('Socket is connected, sending message directly');
-        socketRef.current.emit('message', messageWithTimestamp);
-      } else {
-        console.log('Socket not connected, queueing message');
-        messageQueueRef.current.push(messageWithTimestamp);
-        
-        // 尝试重新连接
-        console.log('Attempting to reconnect...');
-        connect();
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messageWithTimestamp),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      messageQueueRef.current.push(messageWithTimestamp);
-      
-      // 尝试重新连接
-      connect();
-    }
-  }, [connect]);
-
-  const setUserInfo = useCallback((userInfo) => {
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('set_user_info', userInfo);
     }
   }, []);
+
+  const createRoom = useCallback(async (roomData) => {
+    try {
+      const response = await fetch('/api/rooms/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(roomData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create room');
+      }
+
+      const data = await response.json();
+      await joinRoom(roomData.id);
+      return data.room;
+    } catch (error) {
+      console.error('Error creating room:', error);
+      throw error;
+    }
+  }, [joinRoom]);
+
+  useEffect(() => {
+    setConnected(true);
+
+    // 订阅全局消息频道
+    const channel = pusherClient.subscribe('presence-chat');
+
+    channel.bind('message', (message) => {
+      if (onMessageReceived && typeof onMessageReceived === 'function') {
+        onMessageReceived(message);
+      }
+    });
+
+    channel.bind('pusher:subscription_succeeded', () => {
+      setConnected(true);
+    });
+
+    channel.bind('pusher:subscription_error', () => {
+      setConnected(false);
+    });
+
+    return () => {
+      channel.unbind_all();
+      pusherClient.unsubscribe('presence-chat');
+    };
+  }, [onMessageReceived]);
 
   return {
     connected,
     sendMessage,
-    setUserInfo,
-    socket: socketRef.current,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    currentRoom,
   };
 } 
