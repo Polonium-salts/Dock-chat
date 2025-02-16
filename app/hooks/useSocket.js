@@ -24,7 +24,13 @@ export const useSocket = (onMessageReceived) => {
         return;
       }
 
-      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin;
+      // 使用环境变量或者当前域名
+      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (
+        process.env.NODE_ENV === 'production'
+          ? window.location.origin
+          : 'http://localhost:3000'
+      );
+      
       console.log('Connecting to socket server at:', socketUrl);
 
       socketRef.current = io(socketUrl, {
@@ -35,7 +41,6 @@ export const useSocket = (onMessageReceived) => {
         reconnectionDelayMax: 5000,
         timeout: 20000,
         autoConnect: true,
-        withCredentials: true,
       });
 
       socketRef.current.on('connect', () => {
@@ -59,6 +64,11 @@ export const useSocket = (onMessageReceived) => {
           socketRef.current.disconnect();
         } else {
           console.log(`Reconnection attempt ${reconnectAttempts.current}/${maxReconnectAttempts}`);
+          // 尝试使用轮询
+          if (socketRef.current.io.opts.transports.indexOf('polling') === -1) {
+            console.log('Falling back to polling transport');
+            socketRef.current.io.opts.transports = ['polling', 'websocket'];
+          }
         }
       });
 

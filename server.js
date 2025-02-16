@@ -1,199 +1,118 @@
 const { createServer } = require('http');
-const { Server } = require('socket.io');
 const { parse } = require('url');
+const next = require('next');
+const { Server } = require('socket.io');
 
-const httpServer = createServer((req, res) => {
-  const parsedUrl = parse(req.url, true);
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Socket.IO server');
-});
+const dev = process.env.NODE_ENV !== 'production';
+const app = next({ dev });
+const handle = app.getRequestHandler();
 
-const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-  path: '/api/socket',
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000,
-});
+const messageHistory = new Map();
+const activeRooms = new Set();
 
-// 存储连接的客户端和房间信息
-const connectedClients = new Map();
-const rooms = new Map();
-
-// 初始化默认房间
-rooms.set('general', { 
-  id: 'general',
-  name: '通用聊天室',
-  isPublic: true,
-  members: new Set()
-});
-
-io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-  connectedClients.set(socket.id, { rooms: new Set(['general']) });
-
-  // 加入默认房间
-  socket.join('general');
-  rooms.get('general').members.add(socket.id);
-  console.log(`Socket ${socket.id} joined room: general`);
-
-  // 处理创建房间请求
-  socket.on('create_room', (roomData) => {
-    try {
-      console.log(`Creating new room:`, roomData);
-      
-      if (!roomData.name || !roomData.id) {
-        throw new Error('Invalid room data');
-      }
-
-      // 创建新房间
-      rooms.set(roomData.id, {
-        ...roomData,
-        members: new Set([socket.id])
-      });
-
-      // 将创建者加入房间
-      socket.join(roomData.id);
-      connectedClients.get(socket.id).rooms.add(roomData.id);
-
-      // 广播新房间创建消息
-      if (roomData.isPublic) {
-        io.emit('room_created', roomData);
-      }
-
-      socket.emit('room_joined', { roomId: roomData.id });
-      console.log(`Room created: ${roomData.id}`);
-    } catch (error) {
-      console.error('Error creating room:', error);
-      socket.emit('error', { 
-        message: 'Failed to create room',
-        error: error.message 
-      });
-    }
+app.prepare().then(() => {
+  const server = createServer((req, res) => {
+    const parsedUrl = parse(req.url, true);
+    handle(req, res, parsedUrl);
   });
 
-  socket.on('join_room', (roomId) => {
-    try {
-      if (!roomId) throw new Error('Room ID is required');
-      
-      const room = rooms.get(roomId);
-      if (!room) {
-        throw new Error('Room not found');
-      }
-
-      if (!room.isPublic && room.createdBy !== socket.user?.email) {
-        throw new Error('Cannot join private room');
-      }
-      
-      console.log(`Socket ${socket.id} joining room: ${roomId}`);
-      socket.join(roomId);
-      room.members.add(socket.id);
-      connectedClients.get(socket.id).rooms.add(roomId);
-      
-      // 发送房间历史消息
-      const roomMessages = messages.filter(msg => msg.roomId === roomId);
-      socket.emit('room_history', { roomId, messages: roomMessages });
-      
-      socket.emit('room_joined', { roomId });
-      console.log(`Socket ${socket.id} joined room: ${roomId}`);
-    } catch (error) {
-      console.error(`Error joining room: ${error.message}`);
-      socket.emit('error', { 
-        message: 'Failed to join room',
-        error: error.message 
-      });
-    }
+  const io = new Server(server, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+      credentials: true
+    },
+    transports: ['websocket', 'polling'],
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      skipMiddlewares: true,
+    },
+    pingTimeout: 60000,
+    pingInterval: 25000,
   });
 
-  socket.on('leave_room', (roomId) => {
-    try {
-      if (!roomId) throw new Error('Room ID is required');
+  io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+
+    // 发送历史消息给新连接的客户端
+    socket.emit('message_history', Array.from(messageHistory.values()));
+
+    socket.on('message', (message) => {
+      console.log('Received message:', message);
       
-      const room = rooms.get(roomId);
-      if (!room) {
-        throw new Error('Room not found');
+      try {
+        // 确保消息有唯一ID
+        const messageId = message.id || Date.now().toString();
+        message.id = messageId;
+        
+        // 存储消息
+        messageHistory.set(messageId, message);
+        
+        // 如果历史消息太多，删除旧消息
+        if (messageHistory.size > 100) {
+          const oldestKey = messageHistory.keys().next().value;
+          messageHistory.delete(oldestKey);
+        }
+
+        // 广播消息给所有客户端
+        io.emit('message', message);
+        console.log('Message broadcasted successfully');
+      } catch (error) {
+        console.error('Error handling message:', error);
+        socket.emit('error', { message: 'Failed to process message' });
       }
-      
-      console.log(`Socket ${socket.id} leaving room: ${roomId}`);
-      socket.leave(roomId);
-      room.members.delete(socket.id);
-      connectedClients.get(socket.id).rooms.delete(roomId);
-      
-      socket.emit('room_left', { roomId });
-      console.log(`Socket ${socket.id} left room: ${roomId}`);
-    } catch (error) {
-      console.error(`Error leaving room: ${error.message}`);
-      socket.emit('error', { 
-        message: 'Failed to leave room',
-        error: error.message 
-      });
-    }
-  });
+    });
 
-  socket.on('disconnect', (reason) => {
-    console.log(`Client disconnected (${socket.id}):`, reason);
-    // 从所有房间中移除该客户端
-    const clientRooms = connectedClients.get(socket.id)?.rooms || new Set();
-    for (const roomId of clientRooms) {
-      const room = rooms.get(roomId);
-      if (room) {
-        room.members.delete(socket.id);
+    socket.on('join_room', (roomId) => {
+      try {
+        socket.join(roomId);
+        activeRooms.add(roomId);
+        console.log(`User ${socket.id} joined room: ${roomId}`);
+        
+        // 发送房间历史消息
+        const roomMessages = Array.from(messageHistory.values())
+          .filter(msg => msg.roomId === roomId);
+        socket.emit('room_history', roomMessages);
+      } catch (error) {
+        console.error('Error joining room:', error);
+        socket.emit('error', { message: 'Failed to join room' });
       }
-    }
-    connectedClients.delete(socket.id);
-  });
+    });
 
-  socket.on('message', (message) => {
-    console.log('Received message from client:', message);
-    try {
-      // 确保消息包含必要的字段
-      if (!message || !message.content || !message.user) {
-        throw new Error('Invalid message format');
+    socket.on('leave_room', (roomId) => {
+      try {
+        socket.leave(roomId);
+        console.log(`User ${socket.id} left room: ${roomId}`);
+      } catch (error) {
+        console.error('Error leaving room:', error);
       }
+    });
 
-      const roomId = message.roomId || 'general';
-      
-      const enhancedMessage = {
-        ...message,
-        timestamp: message.timestamp || new Date().toISOString(),
-        socketId: socket.id,
-        roomId: roomId
-      };
-      
-      console.log('Broadcasting message to room:', roomId);
-      
-      // 广播消息到指定房间
-      io.to(roomId).emit('message', enhancedMessage);
-      console.log('Message broadcasted successfully');
-      
-    } catch (error) {
-      console.error('Error processing message:', error);
-      socket.emit('error', { 
-        message: 'Failed to process message',
-        error: error.message 
-      });
-    }
+    socket.on('create_room', (room) => {
+      try {
+        socket.join(room.id);
+        activeRooms.add(room.id);
+        console.log(`Room created: ${room.id}`);
+        io.emit('room_created', room);
+      } catch (error) {
+        console.error('Error creating room:', error);
+        socket.emit('error', { message: 'Failed to create room' });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Client disconnected:', socket.id);
+    });
+
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+      socket.emit('error', { message: 'An error occurred' });
+    });
   });
 
-  socket.on('error', (error) => {
-    console.error(`Socket error (${socket.id}):`, error);
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, (err) => {
+    if (err) throw err;
+    console.log(`> Ready on http://localhost:${PORT}`);
   });
-});
-
-// 错误处理
-io.on('connect_error', (error) => {
-  console.error('Connection error:', error);
-});
-
-io.on('error', (error) => {
-  console.error('IO server error:', error);
-});
-
-const PORT = process.env.SOCKET_PORT || 3001;
-httpServer.listen(PORT, () => {
-  console.log(`Socket.IO server running on port ${PORT}`);
 }); 
