@@ -59,11 +59,9 @@
     "title": "AI Chat",
     "newChat": "New Chat",
     "askAi": "Ask AI anything...",
-    "typing": "AI is typing...",
     "noChats": "No chat history",
     "deleteChat": "Delete chat",
-    "confirmDelete": "Are you sure you want to delete this chat?",
-    "chatDeleted": "Chat deleted successfully"
+    "confirmDelete": "Are you sure you want to delete this chat?"
   },
   "rss": {
     "title": "RSS Reader",

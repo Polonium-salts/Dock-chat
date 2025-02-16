@@ -1,139 +1,63 @@
-import { useEffect, useState, useCallback } from 'react';
-import { pusherClient } from '../lib/pusher';
+import { useEffect, useRef, useState } from 'react';
+import io from 'socket.io-client';
 
-export function useSocket(onMessageReceived) {
+export const useSocket = (onMessageReceived) => {
   const [connected, setConnected] = useState(false);
-  const [currentRoom, setCurrentRoom] = useState(null);
-
-  const joinRoom = useCallback(async (roomId) => {
-    if (currentRoom) {
-      pusherClient.unsubscribe(`presence-room-${currentRoom}`);
-    }
-
-    const roomChannel = pusherClient.subscribe(`presence-room-${roomId}`);
-    setCurrentRoom(roomId);
-
-    roomChannel.bind('message', (message) => {
-      if (onMessageReceived && typeof onMessageReceived === 'function') {
-        onMessageReceived(message);
-      }
-    });
-
-    try {
-      await fetch(`/api/rooms/join`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ roomId }),
-      });
-    } catch (error) {
-      console.error('Error joining room:', error);
-    }
-  }, [currentRoom, onMessageReceived]);
-
-  const leaveRoom = useCallback(async (roomId) => {
-    if (roomId) {
-      pusherClient.unsubscribe(`presence-room-${roomId}`);
-      setCurrentRoom(null);
-
-      try {
-        await fetch(`/api/rooms/leave`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ roomId }),
-        });
-      } catch (error) {
-        console.error('Error leaving room:', error);
-      }
-    }
-  }, []);
-
-  const sendMessage = useCallback(async (message) => {
-    if (!message) {
-      console.warn('Attempted to send empty message');
-      return;
-    }
-
-    const messageWithTimestamp = {
-      ...message,
-      timestamp: message.timestamp || new Date().toISOString(),
-    };
-
-    try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(messageWithTimestamp),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-    }
-  }, []);
-
-  const createRoom = useCallback(async (roomData) => {
-    try {
-      const response = await fetch('/api/rooms/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(roomData),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create room');
-      }
-
-      const data = await response.json();
-      await joinRoom(roomData.id);
-      return data.room;
-    } catch (error) {
-      console.error('Error creating room:', error);
-      throw error;
-    }
-  }, [joinRoom]);
+  const socketRef = useRef(null);
 
   useEffect(() => {
-    setConnected(true);
+    if (!socketRef.current) {
+      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin;
+      socketRef.current = io(socketUrl, {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
 
-    // 订阅全局消息频道
-    const channel = pusherClient.subscribe('presence-chat');
+      socketRef.current.on('connect', () => {
+        console.log('Socket connected');
+        setConnected(true);
+      });
 
-    channel.bind('message', (message) => {
-      if (onMessageReceived && typeof onMessageReceived === 'function') {
-        onMessageReceived(message);
-      }
-    });
+      socketRef.current.on('disconnect', () => {
+        console.log('Socket disconnected');
+        setConnected(false);
+      });
 
-    channel.bind('pusher:subscription_succeeded', () => {
-      setConnected(true);
-    });
+      socketRef.current.on('message', (message) => {
+        console.log('Message received:', message);
+        if (onMessageReceived) {
+          onMessageReceived(message);
+        }
+      });
 
-    channel.bind('pusher:subscription_error', () => {
-      setConnected(false);
-    });
+      socketRef.current.on('error', (error) => {
+        console.error('Socket error:', error);
+        setConnected(false);
+      });
+    }
 
     return () => {
-      channel.unbind_all();
-      pusherClient.unsubscribe('presence-chat');
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
   }, [onMessageReceived]);
+
+  const sendMessage = async (message) => {
+    if (socketRef.current && connected) {
+      socketRef.current.emit('message', message);
+      return true;
+    }
+    return false;
+  };
 
   return {
     connected,
     sendMessage,
-    createRoom,
-    joinRoom,
-    leaveRoom,
-    currentRoom,
+    socket: socketRef.current,
   };
-} 
+}; 

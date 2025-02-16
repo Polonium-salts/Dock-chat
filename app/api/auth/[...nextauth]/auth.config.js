@@ -22,16 +22,6 @@ export const authOptions = {
             image: '/default-avatar.png'
           }
         }
-        
-        if (credentials.username === 'test2' && credentials.password === 'test2') {
-          return {
-            id: '2',
-            name: 'Test User 2',
-            email: 'test2@example.com',
-            image: '/default-avatar.png'
-          }
-        }
-        
         return null
       }
     })
@@ -43,9 +33,12 @@ export const authOptions = {
     async session({ session, token }) {
       return session;
     },
-    async jwt({ token, account, profile }) {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
       return token;
-    },
+    }
   },
   secret: process.env.NEXTAUTH_SECRET || 'your-default-secret-key'
 }; 

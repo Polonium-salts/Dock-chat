@@ -13,59 +13,33 @@ const io = new Server(httpServer, {
     origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true,
-    allowedHeaders: ["*"]
   },
   path: '/api/socket',
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,
-  maxHttpBufferSize: 1e8,
-  allowEIO3: true,
-  connectTimeout: 45000
 });
 
 // 存储连接的客户端和房间信息
 const connectedClients = new Map();
 const rooms = new Map();
-const messagesByRoom = new Map();
 
 // 初始化默认房间
 rooms.set('general', { 
   id: 'general',
   name: '通用聊天室',
   isPublic: true,
-  members: new Set(),
-  messages: []
+  members: new Set()
 });
-
-messagesByRoom.set('general', []);
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-  
-  // 存储用户信息
-  let userInfo = null;
-
-  socket.on('set_user_info', (info) => {
-    userInfo = info;
-    connectedClients.set(socket.id, { 
-      rooms: new Set(['general']),
-      userInfo: info
-    });
-  });
+  connectedClients.set(socket.id, { rooms: new Set(['general']) });
 
   // 加入默认房间
   socket.join('general');
   rooms.get('general').members.add(socket.id);
   console.log(`Socket ${socket.id} joined room: general`);
-
-  // 发送房间列表
-  socket.emit('room_list', Array.from(rooms.entries()).map(([id, room]) => ({
-    id,
-    name: room.name,
-    isPublic: room.isPublic,
-    memberCount: room.members.size
-  })));
 
   // 处理创建房间请求
   socket.on('create_room', (roomData) => {
@@ -79,10 +53,8 @@ io.on('connection', (socket) => {
       // 创建新房间
       rooms.set(roomData.id, {
         ...roomData,
-        members: new Set([socket.id]),
-        messages: []
+        members: new Set([socket.id])
       });
-      messagesByRoom.set(roomData.id, []);
 
       // 将创建者加入房间
       socket.join(roomData.id);
@@ -93,11 +65,7 @@ io.on('connection', (socket) => {
         io.emit('room_created', roomData);
       }
 
-      socket.emit('room_joined', { 
-        roomId: roomData.id,
-        messages: messagesByRoom.get(roomData.id) || []
-      });
-      
+      socket.emit('room_joined', { roomId: roomData.id });
       console.log(`Room created: ${roomData.id}`);
     } catch (error) {
       console.error('Error creating room:', error);
@@ -117,7 +85,7 @@ io.on('connection', (socket) => {
         throw new Error('Room not found');
       }
 
-      if (!room.isPublic && room.createdBy !== userInfo?.email) {
+      if (!room.isPublic && room.createdBy !== socket.user?.email) {
         throw new Error('Cannot join private room');
       }
       
@@ -127,10 +95,8 @@ io.on('connection', (socket) => {
       connectedClients.get(socket.id).rooms.add(roomId);
       
       // 发送房间历史消息
-      socket.emit('room_history', { 
-        roomId, 
-        messages: messagesByRoom.get(roomId) || []
-      });
+      const roomMessages = messages.filter(msg => msg.roomId === roomId);
+      socket.emit('room_history', { roomId, messages: roomMessages });
       
       socket.emit('room_joined', { roomId });
       console.log(`Socket ${socket.id} joined room: ${roomId}`);
@@ -191,24 +157,12 @@ io.on('connection', (socket) => {
 
       const roomId = message.roomId || 'general';
       
-      // 检查房间是否存在
-      if (!rooms.has(roomId)) {
-        throw new Error('Room not found');
-      }
-
       const enhancedMessage = {
         ...message,
-        id: Date.now().toString(),
         timestamp: message.timestamp || new Date().toISOString(),
         socketId: socket.id,
         roomId: roomId
       };
-      
-      // 存储消息
-      if (!messagesByRoom.has(roomId)) {
-        messagesByRoom.set(roomId, []);
-      }
-      messagesByRoom.get(roomId).push(enhancedMessage);
       
       console.log('Broadcasting message to room:', roomId);
       
@@ -230,17 +184,13 @@ io.on('connection', (socket) => {
   });
 });
 
-// 增强错误处理
-io.engine.on('connection_error', (err) => {
-  console.error('Connection error:', err);
+// 错误处理
+io.on('connect_error', (error) => {
+  console.error('Connection error:', error);
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught exception:', err);
-});
-
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled rejection:', err);
+io.on('error', (error) => {
+  console.error('IO server error:', error);
 });
 
 const PORT = process.env.SOCKET_PORT || 3001;
