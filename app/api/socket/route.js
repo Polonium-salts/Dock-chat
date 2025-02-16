@@ -5,14 +5,17 @@ const ioHandler = (req) => {
   if (!global.io) {
     console.log('New Socket.io server...');
     global.io = new Server({
-      path: '/socket.io',
-      addTrailingSlash: false,
       cors: {
         origin: '*',
         methods: ['GET', 'POST'],
+        credentials: true
       },
+      addTrailingSlash: false,
       transports: ['websocket', 'polling'],
-      allowEIO3: true,
+      connectionStateRecovery: {
+        maxDisconnectionDuration: 2 * 60 * 1000,
+        skipMiddlewares: true,
+      },
     });
 
     global.io.on('connection', (socket) => {
@@ -45,11 +48,24 @@ const ioHandler = (req) => {
     });
   }
 
+  // 处理 WebSocket 升级请求
+  if (req.method === 'UPGRADE' && req.headers.get('upgrade') === 'websocket') {
+    try {
+      global.io.handleUpgrade(req, req.socket, Buffer.from([]));
+      return new NextResponse(null, { status: 101 });
+    } catch (err) {
+      console.error('WebSocket upgrade failed:', err);
+      return new NextResponse('WebSocket upgrade failed', { status: 400 });
+    }
+  }
+
   return new NextResponse('Socket.io server running', {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Credentials': 'true',
     },
   });
 };
@@ -61,4 +77,5 @@ export const config = {
   api: {
     bodyParser: false,
   },
+  runtime: 'edge',
 }; 
